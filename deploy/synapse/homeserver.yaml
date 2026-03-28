@@ -1,0 +1,64 @@
+# Synapse Configuration
+server_name: "chat.kayushkin.com"
+pid_file: "/data/homeserver.pid"
+web_client_location: "https://app.element.io/"
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['::1', '127.0.0.1', '0.0.0.0']
+    resources:
+      - names: [client, federation]
+        compress: false
+
+# Federation disabled as requested
+federation_domain_whitelist: []
+federation_ip_range_blacklist:
+  - '127.0.0.0/8'
+  - '10.0.0.0/8'
+  - '172.16.0.0/12'
+  - '192.168.0.0/16'
+  - '100.64.0.0/10'
+  - '169.254.0.0/16'
+  - '::1/128'
+  - 'fe80::/64'
+  - 'fc00::/7'
+
+# SQLite database
+database:
+  name: sqlite3
+  args:
+    database: "/data/homeserver.db"
+
+# Logging
+log_config: "/data/config/log.config"
+
+# Media store
+media_store_path: "/data/media_store"
+max_upload_size: "50M"
+
+# Registration
+enable_registration: true
+enable_registration_without_verification: true
+
+# Security
+macaroon_secret_key: "changeme_macaroon_secret_key"
+form_secret: "changeme_form_secret"
+
+# Signing keys
+signing_key_path: "/data/signing.key"
+
+# Trusted key servers
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+# App service configuration directory
+app_service_config_files:
+  - "/data/config/telegram-registration.yaml"
+  - "/data/config/whatsapp-registration.yaml"
+
+# Basic settings
+suppress_key_server_warning: true
+report_stats: false

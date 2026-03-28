@@ -1,0 +1,16 @@
+id: telegram
+url: http://mautrix-telegram:29317
+as_token: "telegram_appservice_token_change_me"
+hs_token: "telegram_homeserver_token_change_me"
+sender_localpart: telegrambot
+rate_limited: false
+namespaces:
+  users:
+    - exclusive: true
+      regex: '@telegram_.*'
+    - exclusive: true
+      regex: '@_telegram_.*'
+  aliases:
+    - exclusive: true
+      regex: '#telegram_.*'
+  rooms: []

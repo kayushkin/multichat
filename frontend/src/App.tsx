@@ -1,14 +1,20 @@
-export default function App() {
+import { Routes, Route, Navigate } from 'react-router-dom'
+import Layout from './components/Layout'
+import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import Inbox from './pages/Inbox'
+
+function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
-      <div className="text-center">
-        <h1 className="text-3xl font-bold" style={{ color: 'var(--text-primary)' }}>
-          <span style={{ color: 'var(--accent)' }}>Multi</span>Chat
-        </h1>
-        <p className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>
-          Coming soon — unified communications platform
-        </p>
-      </div>
-    </div>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/" element={<Layout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="inbox" element={<Inbox />} />
+      </Route>
+    </Routes>
   )
 }
+
+export default App

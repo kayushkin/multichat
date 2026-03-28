@@ -1,0 +1,58 @@
+# Basic homeserver configuration
+homeserver:
+  address: http://synapse:8008
+  domain: chat.kayushkin.com
+
+# Application service configuration
+appservice:
+  address: http://mautrix-whatsapp:29318
+  hostname: 0.0.0.0
+  port: 29318
+  database:
+    type: sqlite3
+    uri: file:///data/mautrix-whatsapp.db
+
+  # Registration tokens (match the registration file)
+  id: whatsapp
+  bot_username: whatsappbot
+  bot_displayname: WhatsApp Bridge Bot
+  as_token: "whatsapp_appservice_token_change_me"
+  hs_token: "whatsapp_homeserver_token_change_me"
+
+# Bridge configuration
+bridge:
+  username_template: "whatsapp_{userid}"
+  displayname_template: "{displayname} (WhatsApp)"
+  
+  # Basic permissions - allow all users for now
+  permissions:
+    "*": user
+    "@admin:chat.kayushkin.com": admin
+
+  # WhatsApp specific settings
+  history_sync:
+    request_full_sync: false
+    full_sync_config:
+      days_limit: 30
+      size_mb_limit: 512
+      storage_quota_mb: 5120
+
+# Logging
+logging:
+  version: 1
+  formatters:
+    colored:
+      (): mautrix.util.ColorFormatter
+      format: "[%(asctime)s] [%(levelname)s@%(name)s] %(message)s"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: colored
+  loggers:
+    mau:
+      level: DEBUG
+    mautrix:
+      level: DEBUG
+  root:
+    level: DEBUG
+    handlers: [console]

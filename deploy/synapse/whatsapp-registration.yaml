@@ -1,0 +1,16 @@
+id: whatsapp
+url: http://mautrix-whatsapp:29318
+as_token: "whatsapp_appservice_token_change_me"
+hs_token: "whatsapp_homeserver_token_change_me"
+sender_localpart: whatsappbot
+rate_limited: false
+namespaces:
+  users:
+    - exclusive: true
+      regex: '@whatsapp_.*'
+    - exclusive: true
+      regex: '@_whatsapp_.*'
+  aliases:
+    - exclusive: true
+      regex: '#whatsapp_.*'
+  rooms: []

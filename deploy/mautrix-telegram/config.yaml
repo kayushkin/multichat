@@ -1,0 +1,53 @@
+# Basic homeserver configuration
+homeserver:
+  address: http://synapse:8008
+  domain: chat.kayushkin.com
+
+# Application service configuration
+appservice:
+  address: http://mautrix-telegram:29317
+  hostname: 0.0.0.0
+  port: 29317
+  database: sqlite:///data/mautrix-telegram.db
+
+  # Registration tokens (match the registration file)
+  id: telegram
+  bot_username: telegrambot
+  bot_displayname: Telegram Bridge Bot
+  as_token: "telegram_appservice_token_change_me"
+  hs_token: "telegram_homeserver_token_change_me"
+
+# Bridge configuration
+bridge:
+  username_template: "telegram_{userid}"
+  displayname_template: "{displayname} (Telegram)"
+  
+  # Bot token - leave empty for now, will be configured later
+  bot_token: ""
+  
+  # Basic permissions - allow all users for now
+  permissions:
+    "*": user
+    "@admin:chat.kayushkin.com": admin
+
+# Logging
+logging:
+  version: 1
+  formatters:
+    colored:
+      (): mautrix_telegram.util.ColorFormatter
+      format: "[%(asctime)s] [%(levelname)s@%(name)s] %(message)s"
+  handlers:
+    console:
+      class: logging.StreamHandler
+      formatter: colored
+  loggers:
+    mau:
+      level: DEBUG
+    telethon:
+      level: INFO
+    aiohttp:
+      level: INFO
+  root:
+    level: DEBUG
+    handlers: [console]
