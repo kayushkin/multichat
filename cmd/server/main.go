@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,40 +8,39 @@ import (
 
 	"github.com/kayushkin/multichat/internal/api"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/matrix"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
-	// Initialize SQLite database
 	database, err := db.Initialize("multichat.db")
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
 	defer database.Close()
 
-	// Initialize API router
-	router := api.NewRouter(database)
-
-	// Set up static file serving for frontend
-	staticDir := "frontend/dist"
-	if _, err := os.Stat(staticDir); os.IsNotExist(err) {
-		log.Printf("Warning: Static directory %s does not exist", staticDir)
+	// Matrix client — connects to Synapse
+	var matrixClient *matrix.Client
+	synapse := os.Getenv("SYNAPSE_URL")
+	token := os.Getenv("MATRIX_TOKEN")
+	if synapse != "" && token != "" {
+		matrixClient = matrix.NewClient(synapse, token)
+		log.Printf("Matrix client configured: %s", synapse)
+	} else {
+		log.Println("Warning: SYNAPSE_URL or MATRIX_TOKEN not set, Matrix features disabled")
 	}
-	
-	http.Handle("/", http.FileServer(http.Dir(staticDir)))
+
+	router := api.NewRouter(database, matrixClient)
+
 	http.Handle("/api/", http.StripPrefix("/api", router))
 
-	// Health check endpoint
-	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
-
-	port := ":8402"
-	fmt.Printf("Starting MultiChat server on port %s...\n", port)
-	fmt.Printf("Health check available at http://localhost%s/api/health\n", port)
-	
-	if err := http.ListenAndServe(port, nil); err != nil {
-		log.Fatal("Server failed to start:", err)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8402"
+	}
+	addr := ":" + port
+	fmt.Printf("MultiChat server listening on %s\n", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatal(err)
 	}
 }

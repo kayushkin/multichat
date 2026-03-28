@@ -4,36 +4,51 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/kayushkin/multichat/internal/matrix"
 )
 
-// Router handles all API routes
 type Router struct {
-	db *sql.DB
-	mux *http.ServeMux
+	db     *sql.DB
+	matrix *matrix.Client
+	mux    *http.ServeMux
 }
 
-// NewRouter creates a new API router
-func NewRouter(db *sql.DB) *Router {
+func NewRouter(db *sql.DB, matrixClient *matrix.Client) *Router {
 	r := &Router{
-		db: db,
-		mux: http.NewServeMux(),
+		db:     db,
+		matrix: matrixClient,
+		mux:    http.NewServeMux(),
 	}
 	r.setupRoutes()
 	return r
 }
 
-// ServeHTTP implements http.Handler interface
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// CORS for development
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	if req.Method == "OPTIONS" {
+		return
+	}
 	r.mux.ServeHTTP(w, req)
 }
 
-// setupRoutes configures all API endpoints
 func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/health", r.healthHandler)
 	r.mux.HandleFunc("/schema", r.schemaHandler)
+	r.mux.HandleFunc("/contacts", r.contactsHandler)
+	r.mux.HandleFunc("/conversations", r.conversationsHandler)
+	r.mux.HandleFunc("/conversations/", r.conversationMessagesHandler)
 }
 
-// schemaHandler returns the live database schema
+func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {
+	r.writeJSON(w, map[string]string{"status": "ok"})
+}
+
 func (r *Router) schemaHandler(w http.ResponseWriter, req *http.Request) {
 	rows, err := r.db.Query(`SELECT name, type, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name`)
 	if err != nil {
@@ -59,30 +74,67 @@ func (r *Router) schemaHandler(w http.ResponseWriter, req *http.Request) {
 	r.writeJSON(w, items)
 }
 
-// healthHandler returns the health status
-func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+	contacts, err := r.matrix.ListContacts()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, contacts)
 }
 
-// notImplementedHandler returns 501 Not Implemented for placeholder endpoints
-func (r *Router) notImplementedHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotImplemented)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error": "Not implemented",
-		"endpoint": req.URL.Path,
-		"method": req.Method,
-	})
+func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+	convos, err := r.matrix.ListConversations()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, convos)
 }
 
-// Helper function to write JSON responses
-func (r *Router) writeJSON(w http.ResponseWriter, data interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	return json.NewEncoder(w).Encode(data)
+func (r *Router) conversationMessagesHandler(w http.ResponseWriter, req *http.Request) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+
+	// Extract room ID from path: /conversations/{roomID}/messages
+	path := strings.TrimPrefix(req.URL.Path, "/conversations/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 2 || parts[1] != "messages" {
+		r.writeError(w, 404, "Not found")
+		return
+	}
+	roomID := parts[0]
+
+	limit := 50
+	if l := req.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+
+	messages, err := r.matrix.GetMessages(roomID, limit)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, messages)
 }
 
-// Helper function to write error responses
+func (r *Router) writeJSON(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
 func (r *Router) writeError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
