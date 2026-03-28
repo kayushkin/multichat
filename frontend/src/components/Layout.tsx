@@ -4,8 +4,8 @@ function Layout() {
   const location = useLocation()
 
   const navItems = [
+    { path: '/chat', label: 'Chat', icon: '💬' },
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-    { path: '/inbox', label: 'Inbox', icon: '💬' },
     { path: '/database', label: 'Database', icon: '🗄️' },
   ]
 

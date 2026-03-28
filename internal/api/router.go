@@ -42,7 +42,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/schema", r.schemaHandler)
 	r.mux.HandleFunc("/contacts", r.contactsHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
-	r.mux.HandleFunc("/conversations/", r.conversationMessagesHandler)
+	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 }
 
 func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {
@@ -100,20 +100,55 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 	r.writeJSON(w, convos)
 }
 
-func (r *Router) conversationMessagesHandler(w http.ResponseWriter, req *http.Request) {
-	if r.matrix == nil {
-		r.writeError(w, 503, "Matrix client not configured")
-		return
-	}
-
-	// Extract room ID from path: /conversations/{roomID}/messages
+func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request) {
 	path := strings.TrimPrefix(req.URL.Path, "/conversations/")
 	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 2 || parts[1] != "messages" {
+	if len(parts) < 2 {
 		r.writeError(w, 404, "Not found")
 		return
 	}
 	roomID := parts[0]
+	action := parts[1]
+
+	switch action {
+	case "messages":
+		r.messagesHandler(w, req, roomID)
+	case "send":
+		r.sendHandler(w, req, roomID)
+	default:
+		r.writeError(w, 404, "Not found")
+	}
+}
+
+func (r *Router) sendHandler(w http.ResponseWriter, req *http.Request, roomID string) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Body == "" {
+		r.writeError(w, 400, "Missing body")
+		return
+	}
+	eventID, err := r.matrix.SendMessage(roomID, body.Body)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, map[string]string{"event_id": eventID})
+}
+
+func (r *Router) messagesHandler(w http.ResponseWriter, req *http.Request, roomID string) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
 
 	limit := 50
 	if l := req.URL.Query().Get("limit"); l != "" {

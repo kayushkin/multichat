@@ -1,12 +1,14 @@
 package matrix
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type Client struct {
@@ -45,6 +47,26 @@ func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("matrix %s %s: %d %s", method, path, resp.StatusCode, string(data))
 	}
 	return data, nil
+}
+
+// SendMessage sends a text message to a Matrix room
+func (c *Client) SendMessage(roomID, body string) (string, error) {
+	txnID := fmt.Sprintf("%d", time.Now().UnixNano())
+	payload, _ := json.Marshal(map[string]string{
+		"msgtype": "m.text",
+		"body":    body,
+	})
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
+		url.PathEscape(roomID), txnID)
+	data, err := c.request("PUT", path, bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		EventID string `json:"event_id"`
+	}
+	json.Unmarshal(data, &resp)
+	return resp.EventID, nil
 }
 
 // Contact is a Telegram puppet user in Matrix
