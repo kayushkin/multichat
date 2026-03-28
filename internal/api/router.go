@@ -29,43 +29,34 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 // setupRoutes configures all API endpoints
 func (r *Router) setupRoutes() {
-	// Health check
 	r.mux.HandleFunc("/health", r.healthHandler)
-	
-	// Authentication endpoints
-	r.mux.HandleFunc("/auth/login", r.notImplementedHandler)
-	r.mux.HandleFunc("/auth/logout", r.notImplementedHandler)
-	r.mux.HandleFunc("/auth/register", r.notImplementedHandler)
-	r.mux.HandleFunc("/auth/me", r.notImplementedHandler)
-	
-	// User management
-	r.mux.HandleFunc("/users", r.notImplementedHandler)
-	r.mux.HandleFunc("/users/", r.notImplementedHandler)
-	
-	// Platform connections
-	r.mux.HandleFunc("/platforms", r.notImplementedHandler)
-	r.mux.HandleFunc("/platforms/connect", r.notImplementedHandler)
-	r.mux.HandleFunc("/platforms/disconnect", r.notImplementedHandler)
-	r.mux.HandleFunc("/platforms/status", r.notImplementedHandler)
-	
-	// Conversations
-	r.mux.HandleFunc("/conversations", r.notImplementedHandler)
-	r.mux.HandleFunc("/conversations/", r.notImplementedHandler)
-	
-	// Messages
-	r.mux.HandleFunc("/messages", r.notImplementedHandler)
-	r.mux.HandleFunc("/messages/send", r.notImplementedHandler)
-	r.mux.HandleFunc("/messages/", r.notImplementedHandler)
-	
-	// WebSocket for real-time updates
-	r.mux.HandleFunc("/ws", r.notImplementedHandler)
-	
-	// Media uploads
-	r.mux.HandleFunc("/media/upload", r.notImplementedHandler)
-	r.mux.HandleFunc("/media/", r.notImplementedHandler)
-	
-	// Search
-	r.mux.HandleFunc("/search", r.notImplementedHandler)
+	r.mux.HandleFunc("/schema", r.schemaHandler)
+}
+
+// schemaHandler returns the live database schema
+func (r *Router) schemaHandler(w http.ResponseWriter, req *http.Request) {
+	rows, err := r.db.Query(`SELECT name, type, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name`)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	type SchemaItem struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+		SQL  string `json:"sql"`
+	}
+	var items []SchemaItem
+	for rows.Next() {
+		var item SchemaItem
+		if err := rows.Scan(&item.Name, &item.Type, &item.SQL); err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+		items = append(items, item)
+	}
+	r.writeJSON(w, items)
 }
 
 // healthHandler returns the health status

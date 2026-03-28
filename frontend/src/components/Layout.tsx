@@ -6,6 +6,7 @@ function Layout() {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/inbox', label: 'Inbox', icon: '💬' },
+    { path: '/database', label: 'Database', icon: '🗄️' },
   ]
 
   return (

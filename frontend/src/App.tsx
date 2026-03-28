@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Inbox from './pages/Inbox'
+import Database from './pages/Database'
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="inbox" element={<Inbox />} />
+        <Route path="database" element={<Database />} />
       </Route>
     </Routes>
   )
