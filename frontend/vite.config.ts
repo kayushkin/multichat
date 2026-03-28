@@ -4,16 +4,4 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  server: {
-    proxy: {
-      '/api/v1': {
-        target: 'https://chat.kayushkin.com',
-        changeOrigin: true,
-      },
-      '/auth': {
-        target: 'https://chat.kayushkin.com',
-        changeOrigin: true,
-      },
-    },
-  },
 })
