@@ -43,10 +43,10 @@ function Layout() {
         {/* User section */}
         <div className="p-4 border-t border-gray-700">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm">
               👤
             </div>
-            <span className="text-sm text-gray-300">Demo User</span>
+            <span className="text-sm text-gray-300">—</span>
           </div>
         </div>
       </div>
