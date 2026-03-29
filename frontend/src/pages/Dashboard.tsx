@@ -31,10 +31,14 @@ function Dashboard() {
       .catch(e => setError(e.message))
   }, [])
 
+  const platforms = new Set(contacts.map(c => c.platform))
+  const tgContacts = contacts.filter(c => c.platform === 'telegram')
+  const waContacts = contacts.filter(c => c.platform === 'whatsapp')
+
   const stats = [
     { label: 'Contacts', value: contacts.length },
     { label: 'Conversations', value: conversations.length },
-    { label: 'Platforms', value: contacts.length > 0 ? 1 : 0 },
+    { label: 'Platforms', value: platforms.size },
   ]
 
   return (
@@ -68,21 +72,23 @@ function Dashboard() {
               <div>
                 <p className="text-white font-medium">Telegram</p>
                 <p className="text-gray-400 text-sm">
-                  {contacts.length > 0 ? `${contacts.length} contacts synced` : 'Not connected'}
+                  {tgContacts.length > 0 ? `${tgContacts.length} contacts synced` : 'Not connected'}
                 </p>
               </div>
             </div>
-            <div className={`w-3 h-3 rounded-full ${contacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
+            <div className={`w-3 h-3 rounded-full ${tgContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
           </div>
           <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
             <div className="flex items-center gap-3">
               <span className="text-xl">📱</span>
               <div>
                 <p className="text-white font-medium">WhatsApp</p>
-                <p className="text-gray-400 text-sm">Not connected</p>
+                <p className="text-gray-400 text-sm">
+                  {waContacts.length > 0 ? `${waContacts.length} contacts synced` : 'Not connected'}
+                </p>
               </div>
             </div>
-            <div className="w-3 h-3 rounded-full bg-gray-500" />
+            <div className={`w-3 h-3 rounded-full ${waContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
           </div>
         </div>
       </div>

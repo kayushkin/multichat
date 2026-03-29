@@ -136,22 +136,30 @@ func (c *Client) ListContacts() ([]Contact, error) {
 
 	var contacts []Contact
 	for _, u := range resp.Users {
-		// Only include telegram puppet users
-		if !strings.HasPrefix(u.Name, "@telegram_") || strings.HasPrefix(u.Name, "@telegrambot") {
+		localpart := strings.Split(u.Name, ":")[0]
+		var platform, platformID string
+
+		switch {
+		case strings.HasPrefix(localpart, "@telegram_") && !strings.HasPrefix(localpart, "@telegrambot"):
+			platform = "telegram"
+			platformID = strings.TrimPrefix(localpart, "@telegram_")
+		case strings.HasPrefix(localpart, "@whatsapp_") && !strings.HasPrefix(localpart, "@whatsappbot"):
+			platform = "whatsapp"
+			platformID = strings.TrimPrefix(localpart, "@whatsapp_")
+		default:
 			continue
 		}
-		tgID := strings.TrimPrefix(u.Name, "@telegram_")
-		tgID = strings.Split(tgID, ":")[0]
 
 		name := u.DisplayName
 		name = strings.TrimSuffix(name, " (Telegram)")
+		name = strings.TrimSuffix(name, " (WA)")
 
 		contacts = append(contacts, Contact{
 			UserID:      u.Name,
 			DisplayName: name,
 			AvatarURL:   u.AvatarURL,
-			TelegramID:  tgID,
-			Platform:    "telegram",
+			TelegramID:  platformID,
+			Platform:    platform,
 		})
 	}
 	return contacts, nil
