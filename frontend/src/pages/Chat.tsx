@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import PlatformIcon from '../components/PlatformIcon'
 
 interface Contact {
   user_id: string
@@ -126,15 +127,14 @@ function Chat() {
     c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
   )
 
-  const platformIcon = (p: string) => {
+  const platformLabel = (p: string) => {
     switch (p) {
-      case 'telegram': return '✈️'
-      case 'whatsapp': return '📱'
-      case 'signal': return '🔒'
-      case 'facebook': case 'messenger': return '💬'
-      case 'instagram': return '📷'
-      case 'meta': return '🔵'
-      default: return '🔗'
+      case 'telegram': return 'Telegram'
+      case 'whatsapp': return 'WhatsApp'
+      case 'signal': return 'Signal'
+      case 'facebook': case 'messenger': return 'Messenger'
+      case 'instagram': return 'Instagram'
+      default: return p || 'Unknown'
     }
   }
 
@@ -188,14 +188,13 @@ function Chat() {
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center text-lg">
-                  {platformIcon(conv.platform)}
+                <div className="w-10 h-10 flex items-center justify-center">
+                  <PlatformIcon platform={conv.platform} size={36} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-white font-medium truncate">{conv.name}</p>
                   <p className="text-gray-400 text-xs">
-                    {conv.member_count} members
-                    {conv.platform && ` · ${conv.platform}`}
+                    {conv.member_count} members · {platformLabel(conv.platform)}
                   </p>
                 </div>
               </div>
@@ -210,10 +209,10 @@ function Chat() {
           <>
             <div className="bg-gray-800 border-b border-gray-700 p-4">
               <div className="flex items-center gap-3">
-                <span className="text-xl">{platformIcon(selectedConvo.platform)}</span>
+                <PlatformIcon platform={selectedConvo.platform} size={28} />
                 <div>
                   <h3 className="text-white font-medium">{selectedConvo.name}</h3>
-                  <p className="text-gray-400 text-sm">{selectedConvo.platform} · {selectedConvo.member_count} members</p>
+                  <p className="text-gray-400 text-sm">{platformLabel(selectedConvo.platform)} · {selectedConvo.member_count} members</p>
                 </div>
               </div>
             </div>
@@ -310,7 +309,10 @@ function Chat() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm truncate">{contact.display_name}</p>
-                    <p className="text-gray-500 text-xs">{platformIcon(contact.platform)} {contact.platform}</p>
+                    <p className="text-gray-500 text-xs flex items-center gap-1">
+                      <PlatformIcon platform={contact.platform} size={14} />
+                      {platformLabel(contact.platform)}
+                    </p>
                   </div>
                 </div>
               ))}

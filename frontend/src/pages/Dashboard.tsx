@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import PlatformIcon from '../components/PlatformIcon'
 
 interface Contact {
   user_id: string
@@ -46,6 +47,14 @@ function Dashboard() {
     { label: 'Platforms', value: platforms.size },
   ]
 
+  const platformRows = [
+    { key: 'telegram', name: 'Telegram', contacts: tgContacts },
+    { key: 'whatsapp', name: 'WhatsApp', contacts: waContacts },
+    { key: 'signal', name: 'Signal', contacts: sigContacts },
+    { key: 'facebook', name: 'Messenger', contacts: fbContacts },
+    { key: 'instagram', name: 'Instagram', contacts: igContacts },
+  ]
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-white">Dashboard</h1>
@@ -71,66 +80,20 @@ function Dashboard() {
           <h2 className="text-xl font-semibold text-white">Platform Status</h2>
         </div>
         <div className="p-6 space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">✈️</span>
-              <div>
-                <p className="text-white font-medium">Telegram</p>
-                <p className="text-gray-400 text-sm">
-                  {tgContacts.length > 0 ? `${tgContacts.length} contacts synced` : 'Not connected'}
-                </p>
+          {platformRows.map((p) => (
+            <div key={p.key} className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
+              <div className="flex items-center gap-3">
+                <PlatformIcon platform={p.key} size={24} />
+                <div>
+                  <p className="text-white font-medium">{p.name}</p>
+                  <p className="text-gray-400 text-sm">
+                    {p.contacts.length > 0 ? `${p.contacts.length} contacts synced` : 'Not connected'}
+                  </p>
+                </div>
               </div>
+              <div className={`w-3 h-3 rounded-full ${p.contacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
             </div>
-            <div className={`w-3 h-3 rounded-full ${tgContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">📱</span>
-              <div>
-                <p className="text-white font-medium">WhatsApp</p>
-                <p className="text-gray-400 text-sm">
-                  {waContacts.length > 0 ? `${waContacts.length} contacts synced` : 'Not connected'}
-                </p>
-              </div>
-            </div>
-            <div className={`w-3 h-3 rounded-full ${waContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">🔒</span>
-              <div>
-                <p className="text-white font-medium">Signal</p>
-                <p className="text-gray-400 text-sm">
-                  {sigContacts.length > 0 ? `${sigContacts.length} contacts synced` : 'Not connected'}
-                </p>
-              </div>
-            </div>
-            <div className={`w-3 h-3 rounded-full ${sigContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">💬</span>
-              <div>
-                <p className="text-white font-medium">Messenger</p>
-                <p className="text-gray-400 text-sm">
-                  {fbContacts.length > 0 ? `${fbContacts.length} contacts synced` : 'Not connected'}
-                </p>
-              </div>
-            </div>
-            <div className={`w-3 h-3 rounded-full ${fbContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
-            <div className="flex items-center gap-3">
-              <span className="text-xl">📸</span>
-              <div>
-                <p className="text-white font-medium">Instagram</p>
-                <p className="text-gray-400 text-sm">
-                  {igContacts.length > 0 ? `${igContacts.length} contacts synced` : 'Not connected'}
-                </p>
-              </div>
-            </div>
-            <div className={`w-3 h-3 rounded-full ${igContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
-          </div>
+          ))}
         </div>
       </div>
 
@@ -148,8 +111,10 @@ function Dashboard() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-white text-sm truncate">{c.display_name}</p>
-                  <p className="text-gray-500 text-xs">
-                    {(c.platforms || [c.platform]).map(p => p === 'telegram' ? '✈️' : p === 'signal' ? '🔒' : p === 'facebook' ? '💬' : p === 'instagram' ? '📸' : p === 'meta' ? '💬' : '📱').join(' ')}
+                  <p className="text-gray-500 text-xs flex items-center gap-1">
+                    {(c.platforms || [c.platform]).map((p) => (
+                      <PlatformIcon key={p} platform={p} size={12} />
+                    ))}
                   </p>
                 </div>
               </div>
