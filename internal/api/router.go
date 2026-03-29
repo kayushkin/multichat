@@ -147,19 +147,26 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 	// Resolve meta contacts to facebook/instagram using meta bridge DB
 	if r.metaDBPath != "" {
 		if metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro"); err == nil {
-			// Build map: user ID -> platform from portal receivers
-			// FB login ID = 910000000000006, IG login ID = 910000000000001
-			fbUsers := map[string]bool{}
-			igUsers := map[string]bool{}
-			rows, _ := metaDB.Query("SELECT id, receiver FROM portal WHERE receiver != ''")
+			// Map login ID → platform
+			loginPlatform := map[string]string{}
+			rows, _ := metaDB.Query(`SELECT id, json_extract(metadata, '$.platform') FROM user_login`)
 			if rows != nil {
 				for rows.Next() {
-					var portalID, receiver string
-					rows.Scan(&portalID, &receiver)
-					if receiver == "910000000000001" {
-						igUsers[portalID] = true
-					} else {
-						fbUsers[portalID] = true
+					var id, platform string
+					rows.Scan(&id, &platform)
+					loginPlatform[id] = platform
+				}
+				rows.Close()
+			}
+			// Map ghost (other_user_id in portal) → platform via receiver
+			ghostPlatform := map[string]string{}
+			rows, _ = metaDB.Query(`SELECT other_user_id, receiver FROM portal WHERE other_user_id IS NOT NULL AND receiver != ''`)
+			if rows != nil {
+				for rows.Next() {
+					var ghostID, receiver string
+					rows.Scan(&ghostID, &receiver)
+					if p, ok := loginPlatform[receiver]; ok {
+						ghostPlatform[ghostID] = p
 					}
 				}
 				rows.Close()
@@ -169,10 +176,8 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 			for i := range merged {
 				if merged[i].Platform == "meta" {
 					id := merged[i].TelegramID
-					if igUsers[id] {
-						merged[i].Platform = "instagram"
-					} else if fbUsers[id] {
-						merged[i].Platform = "facebook"
+					if p, ok := ghostPlatform[id]; ok {
+						merged[i].Platform = p
 					}
 				}
 			}
@@ -194,7 +199,54 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 		r.writeError(w, 503, "Matrix client not configured")
 		return
 	}
-	convos, err := r.matrix.ListConversations()
+
+	// Build meta platform map from bridge DB
+	var metaPlatforms matrix.MetaPlatformMap
+	if r.metaDBPath != "" {
+		if metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro"); err == nil {
+			metaPlatforms = make(matrix.MetaPlatformMap)
+			// Map login ID → platform
+			loginPlatform := map[string]string{}
+			rows, _ := metaDB.Query(`SELECT id, json_extract(metadata, '$.platform') FROM user_login`)
+			if rows != nil {
+				for rows.Next() {
+					var id, platform string
+					rows.Scan(&id, &platform)
+					loginPlatform[id] = platform
+				}
+				rows.Close()
+			}
+			// Map portal mxid → platform via receiver (DMs)
+			rows, _ = metaDB.Query(`SELECT mxid, receiver FROM portal WHERE mxid IS NOT NULL AND receiver != ''`)
+			if rows != nil {
+				for rows.Next() {
+					var mxid, receiver string
+					rows.Scan(&mxid, &receiver)
+					if p, ok := loginPlatform[receiver]; ok {
+						metaPlatforms[mxid] = p
+					}
+				}
+				rows.Close()
+			}
+			// Fallback for groups (empty receiver) — use user_portal login_id
+			rows, _ = metaDB.Query(`SELECT p.mxid, up.login_id FROM portal p JOIN user_portal up ON p.id = up.portal_id AND p.receiver = up.portal_receiver WHERE p.mxid IS NOT NULL AND p.receiver = ''`)
+			if rows != nil {
+				for rows.Next() {
+					var mxid, loginID string
+					rows.Scan(&mxid, &loginID)
+					if _, exists := metaPlatforms[mxid]; !exists {
+						if p, ok := loginPlatform[loginID]; ok {
+							metaPlatforms[mxid] = p
+						}
+					}
+				}
+				rows.Close()
+			}
+			metaDB.Close()
+		}
+	}
+
+	convos, err := r.matrix.ListConversations(metaPlatforms)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return

@@ -189,8 +189,11 @@ func (c *Client) ListContacts() ([]Contact, error) {
 	return contacts, nil
 }
 
+// MetaPlatformMap maps room IDs to facebook/instagram platform
+type MetaPlatformMap map[string]string
+
 // ListConversations returns rooms the user has joined
-func (c *Client) ListConversations() ([]Conversation, error) {
+func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversation, error) {
 	data, err := c.request("GET", "/_matrix/client/v3/joined_rooms", nil)
 	if err != nil {
 		return nil, err
@@ -273,6 +276,22 @@ func (c *Client) ListConversations() ([]Conversation, error) {
 
 		if conv.Name == "" {
 			conv.Name = "Unnamed Room"
+		}
+
+		// Skip bridge bot/management rooms and unidentified rooms
+		nameLower := strings.ToLower(conv.Name)
+		if strings.Contains(nameLower, "bridge") {
+			continue
+		}
+		if conv.Platform == "" {
+			continue
+		}
+
+		// Resolve meta → facebook/instagram
+		if conv.Platform == "meta" && metaPlatforms != nil {
+			if p, ok := metaPlatforms[conv.RoomID]; ok {
+				conv.Platform = p
+			}
 		}
 
 		convos = append(convos, conv)
