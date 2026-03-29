@@ -154,6 +154,9 @@ func (c *Client) ListContacts() ([]Contact, error) {
 		case strings.HasPrefix(localpart, "@whatsapp_") && !strings.HasPrefix(localpart, "@whatsappbot"):
 			platform = "whatsapp"
 			platformID = strings.TrimPrefix(localpart, "@whatsapp_")
+		case strings.HasPrefix(localpart, "@signal_") && !strings.HasPrefix(localpart, "@signalbot"):
+			platform = "signal"
+			platformID = strings.TrimPrefix(localpart, "@signal_")
 		default:
 			continue
 		}
@@ -161,8 +164,9 @@ func (c *Client) ListContacts() ([]Contact, error) {
 		name := u.DisplayName
 		name = strings.TrimSuffix(name, " (Telegram)")
 		name = strings.TrimSuffix(name, " (WA)")
-		// Clean up WhatsApp phone-only names: "+1XXXXXXXXXX" → formatted
-		if platform == "whatsapp" && strings.HasPrefix(name, "+") {
+		name = strings.TrimSuffix(name, " (Signal)")
+		// Clean up phone-only names
+		if (platform == "whatsapp" || platform == "signal") && strings.HasPrefix(name, "+") {
 			name = strings.TrimPrefix(name, "+")
 		}
 
