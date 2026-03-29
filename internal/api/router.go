@@ -42,6 +42,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/schema", r.schemaHandler)
 	r.mux.HandleFunc("/contacts", r.contactsHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
+	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 }
 
@@ -98,6 +99,30 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 	r.writeJSON(w, convos)
+}
+
+func (r *Router) newConversationHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+	var body struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.UserID == "" {
+		r.writeError(w, 400, "Missing user_id")
+		return
+	}
+	roomID, err := r.matrix.CreateDM(body.UserID)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, map[string]string{"room_id": roomID})
 }
 
 func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request) {

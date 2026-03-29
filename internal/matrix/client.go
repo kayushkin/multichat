@@ -69,6 +69,24 @@ func (c *Client) SendMessage(roomID, body string) (string, error) {
 	return resp.EventID, nil
 }
 
+// CreateDM creates a direct message room with a user and returns the room ID
+func (c *Client) CreateDM(userID string) (string, error) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"invite":    []string{userID},
+		"is_direct": true,
+		"preset":    "trusted_private_chat",
+	})
+	data, err := c.request("POST", "/_matrix/client/v3/createRoom", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		RoomID string `json:"room_id"`
+	}
+	json.Unmarshal(data, &resp)
+	return resp.RoomID, nil
+}
+
 // Contact is a Telegram puppet user in Matrix
 type Contact struct {
 	UserID      string `json:"user_id"`

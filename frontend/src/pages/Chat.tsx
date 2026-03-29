@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 
+interface Contact {
+  user_id: string
+  display_name: string
+  telegram_id: string
+  platform: string
+}
+
 interface Conversation {
   room_id: string
   name: string
@@ -24,6 +31,9 @@ function Chat() {
   const [msgLoading, setMsgLoading] = useState(false)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [showNewChat, setShowNewChat] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [contactSearch, setContactSearch] = useState('')
   const messagesEnd = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -95,6 +105,27 @@ function Chat() {
     }
   }
 
+  const startChat = async (contact: Contact) => {
+    setShowNewChat(false)
+    try {
+      const res = await fetch('/api/conversations/new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: contact.user_id }),
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const data = await res.json()
+      // Refresh conversation list and select the new room
+      const convRes = await fetch('/api/conversations')
+      if (convRes.ok) setConversations(await convRes.json() || [])
+      if (data.room_id) loadMessages(data.room_id)
+    } catch {}
+  }
+
+  const filteredContacts = contacts.filter(c =>
+    c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
+  )
+
   const platformIcon = (p: string) => p === 'whatsapp' ? '📱' : p === 'telegram' ? '✈️' : '🔗'
 
   const formatTime = (ts: number) => {
@@ -113,10 +144,21 @@ function Chat() {
     <div className="h-full flex">
       {/* Left Panel */}
       <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
           <h3 className="text-sm font-medium text-gray-400">
             Conversations {!loading && `(${conversations.length})`}
           </h3>
+          <button
+            onClick={() => {
+              setShowNewChat(true)
+              if (contacts.length === 0) {
+                fetch('/api/contacts').then(r => r.json()).then(data => setContacts(data || []))
+              }
+            }}
+            className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+          >
+            + New
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading && (
@@ -222,6 +264,50 @@ function Chat() {
           </div>
         )}
       </div>
+
+      {/* New Chat Modal */}
+      {showNewChat && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowNewChat(false)}>
+          <div className="bg-gray-800 rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-700 flex items-center justify-between">
+              <h3 className="text-white font-medium">New Chat</h3>
+              <button onClick={() => setShowNewChat(false)} className="text-gray-400 hover:text-white">✕</button>
+            </div>
+            <div className="p-3 border-b border-gray-700">
+              <input
+                type="text"
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                placeholder="Search contacts..."
+                autoFocus
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {filteredContacts.length === 0 && (
+                <p className="text-gray-500 text-sm p-4 text-center">
+                  {contacts.length === 0 ? 'Loading contacts...' : 'No matching contacts.'}
+                </p>
+              )}
+              {filteredContacts.map((contact) => (
+                <div
+                  key={contact.user_id}
+                  onClick={() => startChat(contact)}
+                  className="flex items-center gap-3 p-3 hover:bg-gray-700 cursor-pointer transition-colors"
+                >
+                  <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-sm text-white">
+                    {contact.display_name.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white text-sm truncate">{contact.display_name}</p>
+                    <p className="text-gray-500 text-xs">{platformIcon(contact.platform)} {contact.platform}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
