@@ -24,6 +24,7 @@ interface Message {
   body: string
   msg_type: string
   timestamp: number
+  is_me?: boolean
 }
 
 function Chat() {
@@ -333,7 +334,7 @@ function Chat() {
                 <p className="text-gray-500 text-center">No messages yet.</p>
               )}
               {messages.map((msg) => {
-                const isMe = msg.sender === '@admin:chat.kayushkin.com'
+                const isMe = !!msg.is_me
                 return (
                   <div key={msg.event_id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${

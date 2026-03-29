@@ -113,13 +113,17 @@ type Conversation struct {
 
 // Message is a Matrix room event
 type Message struct {
-	EventID   string `json:"event_id"`
-	Sender    string `json:"sender"`
+	EventID    string `json:"event_id"`
+	Sender     string `json:"sender"`
 	SenderName string `json:"sender_name,omitempty"`
-	Body      string `json:"body"`
-	MsgType   string `json:"msg_type"`
-	Timestamp int64  `json:"timestamp"`
+	Body       string `json:"body"`
+	MsgType    string `json:"msg_type"`
+	Timestamp  int64  `json:"timestamp"`
+	IsMe       bool   `json:"is_me,omitempty"`
 }
+
+// SelfUserIDs are Matrix user IDs that represent the multichat owner
+var SelfUserIDs = map[string]bool{}
 
 // TelegramPhones fetches phone numbers from the mautrix-telegram bridge DB
 // Returns a map of telegram user ID → phone number
@@ -445,6 +449,7 @@ func (c *Client) GetMessages(roomID string, limit int) ([]Message, error) {
 			Body:       evt.Content.Body,
 			MsgType:    evt.Content.MsgType,
 			Timestamp:  evt.OriginServerTS,
+			IsMe:       SelfUserIDs[evt.Sender],
 		})
 	}
 	return messages, nil
