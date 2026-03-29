@@ -126,7 +126,17 @@ function Chat() {
     c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
   )
 
-  const platformIcon = (p: string) => p === 'whatsapp' ? '📱' : p === 'telegram' ? '✈️' : '🔗'
+  const platformIcon = (p: string) => {
+    switch (p) {
+      case 'telegram': return '✈️'
+      case 'whatsapp': return '📱'
+      case 'signal': return '🔒'
+      case 'facebook': case 'messenger': return '💬'
+      case 'instagram': return '📷'
+      case 'meta': return '🔵'
+      default: return '🔗'
+    }
+  }
 
   const formatTime = (ts: number) => {
     const d = new Date(ts)

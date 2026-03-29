@@ -124,6 +124,14 @@ type TelegramPhoneProvider interface {
 	GetPhones() map[string]string // telegramID -> phone
 }
 
+// stripBridgeSuffix removes bridge-appended platform labels from display names
+func stripBridgeSuffix(name string) string {
+	for _, suffix := range []string{" (Telegram)", " (WhatsApp)", " (WA)", " (Signal)", " (Meta)", " (Facebook)", " (Instagram)", " (Messenger)"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return name
+}
+
 // ListContacts returns all bridged contacts, merging Telegram+WhatsApp by phone
 func (c *Client) ListContacts() ([]Contact, error) {
 	data, err := c.request("GET", "/_synapse/admin/v2/users?from=0&limit=500&guests=false", nil)
@@ -164,10 +172,7 @@ func (c *Client) ListContacts() ([]Contact, error) {
 			continue
 		}
 
-		name := u.DisplayName
-		name = strings.TrimSuffix(name, " (Telegram)")
-		name = strings.TrimSuffix(name, " (WA)")
-		name = strings.TrimSuffix(name, " (Signal)")
+		name := stripBridgeSuffix(u.DisplayName)
 		// Clean up phone-only names
 		if (platform == "whatsapp" || platform == "signal") && strings.HasPrefix(name, "+") {
 			name = strings.TrimPrefix(name, "+")
@@ -220,13 +225,23 @@ func (c *Client) ListConversations() ([]Conversation, error) {
 
 			// Detect platform from member user IDs
 			for _, m := range memberResp.Chunk {
-				if strings.Contains(m.StateKey, "telegram_") {
+				switch {
+				case strings.Contains(m.StateKey, "telegram_"):
 					conv.Platform = "telegram"
-					break
-				} else if strings.Contains(m.StateKey, "whatsapp_") {
+				case strings.Contains(m.StateKey, "whatsapp_"):
 					conv.Platform = "whatsapp"
-					break
+				case strings.Contains(m.StateKey, "signal_"):
+					conv.Platform = "signal"
+				case strings.Contains(m.StateKey, "meta_"):
+					conv.Platform = "meta"
+				case strings.Contains(m.StateKey, "facebook_"):
+					conv.Platform = "facebook"
+				case strings.Contains(m.StateKey, "instagram_"):
+					conv.Platform = "instagram"
+				default:
+					continue
 				}
+				break
 			}
 
 			// Detect bridge bot management room
@@ -245,8 +260,7 @@ func (c *Client) ListConversations() ([]Conversation, error) {
 						if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(m.StateKey)+"/displayname", nil); err == nil {
 							var p struct{ DisplayName string `json:"displayname"` }
 							json.Unmarshal(profile, &p)
-							name := strings.TrimSuffix(p.DisplayName, " (Telegram)")
-							name = strings.TrimSuffix(name, " (WhatsApp)")
+							name := stripBridgeSuffix(p.DisplayName)
 							if name != "" && name != "Telegram Bridge Bot" {
 								conv.Name = name
 								break
@@ -311,7 +325,7 @@ func (c *Client) GetMessages(roomID string, limit int) ([]Message, error) {
 			if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(evt.Sender)+"/displayname", nil); err == nil {
 				var p struct{ DisplayName string `json:"displayname"` }
 				json.Unmarshal(profile, &p)
-				senderName = strings.TrimSuffix(p.DisplayName, " (Telegram)")
+				senderName = stripBridgeSuffix(p.DisplayName)
 				names[evt.Sender] = senderName
 			}
 		}
