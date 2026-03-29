@@ -89,11 +89,13 @@ func (c *Client) CreateDM(userID string) (string, error) {
 
 // Contact is a Telegram puppet user in Matrix
 type Contact struct {
-	UserID      string `json:"user_id"`
-	DisplayName string `json:"display_name"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
-	TelegramID  string `json:"telegram_id,omitempty"`
-	Platform    string `json:"platform"`
+	UserID      string   `json:"user_id"`
+	DisplayName string   `json:"display_name"`
+	AvatarURL   string   `json:"avatar_url,omitempty"`
+	TelegramID  string   `json:"telegram_id,omitempty"`
+	Phone       string   `json:"phone,omitempty"`
+	Platform    string   `json:"platform"`
+	Platforms   []string `json:"platforms,omitempty"`
 }
 
 // Conversation is a Matrix room (portal)
@@ -116,7 +118,13 @@ type Message struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-// ListContacts returns all Telegram puppet users via Synapse admin API
+// TelegramPhones fetches phone numbers from the mautrix-telegram bridge DB
+// Returns a map of telegram user ID → phone number
+type TelegramPhoneProvider interface {
+	GetPhones() map[string]string // telegramID -> phone
+}
+
+// ListContacts returns all bridged contacts, merging Telegram+WhatsApp by phone
 func (c *Client) ListContacts() ([]Contact, error) {
 	data, err := c.request("GET", "/_synapse/admin/v2/users?from=0&limit=500&guests=false", nil)
 	if err != nil {
@@ -153,6 +161,10 @@ func (c *Client) ListContacts() ([]Contact, error) {
 		name := u.DisplayName
 		name = strings.TrimSuffix(name, " (Telegram)")
 		name = strings.TrimSuffix(name, " (WA)")
+		// Clean up WhatsApp phone-only names: "+1XXXXXXXXXX" → formatted
+		if platform == "whatsapp" && strings.HasPrefix(name, "+") {
+			name = strings.TrimPrefix(name, "+")
+		}
 
 		contacts = append(contacts, Contact{
 			UserID:      u.Name,

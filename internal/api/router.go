@@ -11,16 +11,18 @@ import (
 )
 
 type Router struct {
-	db     *sql.DB
-	matrix *matrix.Client
-	mux    *http.ServeMux
+	db        *sql.DB
+	matrix    *matrix.Client
+	mux       *http.ServeMux
+	tgDBPath  string // path to mautrix-telegram SQLite DB (for phone lookups)
 }
 
-func NewRouter(db *sql.DB, matrixClient *matrix.Client) *Router {
+func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath string) *Router {
 	r := &Router{
-		db:     db,
-		matrix: matrixClient,
-		mux:    http.NewServeMux(),
+		db:       db,
+		matrix:   matrixClient,
+		mux:      http.NewServeMux(),
+		tgDBPath: tgDBPath,
 	}
 	r.setupRoutes()
 	return r
@@ -85,7 +87,69 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, contacts)
+
+	// Load Telegram phone numbers for merging
+	tgPhones := map[string]string{}   // phone -> telegram display name
+	tgIDToPhone := map[string]string{} // telegram ID -> phone
+	if r.tgDBPath != "" {
+		if tgDB, err := sql.Open("sqlite3", r.tgDBPath+"?mode=ro"); err == nil {
+			rows, _ := tgDB.Query("SELECT id, displayname, phone FROM puppet WHERE phone IS NOT NULL AND phone != ''")
+			if rows != nil {
+				for rows.Next() {
+					var id int64
+					var name, phone string
+					rows.Scan(&id, &name, &phone)
+					name = strings.TrimSuffix(name, " (Telegram)")
+					tgPhones[phone] = name
+					tgIDToPhone[strconv.FormatInt(id, 10)] = phone
+				}
+				rows.Close()
+			}
+			tgDB.Close()
+		}
+	}
+
+	// Index telegram contacts by phone
+	tgByPhone := map[string]*matrix.Contact{}
+	for i := range contacts {
+		if contacts[i].Platform == "telegram" {
+			if phone, ok := tgIDToPhone[contacts[i].TelegramID]; ok {
+				contacts[i].Phone = phone
+				tgByPhone[phone] = &contacts[i]
+			}
+		}
+	}
+
+	// Merge: for WhatsApp contacts whose phone matches a Telegram contact, merge them
+	var merged []matrix.Contact
+	waPhonesSeen := map[string]bool{}
+	for _, c := range contacts {
+		if c.Platform == "whatsapp" {
+			phone := c.TelegramID // WhatsApp ID is the phone number
+			if tgContact, ok := tgByPhone[phone]; ok {
+				// Already have this person from Telegram with a better name
+				tgContact.Platforms = append(tgContact.Platforms, "whatsapp")
+				waPhonesSeen[phone] = true
+				continue
+			}
+			waPhonesSeen[phone] = true
+			// Use telegram phone book name if available
+			if name, ok := tgPhones[phone]; ok && name != "" {
+				c.DisplayName = name
+			}
+			c.Phone = phone
+		}
+		merged = append(merged, c)
+	}
+
+	// Set platforms for non-merged contacts
+	for i := range merged {
+		if len(merged[i].Platforms) == 0 {
+			merged[i].Platforms = []string{merged[i].Platform}
+		}
+	}
+
+	r.writeJSON(w, merged)
 }
 
 func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) {

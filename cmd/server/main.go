@@ -30,7 +30,12 @@ func main() {
 		log.Println("Warning: SYNAPSE_URL or MATRIX_TOKEN not set, Matrix features disabled")
 	}
 
-	router := api.NewRouter(database, matrixClient)
+	tgDBPath := os.Getenv("TELEGRAM_DB")
+	if tgDBPath != "" {
+		log.Printf("Telegram DB for phone lookups: %s", tgDBPath)
+	}
+
+	router := api.NewRouter(database, matrixClient, tgDBPath)
 
 	http.Handle("/api/", http.StripPrefix("/api", router))
 

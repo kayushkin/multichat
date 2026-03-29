@@ -4,7 +4,9 @@ interface Contact {
   user_id: string
   display_name: string
   telegram_id: string
+  phone?: string
   platform: string
+  platforms?: string[]
 }
 
 interface Conversation {
@@ -107,7 +109,9 @@ function Dashboard() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-white text-sm truncate">{c.display_name}</p>
-                  <p className="text-gray-500 text-xs">✈️ Telegram</p>
+                  <p className="text-gray-500 text-xs">
+                    {(c.platforms || [c.platform]).map(p => p === 'telegram' ? '✈️' : '📱').join(' ')}
+                  </p>
                 </div>
               </div>
             ))}
