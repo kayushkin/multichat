@@ -11,18 +11,20 @@ import (
 )
 
 type Router struct {
-	db        *sql.DB
-	matrix    *matrix.Client
-	mux       *http.ServeMux
-	tgDBPath  string // path to mautrix-telegram SQLite DB (for phone lookups)
+	db         *sql.DB
+	matrix     *matrix.Client
+	mux        *http.ServeMux
+	tgDBPath   string // path to mautrix-telegram SQLite DB (for phone lookups)
+	metaDBPath string // path to mautrix-meta SQLite DB (for FB vs IG distinction)
 }
 
-func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath string) *Router {
+func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath, metaDBPath string) *Router {
 	r := &Router{
-		db:       db,
-		matrix:   matrixClient,
-		mux:      http.NewServeMux(),
-		tgDBPath: tgDBPath,
+		db:         db,
+		matrix:     matrixClient,
+		mux:        http.NewServeMux(),
+		tgDBPath:   tgDBPath,
+		metaDBPath: metaDBPath,
 	}
 	r.setupRoutes()
 	return r
@@ -140,6 +142,41 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 			c.Phone = phone
 		}
 		merged = append(merged, c)
+	}
+
+	// Resolve meta contacts to facebook/instagram using meta bridge DB
+	if r.metaDBPath != "" {
+		if metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro"); err == nil {
+			// Build map: user ID -> platform from portal receivers
+			// FB login ID = 910000000000006, IG login ID = 910000000000001
+			fbUsers := map[string]bool{}
+			igUsers := map[string]bool{}
+			rows, _ := metaDB.Query("SELECT id, receiver FROM portal WHERE receiver != ''")
+			if rows != nil {
+				for rows.Next() {
+					var portalID, receiver string
+					rows.Scan(&portalID, &receiver)
+					if receiver == "910000000000001" {
+						igUsers[portalID] = true
+					} else {
+						fbUsers[portalID] = true
+					}
+				}
+				rows.Close()
+			}
+			metaDB.Close()
+
+			for i := range merged {
+				if merged[i].Platform == "meta" {
+					id := merged[i].TelegramID
+					if igUsers[id] {
+						merged[i].Platform = "instagram"
+					} else if fbUsers[id] {
+						merged[i].Platform = "facebook"
+					}
+				}
+			}
+		}
 	}
 
 	// Set platforms for non-merged contacts

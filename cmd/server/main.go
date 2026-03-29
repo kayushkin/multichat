@@ -34,8 +34,12 @@ func main() {
 	if tgDBPath != "" {
 		log.Printf("Telegram DB for phone lookups: %s", tgDBPath)
 	}
+	metaDBPath := os.Getenv("META_DB")
+	if metaDBPath != "" {
+		log.Printf("Meta DB for platform lookups: %s", metaDBPath)
+	}
 
-	router := api.NewRouter(database, matrixClient, tgDBPath)
+	router := api.NewRouter(database, matrixClient, tgDBPath, metaDBPath)
 
 	http.Handle("/api/", http.StripPrefix("/api", router))
 
