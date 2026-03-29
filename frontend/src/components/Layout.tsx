@@ -4,68 +4,49 @@ function Layout() {
   const location = useLocation()
 
   const navItems = [
-    { path: '/chat', label: 'Chat', icon: '💬' },
-    { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-    { path: '/database', label: 'Database', icon: '🗄️' },
+    { path: '/chat', label: 'Chat' },
+    { path: '/dashboard', label: 'Dashboard' },
+    { path: '/database', label: 'Database' },
   ]
 
+  const isChat = location.pathname === '/chat'
+
   return (
-    <div className="h-screen flex bg-gray-900 text-white">
-      {/* Sidebar */}
-      <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
-        {/* Logo/Header */}
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold text-center">MultiChat</h1>
-        </div>
-        
-        {/* Navigation */}
-        <nav className="flex-1 p-4">
-          <ul className="space-y-2">
+    <div className="h-screen flex flex-col bg-gray-900 text-white">
+      {/* Top Nav */}
+      <header className="bg-gray-800 border-b border-gray-700 px-4 h-12 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-6">
+          <Link to="/chat" className="text-lg font-bold text-white hover:text-blue-400 transition-colors">
+            MultiChat
+          </Link>
+          <nav className="flex items-center gap-1">
             {navItems.map((item) => (
-              <li key={item.path}>
-                <Link
-                  to={item.path}
-                  className={`
-                    flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors
-                    ${location.pathname === item.path 
-                      ? 'bg-blue-600 text-white' 
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                    }
-                  `}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </Link>
-              </li>
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                  location.pathname === item.path
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                {item.label}
+              </Link>
             ))}
-          </ul>
-        </nav>
-        
-        {/* User section */}
-        <div className="p-4 border-t border-gray-700">
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-sm">
-              👤
-            </div>
-            <span className="text-sm text-gray-300">—</span>
-          </div>
+          </nav>
         </div>
-      </div>
-      
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-gray-800 border-b border-gray-700 p-4">
-          <h2 className="text-lg font-semibold">
-            {navItems.find(item => item.path === location.pathname)?.label || 'MultiChat'}
-          </h2>
-        </header>
-        
-        {/* Content */}
+      </header>
+
+      {/* Content — Chat gets full height, other pages get padding */}
+      {isChat ? (
+        <main className="flex-1 overflow-hidden">
+          <Outlet />
+        </main>
+      ) : (
         <main className="flex-1 p-6 overflow-auto">
           <Outlet />
         </main>
-      </div>
+      )}
     </div>
   )
 }
