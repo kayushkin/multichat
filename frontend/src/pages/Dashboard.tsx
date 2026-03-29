@@ -37,6 +37,7 @@ function Dashboard() {
   const tgContacts = contacts.filter(c => c.platform === 'telegram')
   const waContacts = contacts.filter(c => c.platform === 'whatsapp')
   const sigContacts = contacts.filter(c => c.platform === 'signal')
+  const metaContacts = contacts.filter(c => c.platform === 'meta')
 
   const stats = [
     { label: 'Contacts', value: contacts.length },
@@ -105,6 +106,18 @@ function Dashboard() {
             </div>
             <div className={`w-3 h-3 rounded-full ${sigContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
           </div>
+          <div className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
+            <div className="flex items-center gap-3">
+              <span className="text-xl">💬</span>
+              <div>
+                <p className="text-white font-medium">Messenger / Instagram</p>
+                <p className="text-gray-400 text-sm">
+                  {metaContacts.length > 0 ? `${metaContacts.length} contacts synced` : 'Not connected'}
+                </p>
+              </div>
+            </div>
+            <div className={`w-3 h-3 rounded-full ${metaContacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
+          </div>
         </div>
       </div>
 
@@ -123,7 +136,7 @@ function Dashboard() {
                 <div className="min-w-0">
                   <p className="text-white text-sm truncate">{c.display_name}</p>
                   <p className="text-gray-500 text-xs">
-                    {(c.platforms || [c.platform]).map(p => p === 'telegram' ? '✈️' : p === 'signal' ? '🔒' : '📱').join(' ')}
+                    {(c.platforms || [c.platform]).map(p => p === 'telegram' ? '✈️' : p === 'signal' ? '🔒' : p === 'meta' ? '💬' : '📱').join(' ')}
                   </p>
                 </div>
               </div>

@@ -157,6 +157,9 @@ func (c *Client) ListContacts() ([]Contact, error) {
 		case strings.HasPrefix(localpart, "@signal_") && !strings.HasPrefix(localpart, "@signalbot"):
 			platform = "signal"
 			platformID = strings.TrimPrefix(localpart, "@signal_")
+		case strings.HasPrefix(localpart, "@meta_") && !strings.HasPrefix(localpart, "@metabot"):
+			platform = "meta"
+			platformID = strings.TrimPrefix(localpart, "@meta_")
 		default:
 			continue
 		}
