@@ -13,6 +13,8 @@ interface Conversation {
   name: string
   member_count: number
   platform: string
+  last_activity: number
+  last_message?: string
 }
 
 interface Message {
@@ -35,6 +37,8 @@ function Chat() {
   const [showNewChat, setShowNewChat] = useState(false)
   const [contacts, setContacts] = useState<Contact[]>([])
   const [contactSearch, setContactSearch] = useState('')
+  const [search, setSearch] = useState('')
+  const [platformFilter, setPlatformFilter] = useState<string | null>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -127,6 +131,18 @@ function Chat() {
     c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
   )
 
+  const filteredConversations = conversations.filter(conv => {
+    if (platformFilter && conv.platform !== platformFilter) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return conv.name.toLowerCase().includes(q) ||
+        (conv.last_message && conv.last_message.toLowerCase().includes(q))
+    }
+    return true
+  })
+
+  const activePlatforms = [...new Set(conversations.map(c => c.platform).filter(Boolean))]
+
   const platformLabel = (p: string) => {
     switch (p) {
       case 'telegram': return 'Telegram'
@@ -154,47 +170,87 @@ function Chat() {
     <div className="h-full flex">
       {/* Left Panel */}
       <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-gray-400">
-            Conversations {!loading && `(${conversations.length})`}
-          </h3>
-          <button
-            onClick={() => {
-              setShowNewChat(true)
-              if (contacts.length === 0) {
-                fetch('/api/contacts').then(r => r.json()).then(data => setContacts(data || []))
-              }
-            }}
-            className="text-blue-400 hover:text-blue-300 text-sm font-medium"
-          >
-            + New
-          </button>
+        <div className="p-3 border-b border-gray-700 space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-400">
+              Chats {!loading && `(${filteredConversations.length})`}
+            </h3>
+            <button
+              onClick={() => {
+                setShowNewChat(true)
+                if (contacts.length === 0) {
+                  fetch('/api/contacts').then(r => r.json()).then(data => setContacts(data || []))
+                }
+              }}
+              className="text-blue-400 hover:text-blue-300 text-sm font-medium"
+            >
+              + New
+            </button>
+          </div>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search chats..."
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <div className="flex gap-1.5 flex-wrap">
+            <button
+              onClick={() => setPlatformFilter(null)}
+              className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
+                !platformFilter ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+              }`}
+            >
+              All
+            </button>
+            {activePlatforms.map(p => (
+              <button
+                key={p}
+                onClick={() => setPlatformFilter(platformFilter === p ? null : p)}
+                className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 transition-colors ${
+                  platformFilter === p ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+                }`}
+              >
+                <PlatformIcon platform={p} size={12} />
+                {platformLabel(p)}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <p className="text-gray-500 text-sm p-4 text-center">Loading...</p>
           )}
-          {!loading && conversations.length === 0 && (
+          {!loading && filteredConversations.length === 0 && (
             <p className="text-gray-500 text-sm p-4 text-center">
-              No conversations yet. Send a message on Telegram to create a portal.
+              {conversations.length === 0
+                ? 'No conversations yet.'
+                : 'No matching conversations.'}
             </p>
           )}
-          {conversations.map((conv) => (
+          {filteredConversations.map((conv) => (
             <div
               key={conv.room_id}
               onClick={() => loadMessages(conv.room_id)}
-              className={`p-4 border-b border-gray-700 cursor-pointer transition-colors ${
+              className={`px-3 py-2.5 border-b border-gray-700/50 cursor-pointer transition-colors ${
                 selected === conv.room_id ? 'bg-blue-600' : 'hover:bg-gray-700'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 flex items-center justify-center">
-                  <PlatformIcon platform={conv.platform} size={36} />
+                <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center">
+                  <PlatformIcon platform={conv.platform} size={32} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-white font-medium truncate">{conv.name}</p>
-                  <p className="text-gray-400 text-xs">
-                    {conv.member_count} members · {platformLabel(conv.platform)}
+                  <div className="flex items-center justify-between">
+                    <p className="text-white font-medium text-sm truncate">{conv.name}</p>
+                    {conv.last_activity > 0 && (
+                      <span className="text-gray-500 text-xs flex-shrink-0 ml-2">
+                        {formatTime(conv.last_activity)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-xs truncate">
+                    {conv.last_message || `${conv.member_count} members · ${platformLabel(conv.platform)}`}
                   </p>
                 </div>
               </div>

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -100,12 +101,14 @@ type Contact struct {
 
 // Conversation is a Matrix room (portal)
 type Conversation struct {
-	RoomID      string `json:"room_id"`
-	Name        string `json:"name"`
-	Topic       string `json:"topic,omitempty"`
-	AvatarURL   string `json:"avatar_url,omitempty"`
-	MemberCount int    `json:"member_count"`
-	Platform    string `json:"platform,omitempty"`
+	RoomID       string `json:"room_id"`
+	Name         string `json:"name"`
+	Topic        string `json:"topic,omitempty"`
+	AvatarURL    string `json:"avatar_url,omitempty"`
+	MemberCount  int    `json:"member_count"`
+	Platform     string `json:"platform,omitempty"`
+	LastActivity int64  `json:"last_activity"`
+	LastMessage  string `json:"last_message,omitempty"`
 }
 
 // Message is a Matrix room event
@@ -294,8 +297,35 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			}
 		}
 
+		// Fetch latest message for sorting + preview
+		msgPath := fmt.Sprintf("/_matrix/client/v3/rooms/%s/messages?dir=b&limit=1&filter=%s",
+			url.PathEscape(roomID),
+			url.QueryEscape(`{"types":["m.room.message"]}`))
+		if msgData, err := c.request("GET", msgPath, nil); err == nil {
+			var msgResp struct {
+				Chunk []struct {
+					OriginServerTS int64 `json:"origin_server_ts"`
+					Content        struct {
+						Body string `json:"body"`
+					} `json:"content"`
+				} `json:"chunk"`
+			}
+			if json.Unmarshal(msgData, &msgResp) == nil && len(msgResp.Chunk) > 0 {
+				conv.LastActivity = msgResp.Chunk[0].OriginServerTS
+				body := msgResp.Chunk[0].Content.Body
+				if len(body) > 100 {
+					body = body[:100] + "…"
+				}
+				conv.LastMessage = body
+			}
+		}
+
 		convos = append(convos, conv)
 	}
+	// Sort by most recent activity
+	sort.Slice(convos, func(i, j int) bool {
+		return convos[i].LastActivity > convos[j].LastActivity
+	})
 	return convos, nil
 }
 
