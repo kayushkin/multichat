@@ -291,11 +291,26 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 	switch action {
 	case "messages":
 		r.messagesHandler(w, req, roomID)
+	case "members":
+		r.membersHandler(w, req, roomID)
 	case "send":
 		r.sendHandler(w, req, roomID)
 	default:
 		r.writeError(w, 404, "Not found")
 	}
+}
+
+func (r *Router) membersHandler(w http.ResponseWriter, req *http.Request, roomID string) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
+		return
+	}
+	members, err := r.matrix.GetRoomMembers(roomID)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, members)
 }
 
 func (r *Router) sendHandler(w http.ResponseWriter, req *http.Request, roomID string) {

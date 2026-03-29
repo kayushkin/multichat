@@ -192,6 +192,65 @@ func (c *Client) ListContacts() ([]Contact, error) {
 	return contacts, nil
 }
 
+// RoomMember is a member of a Matrix room
+type RoomMember struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name"`
+	Platform    string `json:"platform,omitempty"`
+}
+
+// GetRoomMembers returns joined members of a room with display names
+func (c *Client) GetRoomMembers(roomID string) ([]RoomMember, error) {
+	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/members?membership=join", nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Chunk []struct {
+			StateKey string `json:"state_key"`
+			Content  struct {
+				DisplayName string `json:"displayname"`
+			} `json:"content"`
+		} `json:"chunk"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+
+	var members []RoomMember
+	for _, m := range resp.Chunk {
+		// Skip bridge bots and the admin user
+		local := strings.Split(m.StateKey, ":")[0]
+		if strings.HasSuffix(local, "bot") || m.StateKey == "@admin:chat.kayushkin.com" {
+			continue
+		}
+
+		name := stripBridgeSuffix(m.Content.DisplayName)
+		if name == "" {
+			name = m.StateKey
+		}
+
+		var platform string
+		switch {
+		case strings.Contains(local, "telegram_"):
+			platform = "telegram"
+		case strings.Contains(local, "whatsapp_"):
+			platform = "whatsapp"
+		case strings.Contains(local, "signal_"):
+			platform = "signal"
+		case strings.Contains(local, "meta_"):
+			platform = "meta"
+		}
+
+		members = append(members, RoomMember{
+			UserID:      m.StateKey,
+			DisplayName: name,
+			Platform:    platform,
+		})
+	}
+	return members, nil
+}
+
 // MetaPlatformMap maps room IDs to facebook/instagram platform
 type MetaPlatformMap map[string]string
 

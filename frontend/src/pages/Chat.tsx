@@ -39,7 +39,11 @@ function Chat() {
   const [contactSearch, setContactSearch] = useState('')
   const [search, setSearch] = useState('')
   const [platformFilter, setPlatformFilter] = useState<string | null>(null)
+  const [showMembers, setShowMembers] = useState(false)
+  const [members, setMembers] = useState<{ user_id: string; display_name: string; platform?: string }[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
+  const membersRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetch('/api/conversations')
@@ -52,6 +56,7 @@ function Chat() {
     setSelected(roomID)
     setMsgLoading(true)
     setMessages([])
+    setShowMembers(false)
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(roomID)}/messages?limit=100`)
       if (!res.ok) throw new Error(`${res.status}`)
@@ -130,6 +135,30 @@ function Chat() {
   const filteredContacts = contacts.filter(c =>
     c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
   )
+
+  // Close members dropdown on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (membersRef.current && !membersRef.current.contains(e.target as Node)) {
+        setShowMembers(false)
+      }
+    }
+    if (showMembers) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showMembers])
+
+  const toggleMembers = async () => {
+    if (showMembers) { setShowMembers(false); return }
+    if (!selected) return
+    setShowMembers(true)
+    setMembersLoading(true)
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(selected)}/members`)
+      if (res.ok) setMembers(await res.json() || [])
+    } finally {
+      setMembersLoading(false)
+    }
+  }
 
   const filteredConversations = conversations.filter(conv => {
     if (platformFilter && conv.platform !== platformFilter) return false
@@ -263,14 +292,39 @@ function Chat() {
       <div className="flex-1 flex flex-col">
         {selected && selectedConvo ? (
           <>
-            <div className="bg-gray-800 border-b border-gray-700 p-4">
+            <div className="bg-gray-800 border-b border-gray-700 p-4 relative" ref={membersRef}>
               <div className="flex items-center gap-3">
                 <PlatformIcon platform={selectedConvo.platform} size={28} />
                 <div>
                   <h3 className="text-white font-medium">{selectedConvo.name}</h3>
-                  <p className="text-gray-400 text-sm">{platformLabel(selectedConvo.platform)} · {selectedConvo.member_count} members</p>
+                  <button
+                    onClick={toggleMembers}
+                    className="text-gray-400 text-sm hover:text-blue-400 transition-colors"
+                  >
+                    {platformLabel(selectedConvo.platform)} · {selectedConvo.member_count} members
+                    <span className="ml-1 text-xs">{showMembers ? '▲' : '▼'}</span>
+                  </button>
                 </div>
               </div>
+              {showMembers && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-gray-800 border border-gray-700 rounded-b-lg shadow-xl max-h-72 overflow-y-auto">
+                  {membersLoading && (
+                    <p className="text-gray-500 text-sm p-3 text-center">Loading members...</p>
+                  )}
+                  {!membersLoading && members.length === 0 && (
+                    <p className="text-gray-500 text-sm p-3 text-center">No members found.</p>
+                  )}
+                  {members.map(m => (
+                    <div key={m.user_id} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-700/50">
+                      <div className="w-7 h-7 bg-gray-600 rounded-full flex items-center justify-center text-xs text-white">
+                        {m.display_name.charAt(0)}
+                      </div>
+                      <span className="text-white text-sm flex-1 truncate">{m.display_name}</span>
+                      {m.platform && <PlatformIcon platform={m.platform} size={14} />}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 p-4 overflow-y-auto space-y-3">
