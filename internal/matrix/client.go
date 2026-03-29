@@ -202,14 +202,28 @@ func (c *Client) ListConversations() ([]Conversation, error) {
 				}
 			}
 
-			// For DMs with no room name, use the other member's display name
-			if conv.Name == "" && len(memberResp.Chunk) == 2 {
+			// Detect bridge bot management room
+			if conv.Name == "" {
 				for _, m := range memberResp.Chunk {
-					if m.StateKey != "@admin:chat.kayushkin.com" && !strings.HasPrefix(m.StateKey, "@telegrambot") {
+					if strings.HasPrefix(m.StateKey, "@telegrambot") {
+						conv.Name = "Telegram Bridge"
+					}
+				}
+			}
+
+			// For DMs with no room name, use the other member's display name
+			if conv.Name == "" && len(memberResp.Chunk) <= 3 {
+				for _, m := range memberResp.Chunk {
+					if m.StateKey != "@admin:chat.kayushkin.com" {
 						if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(m.StateKey)+"/displayname", nil); err == nil {
 							var p struct{ DisplayName string `json:"displayname"` }
 							json.Unmarshal(profile, &p)
-							conv.Name = strings.TrimSuffix(p.DisplayName, " (Telegram)")
+							name := strings.TrimSuffix(p.DisplayName, " (Telegram)")
+							name = strings.TrimSuffix(name, " (WhatsApp)")
+							if name != "" && name != "Telegram Bridge Bot" {
+								conv.Name = name
+								break
+							}
 						}
 					}
 				}
