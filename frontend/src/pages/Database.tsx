@@ -38,7 +38,8 @@ function Database() {
         <button
           onClick={fetchSchema}
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded-lg text-white transition-colors"
+          className="disabled:opacity-50 px-4 py-2 rounded-lg text-gray-900 font-medium transition-colors"
+          style={{ backgroundColor: loading ? '#6b7280' : '#f5d40c' }}
         >
           {loading ? 'Loading...' : 'Refresh'}
         </button>
@@ -59,7 +60,7 @@ function Database() {
           {tables.map((item) => (
             <div key={item.name} className="bg-gray-800 rounded-lg overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3">
-                <span className="text-xs font-mono bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded">
+                <span className="text-xs font-mono text-gray-900 px-2 py-0.5 rounded" style={{ backgroundColor: '#f5d40c' }}>
                   TABLE
                 </span>
                 <span className="text-white font-medium">{item.name}</span>
@@ -81,7 +82,7 @@ function Database() {
           {indexes.map((item) => (
             <div key={item.name} className="bg-gray-800 rounded-lg overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3">
-                <span className="text-xs font-mono bg-green-600/30 text-green-300 px-2 py-0.5 rounded">
+                <span className="text-xs font-mono text-gray-900 px-2 py-0.5 rounded" style={{ backgroundColor: '#f5d40c' }}>
                   INDEX
                 </span>
                 <span className="text-white font-medium">{item.name}</span>

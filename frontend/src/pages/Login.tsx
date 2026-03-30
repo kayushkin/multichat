@@ -57,7 +57,8 @@ function Login() {
 
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+            className="w-full py-2 px-4 rounded-md transition-colors text-gray-900 font-medium"
+            style={{ backgroundColor: '#f5d40c' }}
           >
             Sign In
           </button>

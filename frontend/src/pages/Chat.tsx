@@ -46,6 +46,13 @@ function Chat() {
   const [summary, setSummary] = useState<{ summary: string; topics: string[]; sentiment: string } | null>(null)
   const [summarizing, setSummarizing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [showAddContact, setShowAddContact] = useState(false)
+  const [newContact, setNewContact] = useState({
+    display_name: '',
+    platform: 'telegram',
+    identifier: ''
+  })
+  const [addingContact, setAddingContact] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const membersRef = useRef<HTMLDivElement>(null)
 
@@ -141,6 +148,35 @@ function Chat() {
   const filteredContacts = contacts.filter(c =>
     c.display_name.toLowerCase().includes(contactSearch.toLowerCase())
   )
+
+  const addContact = async () => {
+    if (!newContact.display_name || !newContact.identifier) return
+    
+    setAddingContact(true)
+    try {
+      const res = await fetch('/api/contacts/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newContact),
+      })
+      if (res.ok) {
+        // Refresh contacts list
+        const contactsRes = await fetch('/api/contacts')
+        if (contactsRes.ok) setContacts(await contactsRes.json() || [])
+        
+        // Reset form
+        setNewContact({ display_name: '', platform: 'telegram', identifier: '' })
+        setShowAddContact(false)
+      } else {
+        const error = await res.json()
+        alert(`Failed to add contact: ${error.error}`)
+      }
+    } catch (e) {
+      alert('Failed to add contact')
+    } finally {
+      setAddingContact(false)
+    }
+  }
 
   // Close members dropdown on click outside
   useEffect(() => {
@@ -254,8 +290,9 @@ function Chat() {
             <button
               onClick={() => setPlatformFilter(null)}
               className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
-                !platformFilter ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+                !platformFilter ? 'text-gray-900' : 'bg-gray-700 text-gray-400 hover:text-white'
               }`}
+              style={!platformFilter ? { backgroundColor: '#f5d40c' } : undefined}
             >
               All
             </button>
@@ -264,8 +301,9 @@ function Chat() {
                 key={p}
                 onClick={() => setPlatformFilter(platformFilter === p ? null : p)}
                 className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 transition-colors ${
-                  platformFilter === p ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400 hover:text-white'
+                  platformFilter === p ? 'text-gray-900' : 'bg-gray-700 text-gray-400 hover:text-white'
                 }`}
+                style={platformFilter === p ? { backgroundColor: '#f5d40c' } : undefined}
               >
                 <PlatformIcon platform={p} size={12} />
                 {platformLabel(p)}
@@ -289,8 +327,9 @@ function Chat() {
               key={conv.room_id}
               onClick={() => loadMessages(conv.room_id)}
               className={`px-3 py-2.5 border-b border-gray-700/50 cursor-pointer transition-colors ${
-                selected === conv.room_id ? 'bg-blue-600' : 'hover:bg-gray-700'
+                selected === conv.room_id ? 'bg-gray-700 border-l-4' : 'hover:bg-gray-700'
               }`}
+              style={selected === conv.room_id ? { borderLeftColor: '#f5d40c' } : undefined}
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center">
@@ -337,10 +376,11 @@ function Chat() {
                 <button
                   onClick={summarize}
                   disabled={summarizing}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg text-white text-sm font-medium transition-all"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-gray-900 text-sm font-medium transition-all disabled:opacity-50"
+                  style={{ backgroundColor: '#f5d40c' }}
                 >
                   {summarizing ? (
-                    <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                    <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-900 border-t-transparent rounded-full" />
                   ) : (
                     <span>✨</span>
                   )}
@@ -441,7 +481,8 @@ function Chat() {
                 <button
                   onClick={sendMessage}
                   disabled={sending || !input.trim()}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-6 py-2 rounded-lg text-white transition-colors"
+                  className="disabled:opacity-50 px-6 py-2 rounded-lg text-gray-900 font-medium transition-colors"
+                  style={{ backgroundColor: '#f5d40c' }}
                 >
                   Send
                 </button>
@@ -461,11 +502,24 @@ function Chat() {
 
       {/* New Chat Modal */}
       {showNewChat && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowNewChat(false)}>
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => {
+          setShowNewChat(false)
+          setShowAddContact(false)
+          setNewContact({ display_name: '', platform: 'telegram', identifier: '' })
+        }}>
           <div className="bg-gray-800 rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <h3 className="text-white font-medium">New Chat</h3>
-              <button onClick={() => setShowNewChat(false)} className="text-gray-400 hover:text-white">✕</button>
+              <button 
+                onClick={() => {
+                  setShowNewChat(false)
+                  setShowAddContact(false)
+                  setNewContact({ display_name: '', platform: 'telegram', identifier: '' })
+                }} 
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
             </div>
             <div className="p-3 border-b border-gray-700">
               <input
@@ -477,6 +531,73 @@ function Chat() {
                 className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               />
             </div>
+            {/* Add New Contact Button */}
+            <div className="p-3 border-b border-gray-700">
+              <button
+                onClick={() => setShowAddContact(!showAddContact)}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-gray-600 text-gray-300 hover:text-white hover:border-gray-500 transition-colors text-sm"
+              >
+                <span>+</span>
+                <span>Add New Contact</span>
+              </button>
+            </div>
+
+            {/* Add Contact Form */}
+            {showAddContact && (
+              <div className="p-4 border-b border-gray-700 bg-gray-750">
+                <h4 className="text-white font-medium mb-3 text-sm">Add New Contact</h4>
+                <div className="space-y-3">
+                  <div>
+                    <input
+                      type="text"
+                      value={newContact.display_name}
+                      onChange={(e) => setNewContact({ ...newContact, display_name: e.target.value })}
+                      placeholder="Contact name"
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <select
+                      value={newContact.platform}
+                      onChange={(e) => setNewContact({ ...newContact, platform: e.target.value })}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      <option value="telegram">Telegram</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="signal">Signal</option>
+                      <option value="messenger">Messenger</option>
+                      <option value="instagram">Instagram</option>
+                    </select>
+                  </div>
+                  <div>
+                    <input
+                      type="text"
+                      value={newContact.identifier}
+                      onChange={(e) => setNewContact({ ...newContact, identifier: e.target.value })}
+                      placeholder={newContact.platform === 'telegram' ? 'Phone number or username' : 'Phone number or username'}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowAddContact(false)}
+                      className="flex-1 py-2 px-3 rounded-lg border border-gray-600 text-gray-300 hover:text-white hover:border-gray-500 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={addContact}
+                      disabled={addingContact || !newContact.display_name || !newContact.identifier}
+                      className="flex-1 py-2 px-3 rounded-lg text-gray-900 font-medium transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ backgroundColor: addingContact || !newContact.display_name || !newContact.identifier ? '#6b7280' : '#f5d40c' }}
+                    >
+                      {addingContact ? 'Adding...' : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto">
               {filteredContacts.length === 0 && (
                 <p className="text-gray-500 text-sm p-4 text-center">

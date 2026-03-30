@@ -51,6 +51,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/health", r.healthHandler)
 	r.mux.HandleFunc("/schema", r.schemaHandler)
 	r.mux.HandleFunc("/contacts", r.contactsHandler)
+	r.mux.HandleFunc("/contacts/add", r.addContactHandler)
 	r.mux.HandleFunc("/contacts/unified", r.unifiedContactsHandler)
 	r.mux.HandleFunc("/stats", r.statsHandler)
 	r.mux.HandleFunc("/search", r.searchHandler)
@@ -203,7 +204,90 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	// Add local contacts from the database
+	rows, err := r.db.Query(`SELECT id, display_name, platform, identifier FROM local_contacts ORDER BY display_name`)
+	if err == nil {
+		for rows.Next() {
+			var id int64
+			var displayName, platform, identifier string
+			if err := rows.Scan(&id, &displayName, &platform, &identifier); err == nil {
+				localContact := matrix.Contact{
+					UserID:      fmt.Sprintf("local_%d", id),
+					DisplayName: displayName,
+					Platform:    platform,
+					TelegramID:  identifier, // Using TelegramID field to store the identifier
+					Platforms:   []string{platform},
+				}
+				merged = append(merged, localContact)
+			}
+		}
+		rows.Close()
+	}
+
 	r.writeJSON(w, merged)
+}
+
+func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+
+	var body struct {
+		DisplayName string `json:"display_name"`
+		Platform    string `json:"platform"`
+		Identifier  string `json:"identifier"`
+	}
+	
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		r.writeError(w, 400, "Invalid JSON")
+		return
+	}
+
+	if body.DisplayName == "" || body.Platform == "" || body.Identifier == "" {
+		r.writeError(w, 400, "display_name, platform, and identifier are required")
+		return
+	}
+
+	// For now, store it in the local SQLite DB only
+	// We'll create a simple contacts table for local storage
+	_, err := r.db.Exec(`
+		CREATE TABLE IF NOT EXISTS local_contacts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			display_name TEXT NOT NULL,
+			platform TEXT NOT NULL,
+			identifier TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(platform, identifier)
+		)
+	`)
+	if err != nil {
+		r.writeError(w, 500, "Failed to create contacts table")
+		return
+	}
+
+	// Insert the contact
+	result, err := r.db.Exec(`
+		INSERT OR REPLACE INTO local_contacts (display_name, platform, identifier)
+		VALUES (?, ?, ?)
+	`, body.DisplayName, body.Platform, body.Identifier)
+	if err != nil {
+		r.writeError(w, 500, "Failed to add contact")
+		return
+	}
+
+	id, _ := result.LastInsertId()
+	
+	// Return the new contact
+	contact := map[string]interface{}{
+		"id":           id,
+		"display_name": body.DisplayName,
+		"platform":     body.Platform,
+		"identifier":   body.Identifier,
+		"user_id":      fmt.Sprintf("local_%d", id), // Create a synthetic user_id for consistency
+	}
+	
+	r.writeJSON(w, contact)
 }
 
 func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) {

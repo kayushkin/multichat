@@ -64,7 +64,7 @@ function Search() {
     
     return parts.map((part, index) => 
       regex.test(part) ? (
-        <mark key={index} className="bg-yellow-300 text-black px-1 rounded">
+        <mark key={index} className="text-gray-900 px-1 rounded" style={{ backgroundColor: '#f5d40c' }}>
           {part}
         </mark>
       ) : part
@@ -113,7 +113,8 @@ function Search() {
             <button
               type="submit"
               disabled={loading || !query.trim()}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors"
+              className="px-6 py-2 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-medium transition-colors text-gray-900"
+              style={!loading && query.trim() ? { backgroundColor: '#f5d40c' } : { backgroundColor: '#6b7280' }}
             >
               {loading ? 'Searching...' : 'Search'}
             </button>

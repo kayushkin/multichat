@@ -139,7 +139,8 @@ function Alerts() {
         <p className="text-red-200">{error}</p>
         <button 
           onClick={handleRefresh}
-          className="mt-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
+          className="mt-2 px-4 py-2 rounded-lg transition-colors text-gray-900 font-medium"
+          style={{ backgroundColor: '#f5d40c' }}
         >
           Retry
         </button>
@@ -153,12 +154,13 @@ function Alerts() {
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold flex items-center space-x-2">
-            <span>🚨</span>
+            <span style={{ color: '#f5d40c' }}>🚨</span>
             <span>Keyword Alerts</span>
           </h1>
           <button
             onClick={handleRefresh}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+            className="px-4 py-2 rounded-lg transition-colors text-gray-900 font-medium"
+            style={{ backgroundColor: '#f5d40c' }}
           >
             Refresh
           </button>
@@ -197,7 +199,8 @@ function Alerts() {
               />
               <button
                 onClick={fetchAlerts}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
+                className="px-4 py-2 rounded-lg transition-colors text-gray-900 font-medium"
+                style={{ backgroundColor: '#f5d40c' }}
               >
                 Apply
               </button>
