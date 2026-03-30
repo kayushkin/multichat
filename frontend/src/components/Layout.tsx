@@ -7,7 +7,7 @@ function Layout() {
     { path: '/chat', label: 'Chat' },
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/search', label: 'Search' },
-    { path: '/alerts', label: '🚨 Alerts' },
+    { path: '/alerts', label: 'Alerts' },
     { path: '/database', label: 'Database' },
   ]
 
