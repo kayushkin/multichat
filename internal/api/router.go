@@ -59,6 +59,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/contacts/unified", r.unifiedContactsHandler)
 	r.mux.HandleFunc("/stats", r.statsHandler)
 	r.mux.HandleFunc("/ai/summarize", r.summarizeHandler)
+	r.mux.HandleFunc("/search", r.searchHandler)
 }
 
 // --- Matrix helpers ---
@@ -804,6 +805,132 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 func (r *Router) writeJSON(w http.ResponseWriter, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(data)
+}
+
+func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
+	query := req.URL.Query().Get("q")
+	if query == "" {
+		r.writeError(w, 400, "query parameter 'q' is required")
+		return
+	}
+
+	// Get all rooms first
+	rooms, err := r.getJoinedRooms()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+
+	type SearchResult struct {
+		RoomID      string `json:"room_id"`
+		RoomName    string `json:"room_name"`
+		Platform    string `json:"platform"`
+		Sender      string `json:"sender"`
+		SenderName  string `json:"sender_name"`
+		Body        string `json:"body"`
+		Timestamp   int64  `json:"timestamp"`
+		EventID     string `json:"event_id"`
+	}
+
+	var allResults []SearchResult
+	searchLower := strings.ToLower(query)
+
+	// Search through each room's recent messages
+	for _, room := range rooms {
+		// Fetch messages from this room
+		data, err := r.matrixGet("/_matrix/client/v3/rooms/" + url.PathEscape(room.RoomID) + "/messages?dir=b&limit=100")
+		if err != nil {
+			continue // Skip rooms we can't access
+		}
+
+		var msgsResult struct {
+			Chunk []struct {
+				EventID        string                 `json:"event_id"`
+				Sender         string                 `json:"sender"`
+				Content        map[string]interface{} `json:"content"`
+				OriginServerTS int64                  `json:"origin_server_ts"`
+			} `json:"chunk"`
+		}
+		if err := json.Unmarshal(data, &msgsResult); err != nil {
+			continue
+		}
+
+		// Search through messages in this room
+		for _, msg := range msgsResult.Chunk {
+			body, _ := msg.Content["body"].(string)
+			msgType, _ := msg.Content["msgtype"].(string)
+			
+			if msgType == "" || body == "" {
+				continue
+			}
+
+			// Check if message body contains search query (case-insensitive)
+			if strings.Contains(strings.ToLower(body), searchLower) {
+				// Clean up sender name
+				senderName := msg.Sender
+				if idx := strings.Index(msg.Sender, ":"); idx > 0 {
+					senderName = strings.TrimPrefix(msg.Sender[:idx], "@")
+					for _, prefix := range []string{"telegram_", "whatsapp_", "meta_", "signal_", "instagram_"} {
+						senderName = strings.TrimPrefix(senderName, prefix)
+					}
+				}
+
+				allResults = append(allResults, SearchResult{
+					RoomID:     room.RoomID,
+					RoomName:   room.Name,
+					Platform:   room.Platform,
+					Sender:     msg.Sender,
+					SenderName: senderName,
+					Body:       body,
+					Timestamp:  msg.OriginServerTS,
+					EventID:    msg.EventID,
+				})
+			}
+		}
+	}
+
+	// Sort results by timestamp (newest first)
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Timestamp > allResults[j].Timestamp
+	})
+
+	// Group results by room for the frontend
+	type GroupedResult struct {
+		RoomID     string          `json:"room_id"`
+		RoomName   string          `json:"room_name"`
+		Platform   string          `json:"platform"`
+		Results    []SearchResult  `json:"results"`
+		MatchCount int             `json:"match_count"`
+	}
+
+	roomGroups := map[string]*GroupedResult{}
+	for _, result := range allResults {
+		if _, exists := roomGroups[result.RoomID]; !exists {
+			roomGroups[result.RoomID] = &GroupedResult{
+				RoomID:   result.RoomID,
+				RoomName: result.RoomName,
+				Platform: result.Platform,
+				Results:  []SearchResult{},
+			}
+		}
+		roomGroups[result.RoomID].Results = append(roomGroups[result.RoomID].Results, result)
+		roomGroups[result.RoomID].MatchCount++
+	}
+
+	// Convert to slice and sort by match count
+	var groupedResults []GroupedResult
+	for _, group := range roomGroups {
+		groupedResults = append(groupedResults, *group)
+	}
+	sort.Slice(groupedResults, func(i, j int) bool {
+		return groupedResults[i].MatchCount > groupedResults[j].MatchCount
+	})
+
+	r.writeJSON(w, map[string]interface{}{
+		"query":    query,
+		"total":    len(allResults),
+		"groups":   groupedResults,
+	})
 }
 
 func (r *Router) writeError(w http.ResponseWriter, code int, message string) {
