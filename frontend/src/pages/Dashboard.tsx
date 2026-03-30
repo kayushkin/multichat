@@ -1,248 +1,127 @@
 import { useEffect, useState } from 'react'
+import PlatformIcon from '../components/PlatformIcon'
 
-interface DashboardStats {
-  total_conversations: number
-  active_today: number
-  platforms_connected: number
-  platform_breakdown: Array<{
-    platform: string
-    count: number
-    percentage: number
-  }>
-  most_active: Array<{
-    name: string
-    platform: string
-    room_id: string
-  }>
+interface Contact {
+  user_id: string
+  display_name: string
+  telegram_id: string
+  phone?: string
+  platform: string
+  platforms?: string[]
 }
 
-interface EscalationData {
-  escalations: Array<{
-    room_id: string
-    room_name: string
-    platform: string
-    reason: string
-    severity: string
-    evidence: string
-    confidence: number
-    last_activity: number
-  }>
-  total: number
-  rooms_scanned: number
-  scan_timestamp: number
-}
-
-const platformColors: Record<string, string> = {
-  telegram: 'bg-sky-500',
-  whatsapp: 'bg-emerald-500',
-  facebook: 'bg-blue-600',
-  instagram: 'bg-pink-500',
-  signal: 'bg-blue-400',
-  unknown: 'bg-gray-500',
-}
-
-const platformIcons: Record<string, string> = {
-  telegram: '✈️',
-  whatsapp: '💬',
-  facebook: '📘',
-  instagram: '📷',
-  signal: '🔒',
-  unknown: '❓',
+interface Conversation {
+  room_id: string
+  name: string
+  member_count: number
+  platform: string
 }
 
 function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [escalations, setEscalations] = useState<EscalationData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [escalationLoading, setEscalationLoading] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [conversations, setConversations] = useState<Conversation[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => {
-    fetch('/api/stats')
-      .then(res => { if (!res.ok) throw new Error(`${res.status}`); return res.json() })
-      .then(setStats)
+    fetch('/api/contacts')
+      .then(r => r.json())
+      .then(data => setContacts(data || []))
       .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+
+    fetch('/api/conversations')
+      .then(r => r.json())
+      .then(data => setConversations(data || []))
+      .catch(e => setError(e.message))
   }, [])
 
-  const runEscalationScan = async () => {
-    setEscalationLoading(true)
-    try {
-      const response = await fetch('/api/ai/escalation-scan', { method: 'POST' })
-      if (!response.ok) throw new Error(`Scan failed: ${response.statusText}`)
-      const data = await response.json()
-      setEscalations(data)
-    } catch (err) {
-      console.error('Escalation scan failed:', err)
-    } finally {
-      setEscalationLoading(false)
-    }
-  }
+  const platforms = new Set(contacts.map(c => c.platform))
+  const tgContacts = contacts.filter(c => c.platform === 'telegram')
+  const waContacts = contacts.filter(c => c.platform === 'whatsapp')
+  const sigContacts = contacts.filter(c => c.platform === 'signal')
+  const fbContacts = contacts.filter(c => c.platform === 'facebook' || c.platform === 'meta')
+  const igContacts = contacts.filter(c => c.platform === 'instagram')
 
-  if (loading) return (
-    <div className="flex items-center justify-center py-20">
-      <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
-    </div>
-  )
+  const stats = [
+    { label: 'Contacts', value: contacts.length },
+    { label: 'Conversations', value: conversations.length },
+    { label: 'Platforms', value: platforms.size },
+  ]
 
-  if (error) return (
-    <div className="bg-red-900/30 border border-red-700 rounded-lg p-4">
-      <p className="text-red-300">Error loading dashboard: {error}</p>
-    </div>
-  )
-
-  if (!stats) return null
+  const platformRows = [
+    { key: 'telegram', name: 'Telegram', contacts: tgContacts },
+    { key: 'whatsapp', name: 'WhatsApp', contacts: waContacts },
+    { key: 'signal', name: 'Signal', contacts: sigContacts },
+    { key: 'facebook', name: 'Messenger', contacts: fbContacts },
+    { key: 'instagram', name: 'Instagram', contacts: igContacts },
+  ]
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-        <span className="text-sm text-gray-500">Live data from Matrix bridges</span>
-      </div>
+      <h1 className="text-2xl font-bold text-white">Dashboard</h1>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <StatCard label="Total Conversations" value={stats.total_conversations} icon="💬" />
-        <StatCard label="Active Today" value={stats.active_today} icon="🔥" />
-        <StatCard label="Platforms Connected" value={stats.platforms_connected} icon="🔗" />
-      </div>
-
-      {/* Platform Breakdown */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700">
-        <div className="p-5 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Platform Breakdown</h2>
+      {error && (
+        <div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
+          <p className="text-red-300">{error}</p>
         </div>
-        <div className="p-5 space-y-4">
-          {stats.platform_breakdown.map(p => (
-            <div key={p.platform} className="space-y-1.5">
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-white font-medium flex items-center gap-2">
-                  <span>{platformIcons[p.platform] || '❓'}</span>
-                  <span className="capitalize">{p.platform}</span>
-                </span>
-                <span className="text-gray-400 tabular-nums">{p.count} ({p.percentage}%)</span>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-gray-800 rounded-lg p-6">
+            <p className="text-gray-400 text-sm">{stat.label}</p>
+            <p className="text-2xl font-bold text-white mt-1">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Platform Status */}
+      <div className="bg-gray-800 rounded-lg">
+        <div className="p-6 border-b border-gray-700">
+          <h2 className="text-xl font-semibold text-white">Platform Status</h2>
+        </div>
+        <div className="p-6 space-y-3">
+          {platformRows.map((p) => (
+            <div key={p.key} className="flex items-center justify-between p-3 rounded-lg bg-gray-700">
+              <div className="flex items-center gap-3">
+                <PlatformIcon platform={p.key} size={24} />
+                <div>
+                  <p className="text-white font-medium">{p.name}</p>
+                  <p className="text-gray-400 text-sm">
+                    {p.contacts.length > 0 ? `${p.contacts.length} contacts synced` : 'Not connected'}
+                  </p>
+                </div>
               </div>
-              <div className="bg-gray-700/50 rounded-full h-2.5">
-                <div
-                  className={`h-2.5 rounded-full transition-all ${platformColors[p.platform] || 'bg-gray-500'}`}
-                  style={{ width: `${Math.max(p.percentage, 3)}%` }}
-                />
-              </div>
+              <div className={`w-3 h-3 rounded-full ${p.contacts.length > 0 ? 'bg-green-500' : 'bg-gray-500'}`} />
             </div>
           ))}
         </div>
       </div>
 
-      {/* AI Escalation Detection */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700">
-        <div className="p-5 border-b border-gray-700 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white flex items-center space-x-2">
-            <span>⚠️</span>
-            <span>Needs Attention</span>
-          </h2>
-          <button
-            onClick={runEscalationScan}
-            disabled={escalationLoading}
-            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
-          >
-            {escalationLoading ? 'Scanning...' : 'AI Scan'}
-          </button>
-        </div>
-        <div className="p-5">
-          {escalations === null ? (
-            <div className="text-center py-8">
-              <div className="text-4xl mb-3">🤖</div>
-              <p className="text-gray-400 mb-3">AI escalation detection ready</p>
-              <p className="text-sm text-gray-500">Click "AI Scan" to analyze recent conversations for issues requiring attention</p>
-            </div>
-          ) : escalations.total === 0 ? (
-            <div className="text-center py-8">
-              <div className="text-4xl mb-3">✅</div>
-              <p className="text-white font-medium mb-1">All clear!</p>
-              <p className="text-sm text-gray-500">
-                No issues detected in {escalations.rooms_scanned} active conversations
-              </p>
-              <p className="text-xs text-gray-600 mt-2">
-                Last scan: {new Date(escalations.scan_timestamp * 1000).toLocaleString()}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {escalations.escalations.slice(0, 3).map((escalation) => (
-                <div key={escalation.room_id} className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-6 h-6 ${platformColors[escalation.platform]} rounded-full flex items-center justify-center text-xs`}>
-                        {platformIcons[escalation.platform]}
-                      </div>
-                      <span className="font-medium text-white">{escalation.room_name}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        escalation.severity === 'high' ? 'bg-red-500 text-white' :
-                        escalation.severity === 'medium' ? 'bg-yellow-500 text-black' :
-                        'bg-blue-500 text-white'
-                      }`}>
-                        {escalation.severity}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {Math.round(escalation.confidence * 100)}%
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-sm text-red-200 mb-2">{escalation.reason}</p>
-                  <p className="text-xs text-gray-400 italic">"{escalation.evidence}"</p>
+      {/* Contacts */}
+      {contacts.length > 0 && (
+        <div className="bg-gray-800 rounded-lg">
+          <div className="p-6 border-b border-gray-700">
+            <h2 className="text-xl font-semibold text-white">Contacts ({contacts.length})</h2>
+          </div>
+          <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {contacts.map((c) => (
+              <div key={c.user_id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-700">
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-xs text-white">
+                  {c.display_name.charAt(0)}
                 </div>
-              ))}
-              
-              {escalations.total > 3 && (
-                <div className="text-center pt-3 border-t border-gray-700">
-                  <span className="text-sm text-gray-400">
-                    +{escalations.total - 3} more conversations need review
-                  </span>
+                <div className="min-w-0">
+                  <p className="text-white text-sm truncate">{c.display_name}</p>
+                  <p className="text-gray-500 text-xs flex items-center gap-1">
+                    {(c.platforms || [c.platform]).map((p) => (
+                      <PlatformIcon key={p} platform={p} size={12} />
+                    ))}
+                  </p>
                 </div>
-              )}
-              
-              <div className="text-xs text-gray-600 text-center pt-2">
-                Scanned {escalations.rooms_scanned} active conversations • {new Date(escalations.scan_timestamp * 1000).toLocaleString()}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-      </div>
-
-      {/* Most Active */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700">
-        <div className="p-5 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-white">Recent Conversations</h2>
-        </div>
-        <div className="divide-y divide-gray-700/50">
-          {stats.most_active?.map((conv, i) => (
-            <div key={i} className="flex items-center gap-3 px-5 py-3 hover:bg-gray-700/30 transition-colors">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${platformColors[conv.platform] || 'bg-gray-500'}`} />
-              <span className="text-white font-medium truncate">{conv.name}</span>
-              <span className="text-gray-500 text-xs capitalize ml-auto flex-shrink-0">{conv.platform}</span>
-            </div>
-          ))}
-          {(!stats.most_active || stats.most_active.length === 0) && (
-            <div className="p-5 text-center text-gray-500">No recent activity</div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function StatCard({ label, value, icon }: { label: string; value: number; icon: string }) {
-  return (
-    <div className="bg-gray-800 rounded-xl border border-gray-700 p-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-gray-400 text-sm">{label}</p>
-          <p className="text-3xl font-bold text-white mt-1 tabular-nums">{value}</p>
-        </div>
-        <span className="text-3xl">{icon}</span>
-      </div>
+      )}
     </div>
   )
 }
