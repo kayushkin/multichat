@@ -9,7 +9,7 @@ interface AlertResult {
   body: string
   timestamp: number
   event_id: string
-  keyword_matched: string
+  keyword: string
   severity: string
 }
 
@@ -274,12 +274,12 @@ function Alerts() {
                   
                   {/* Message content */}
                   <div className="text-gray-200 leading-relaxed mb-2">
-                    {highlightKeyword(alert.body, alert.keyword_matched)}
+                    {highlightKeyword(alert.body, alert.keyword)}
                   </div>
                   
                   {/* Keyword matched */}
                   <div className="text-xs text-gray-500">
-                    Triggered by keyword: <span className="text-red-400 font-medium">"{alert.keyword_matched}"</span>
+                    Triggered by keyword: <span className="text-red-400 font-medium">"{alert.keyword}"</span>
                   </div>
                 </div>
               </div>
