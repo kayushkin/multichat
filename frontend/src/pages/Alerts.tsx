@@ -328,19 +328,38 @@ function Alerts() {
               </form>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {alerts.keywords_used.map((keyword, index) => (
-                <span key={index} className="text-xs bg-gray-800 text-gray-300 px-2.5 py-1 rounded-full border border-gray-700 flex items-center gap-1.5">
-                  {keyword}
-                  <button onClick={async () => {
-                    await fetch('/api/alerts', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ action: 'remove', keyword }),
-                    })
-                    fetchAlerts()
-                  }} className="text-gray-500 hover:text-red-400 transition-colors">×</button>
-                </span>
-              ))}
+              {(alerts.keywords_detail || alerts.keywords_used.map((k: string) => ({ keyword: k, severity: 'low' }))).map((kw: any, index: number) => {
+                const sevColors: Record<string, string> = {
+                  high: 'bg-red-900/30 text-red-300 border-red-700',
+                  medium: 'bg-yellow-900/30 text-yellow-300 border-yellow-700',
+                  low: 'bg-gray-800 text-gray-300 border-gray-700',
+                }
+                const sevIcons: Record<string, string> = { high: '🔴', medium: '🟡', low: '⚪' }
+                const nextSev: Record<string, string> = { low: 'medium', medium: 'high', high: 'low' }
+                return (
+                  <span key={index} className={`text-xs px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${sevColors[kw.severity] || sevColors.low}`}>
+                    <button onClick={async () => {
+                      await fetch('/api/alerts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'set-severity', keyword: kw.keyword, severity: nextSev[kw.severity] || 'low' }),
+                      })
+                      fetchAlerts()
+                    }} className="hover:opacity-70 transition-opacity" title={`Priority: ${kw.severity} (click to change)`}>
+                      {sevIcons[kw.severity] || '⚪'}
+                    </button>
+                    {kw.keyword}
+                    <button onClick={async () => {
+                      await fetch('/api/alerts', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'remove', keyword: kw.keyword }),
+                      })
+                      fetchAlerts()
+                    }} className="text-gray-500 hover:text-red-400 transition-colors">×</button>
+                  </span>
+                )
+              })}
             </div>
           </div>
         </div>

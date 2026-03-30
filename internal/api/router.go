@@ -745,17 +745,25 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	// POST to add/remove custom keywords
 	if req.Method == "POST" {
 		var body struct {
-			Action  string `json:"action"` // "add" or "remove"
-			Keyword string `json:"keyword"`
+			Action   string `json:"action"`   // "add", "remove", or "set-severity"
+			Keyword  string `json:"keyword"`
+			Severity string `json:"severity"` // "high", "medium", "low"
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Keyword == "" {
 			r.writeError(w, 400, "keyword required"); return
 		}
-		r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE)`)
-		if body.Action == "remove" {
+		r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE, severity TEXT NOT NULL DEFAULT 'low')`)
+		switch body.Action {
+		case "remove":
 			r.db.Exec(`DELETE FROM alert_keywords WHERE keyword = ?`, strings.ToLower(body.Keyword))
-		} else {
-			r.db.Exec(`INSERT OR IGNORE INTO alert_keywords (keyword) VALUES (?)`, strings.ToLower(body.Keyword))
+		case "set-severity":
+			sev := body.Severity
+			if sev != "high" && sev != "medium" && sev != "low" { sev = "low" }
+			r.db.Exec(`INSERT INTO alert_keywords (keyword, severity) VALUES (?, ?) ON CONFLICT(keyword) DO UPDATE SET severity = ?`, strings.ToLower(body.Keyword), sev, sev)
+		default: // "add"
+			sev := body.Severity
+			if sev == "" { sev = "low" }
+			r.db.Exec(`INSERT INTO alert_keywords (keyword, severity) VALUES (?, ?) ON CONFLICT(keyword) DO UPDATE SET severity = ?`, strings.ToLower(body.Keyword), sev, sev)
 		}
 		r.writeJSON(w, map[string]string{"status": "ok"})
 		return
@@ -767,13 +775,18 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	// Default keywords + custom from DB
 	keywords := []string{"complaint", "urgent", "late", "damaged", "delay", "escalate", "cancel", "problem", "issue", "wrong", "broken", "failed", "missing", "angry", "refund"}
-	r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE)`)
-	rows, err := r.db.Query(`SELECT keyword FROM alert_keywords`)
+	// Keyword → severity map
+	kwSeverity := map[string]string{
+		"urgent": "high", "escalate": "high", "angry": "high",
+		"complaint": "medium", "failed": "medium", "refund": "medium",
+	}
+	r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE, severity TEXT NOT NULL DEFAULT 'low')`)
+	rows, err := r.db.Query(`SELECT keyword, severity FROM alert_keywords`)
 	if err == nil {
 		for rows.Next() {
-			var kw string
-			rows.Scan(&kw)
-			// Don't duplicate
+			var kw, sev string
+			rows.Scan(&kw, &sev)
+			kwSeverity[kw] = sev
 			found := false
 			for _, existing := range keywords { if existing == kw { found = true; break } }
 			if !found { keywords = append(keywords, kw) }
@@ -802,8 +815,7 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 			for _, kw := range keywords {
 				if strings.Contains(lower, kw) {
 					sev := "low"
-					if kw == "urgent" || kw == "escalate" || kw == "angry" { sev = "high" }
-					if kw == "complaint" || kw == "failed" || kw == "refund" { sev = "medium" }
+					if s, ok := kwSeverity[kw]; ok { sev = s }
 					alerts = append(alerts, Alert{RoomID: c.RoomID, RoomName: c.Name, Platform: c.Platform, Keyword: kw, Body: m.Body, Sender: m.SenderName, Time: m.Timestamp, Severity: sev})
 					break
 				}
@@ -813,7 +825,18 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	sevCounts := map[string]int{"high": 0, "medium": 0, "low": 0}
 	for _, a := range alerts { sevCounts[a.Severity]++ }
 	if alerts == nil { alerts = []Alert{} }
-	r.writeJSON(w, map[string]interface{}{"alerts": alerts, "total": len(alerts), "hours_scanned": hours, "keywords_used": keywords, "cutoff_time": cutoff, "severity_counts": sevCounts})
+	// Build keyword list with severities
+	type KWInfo struct {
+		Keyword  string `json:"keyword"`
+		Severity string `json:"severity"`
+	}
+	var kwList []KWInfo
+	for _, kw := range keywords {
+		sev := "low"
+		if s, ok := kwSeverity[kw]; ok { sev = s }
+		kwList = append(kwList, KWInfo{Keyword: kw, Severity: sev})
+	}
+	r.writeJSON(w, map[string]interface{}{"alerts": alerts, "total": len(alerts), "hours_scanned": hours, "keywords_used": keywords, "keywords_detail": kwList, "cutoff_time": cutoff, "severity_counts": sevCounts})
 }
 
 func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request) {
