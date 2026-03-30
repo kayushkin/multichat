@@ -173,16 +173,14 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 				}
 				rows.Close()
 			}
-			// Map ghost (other_user_id in portal) → platform via receiver
+			// Build map: other_user_id → platform (via portal → receiver → login)
 			ghostPlatform := map[string]string{}
-			rows, _ = metaDB.Query(`SELECT other_user_id, receiver FROM portal WHERE other_user_id IS NOT NULL AND receiver != ''`)
+			rows, _ = metaDB.Query(`SELECT p.other_user_id, json_extract(ul.metadata, '$.platform') FROM portal p JOIN user_login ul ON p.receiver = ul.id WHERE p.other_user_id IS NOT NULL`)
 			if rows != nil {
 				for rows.Next() {
-					var ghostID, receiver string
-					rows.Scan(&ghostID, &receiver)
-					if p, ok := loginPlatform[receiver]; ok {
-						ghostPlatform[ghostID] = p
-					}
+					var ghostID, platform string
+					rows.Scan(&ghostID, &platform)
+					ghostPlatform[ghostID] = platform
 				}
 				rows.Close()
 			}
@@ -191,8 +189,13 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 			for i := range merged {
 				if merged[i].Platform == "meta" {
 					id := merged[i].TelegramID
-					if p, ok := ghostPlatform[id]; ok {
+					if p, ok := loginPlatform[id]; ok {
 						merged[i].Platform = p
+					} else if p, ok := ghostPlatform[id]; ok {
+						merged[i].Platform = p
+					} else {
+						// Default unresolved meta contacts to facebook (primary account)
+						merged[i].Platform = "facebook"
 					}
 				}
 			}
@@ -586,6 +589,49 @@ func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
 func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request) {
 	contacts, err := r.matrix.ListContacts()
 	if err != nil { r.writeError(w, 500, err.Error()); return }
+
+	// Resolve meta → facebook/instagram using bridge DB
+	metaUserPlatforms := map[string]string{} // meta user ID → "facebook" or "instagram"
+	if r.metaDBPath != "" {
+		if metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro"); err == nil {
+			loginPlatform := map[string]string{}
+			rows, _ := metaDB.Query(`SELECT id, json_extract(metadata, '$.platform') FROM user_login`)
+			if rows != nil {
+				for rows.Next() {
+					var id, platform string
+					rows.Scan(&id, &platform)
+					loginPlatform[id] = platform
+				}
+				rows.Close()
+			}
+			// Map ghost mxid → platform via ghost table
+			rows, _ = metaDB.Query(`SELECT g.mxid, up.login_id FROM ghost g JOIN user_portal up ON 1=1 WHERE g.mxid IS NOT NULL`)
+			if rows != nil {
+				for rows.Next() {
+					var mxid, loginID string
+					rows.Scan(&mxid, &loginID)
+					if p, ok := loginPlatform[loginID]; ok {
+						metaUserPlatforms[mxid] = p
+					}
+				}
+				rows.Close()
+			}
+			// Also try: extract numeric ID from @meta_XXXX and match to portal receiver
+			rows, _ = metaDB.Query(`SELECT p.mxid, up.login_id FROM portal p JOIN user_portal up ON p.id = up.portal_id AND p.receiver = up.portal_receiver WHERE p.receiver != ''`)
+			if rows != nil {
+				for rows.Next() {
+					var mxid, loginID string
+					rows.Scan(&mxid, &loginID)
+					if p, ok := loginPlatform[loginID]; ok {
+						metaUserPlatforms[mxid] = p
+					}
+				}
+				rows.Close()
+			}
+			metaDB.Close()
+		}
+	}
+
 	type Identity struct {
 		UserID   string `json:"user_id"`
 		Platform string `json:"platform"`
@@ -603,12 +649,19 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 		if _, ok := groups[key]; !ok {
 			groups[key] = &Unified{DisplayName: c.DisplayName}
 		}
+		// Resolve meta platform
+		platform := c.Platform
+		if platform == "meta" {
+			if p, ok := metaUserPlatforms[c.UserID]; ok {
+				platform = p
+			}
+		}
 		found := false
 		for _, id := range groups[key].Identities {
 			if id.UserID == c.UserID { found = true; break }
 		}
 		if !found {
-			groups[key].Identities = append(groups[key].Identities, Identity{UserID: c.UserID, Platform: c.Platform, Avatar: c.AvatarURL})
+			groups[key].Identities = append(groups[key].Identities, Identity{UserID: c.UserID, Platform: platform, Avatar: c.AvatarURL})
 		}
 	}
 	result := make([]Unified, 0, len(groups))
