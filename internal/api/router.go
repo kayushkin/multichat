@@ -60,6 +60,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/contacts/unified", r.unifiedContactsHandler)
 	r.mux.HandleFunc("/stats", r.statsHandler)
 	r.mux.HandleFunc("/ai/summarize", r.summarizeHandler)
+	r.mux.HandleFunc("/ai/escalation-scan", r.escalationScanHandler)
 	r.mux.HandleFunc("/search", r.searchHandler)
 	r.mux.HandleFunc("/alerts", r.alertsHandler)
 }
@@ -673,6 +674,302 @@ Conversation:
 			"topics":    []string{},
 			"sentiment": "neutral",
 		}, nil
+	}
+	return result, nil
+}
+
+func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+
+	// Get top 10 most active rooms
+	rooms, err := r.getJoinedRooms()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+
+	// Filter to rooms with recent activity (last 7 days) and sort by activity
+	cutoffTime := time.Now().Add(-7 * 24 * time.Hour).UnixMilli()
+	var activeRooms []MatrixRoom
+	for _, room := range rooms {
+		if room.LastActivity >= cutoffTime && room.MemberCount > 1 {
+			activeRooms = append(activeRooms, room)
+		}
+	}
+
+	// Take top 10 most active rooms
+	if len(activeRooms) > 10 {
+		activeRooms = activeRooms[:10]
+	}
+
+	type EscalationResult struct {
+		RoomID      string  `json:"room_id"`
+		RoomName    string  `json:"room_name"`
+		Platform    string  `json:"platform"`
+		Reason      string  `json:"reason"`
+		Severity    string  `json:"severity"`
+		Evidence    string  `json:"evidence"`
+		Confidence  float64 `json:"confidence"`
+		LastActivity int64  `json:"last_activity"`
+	}
+
+	var escalations []EscalationResult
+
+	// Check each active room for escalation signals
+	for _, room := range activeRooms {
+		// Fetch recent messages (last 48 hours, limit 30 messages)
+		recentCutoff := time.Now().Add(-48 * time.Hour).UnixMilli()
+		data, err := r.matrixGet("/_matrix/client/v3/rooms/" + url.PathEscape(room.RoomID) + "/messages?dir=b&limit=30")
+		if err != nil {
+			continue
+		}
+
+		var msgsResult struct {
+			Chunk []struct {
+				Sender         string                 `json:"sender"`
+				Content        map[string]interface{} `json:"content"`
+				OriginServerTS int64                  `json:"origin_server_ts"`
+			} `json:"chunk"`
+		}
+		if err := json.Unmarshal(data, &msgsResult); err != nil {
+			continue
+		}
+
+		// Build conversation for AI analysis
+		var convo strings.Builder
+		var messageCount int
+		for i := len(msgsResult.Chunk) - 1; i >= 0; i-- {
+			msg := msgsResult.Chunk[i]
+			if msg.OriginServerTS < recentCutoff {
+				continue
+			}
+			
+			body, _ := msg.Content["body"].(string)
+			msgType, _ := msg.Content["msgtype"].(string)
+			if msgType == "" || body == "" {
+				continue
+			}
+
+			// Clean sender name
+			sender := msg.Sender
+			if idx := strings.Index(sender, ":"); idx > 0 {
+				sender = strings.TrimPrefix(sender[:idx], "@")
+				for _, prefix := range []string{"telegram_", "whatsapp_", "meta_", "signal_"} {
+					sender = strings.TrimPrefix(sender, prefix)
+				}
+			}
+
+			convo.WriteString(fmt.Sprintf("%s: %s\n", sender, body))
+			messageCount++
+		}
+
+		// Skip rooms with too few messages
+		if messageCount < 3 {
+			continue
+		}
+
+		// Analyze with AI (try OpenAI first, fall back to Claude)
+		openaiKey := os.Getenv("OPENAI_API_KEY")
+		anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+
+		var analysis map[string]interface{}
+
+		if openaiKey != "" {
+			analysis, err = r.analyzeEscalationOpenAI(openaiKey, convo.String(), room.Name)
+		} else if anthropicKey != "" {
+			analysis, err = r.analyzeEscalationClaude(anthropicKey, convo.String(), room.Name)
+		} else {
+			r.writeError(w, 500, "No AI API key configured for escalation analysis")
+			return
+		}
+
+		if err != nil {
+			continue // Skip this room if AI analysis fails
+		}
+
+		// Check if escalation was detected
+		needsAttention, _ := analysis["needs_attention"].(bool)
+		if needsAttention {
+			reason, _ := analysis["reason"].(string)
+			severity, _ := analysis["severity"].(string)
+			evidence, _ := analysis["evidence"].(string)
+			confidence, _ := analysis["confidence"].(float64)
+
+			escalations = append(escalations, EscalationResult{
+				RoomID:       room.RoomID,
+				RoomName:     room.Name,
+				Platform:     room.Platform,
+				Reason:       reason,
+				Severity:     severity,
+				Evidence:     evidence,
+				Confidence:   confidence,
+				LastActivity: room.LastActivity,
+			})
+		}
+	}
+
+	// Sort by severity (high -> medium -> low) then by confidence
+	sort.Slice(escalations, func(i, j int) bool {
+		severityOrder := map[string]int{"high": 3, "medium": 2, "low": 1}
+		if severityOrder[escalations[i].Severity] != severityOrder[escalations[j].Severity] {
+			return severityOrder[escalations[i].Severity] > severityOrder[escalations[j].Severity]
+		}
+		return escalations[i].Confidence > escalations[j].Confidence
+	})
+
+	r.writeJSON(w, map[string]interface{}{
+		"escalations":    escalations,
+		"total":          len(escalations),
+		"rooms_scanned":  len(activeRooms),
+		"scan_timestamp": time.Now().Unix(),
+	})
+}
+
+func (r *Router) analyzeEscalationOpenAI(apiKey, conversation, roomName string) (map[string]interface{}, error) {
+	prompt := fmt.Sprintf(`You are analyzing a business conversation from "%s" to identify if it needs manager attention.
+
+Look for signs of:
+- Angry or upset customers
+- Missed deadlines or commitments  
+- Risky promises made by staff
+- Unresolved complaints
+- Payment disputes
+- Service failures
+- Escalating conflict
+
+Respond with ONLY valid JSON:
+{
+  "needs_attention": true/false,
+  "reason": "brief reason if true",
+  "severity": "high/medium/low",
+  "evidence": "key phrases or quotes that indicate the issue",
+  "confidence": 0.8
+}
+
+Conversation:
+%s`, roomName, conversation)
+
+	body := map[string]interface{}{
+		"model": "gpt-4o-mini",
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": prompt},
+		},
+		"max_tokens":  300,
+		"temperature": 0.1,
+	}
+	jsonData, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "https://api.openai.com/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+
+	var oaiResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&oaiResp); err != nil {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+	if len(oaiResp.Choices) == 0 {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+
+	text := oaiResp.Choices[0].Message.Content
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+	return result, nil
+}
+
+func (r *Router) analyzeEscalationClaude(apiKey, conversation, roomName string) (map[string]interface{}, error) {
+	prompt := fmt.Sprintf(`You are analyzing a business conversation from "%s" to identify if it needs manager attention.
+
+Look for signs of:
+- Angry or upset customers
+- Missed deadlines or commitments  
+- Risky promises made by staff
+- Unresolved complaints
+- Payment disputes
+- Service failures
+- Escalating conflict
+
+Respond with ONLY valid JSON:
+{
+  "needs_attention": true/false,
+  "reason": "brief reason if true",
+  "severity": "high/medium/low", 
+  "evidence": "key phrases or quotes that indicate the issue",
+  "confidence": 0.8
+}
+
+Conversation:
+%s`, roomName, conversation)
+
+	body := map[string]interface{}{
+		"model":      "claude-sonnet-4-20250514",
+		"max_tokens": 300,
+		"messages":   []map[string]interface{}{{"role": "user", "content": prompt}},
+	}
+	jsonData, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+
+	var claudeResp struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	json.NewDecoder(resp.Body).Decode(&claudeResp)
+	if len(claudeResp.Content) == 0 {
+		return map[string]interface{}{"needs_attention": false}, nil
+	}
+
+	text := claudeResp.Content[0].Text
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return map[string]interface{}{"needs_attention": false}, nil
 	}
 	return result, nil
 }

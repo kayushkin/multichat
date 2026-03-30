@@ -16,6 +16,22 @@ interface DashboardStats {
   }>
 }
 
+interface EscalationData {
+  escalations: Array<{
+    room_id: string
+    room_name: string
+    platform: string
+    reason: string
+    severity: string
+    evidence: string
+    confidence: number
+    last_activity: number
+  }>
+  total: number
+  rooms_scanned: number
+  scan_timestamp: number
+}
+
 const platformColors: Record<string, string> = {
   telegram: 'bg-sky-500',
   whatsapp: 'bg-emerald-500',
@@ -36,7 +52,9 @@ const platformIcons: Record<string, string> = {
 
 function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [escalations, setEscalations] = useState<EscalationData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [escalationLoading, setEscalationLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -46,6 +64,20 @@ function Dashboard() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  const runEscalationScan = async () => {
+    setEscalationLoading(true)
+    try {
+      const response = await fetch('/api/ai/escalation-scan', { method: 'POST' })
+      if (!response.ok) throw new Error(`Scan failed: ${response.statusText}`)
+      const data = await response.json()
+      setEscalations(data)
+    } catch (err) {
+      console.error('Escalation scan failed:', err)
+    } finally {
+      setEscalationLoading(false)
+    }
+  }
 
   if (loading) return (
     <div className="flex items-center justify-center py-20">
@@ -98,6 +130,84 @@ function Dashboard() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* AI Escalation Detection */}
+      <div className="bg-gray-800 rounded-xl border border-gray-700">
+        <div className="p-5 border-b border-gray-700 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white flex items-center space-x-2">
+            <span>⚠️</span>
+            <span>Needs Attention</span>
+          </h2>
+          <button
+            onClick={runEscalationScan}
+            disabled={escalationLoading}
+            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-600 rounded-lg text-sm font-medium transition-colors"
+          >
+            {escalationLoading ? 'Scanning...' : 'AI Scan'}
+          </button>
+        </div>
+        <div className="p-5">
+          {escalations === null ? (
+            <div className="text-center py-8">
+              <div className="text-4xl mb-3">🤖</div>
+              <p className="text-gray-400 mb-3">AI escalation detection ready</p>
+              <p className="text-sm text-gray-500">Click "AI Scan" to analyze recent conversations for issues requiring attention</p>
+            </div>
+          ) : escalations.total === 0 ? (
+            <div className="text-center py-8">
+              <div className="text-4xl mb-3">✅</div>
+              <p className="text-white font-medium mb-1">All clear!</p>
+              <p className="text-sm text-gray-500">
+                No issues detected in {escalations.rooms_scanned} active conversations
+              </p>
+              <p className="text-xs text-gray-600 mt-2">
+                Last scan: {new Date(escalations.scan_timestamp * 1000).toLocaleString()}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {escalations.escalations.slice(0, 3).map((escalation) => (
+                <div key={escalation.room_id} className="bg-red-900/20 border border-red-700/50 rounded-lg p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-6 h-6 ${platformColors[escalation.platform]} rounded-full flex items-center justify-center text-xs`}>
+                        {platformIcons[escalation.platform]}
+                      </div>
+                      <span className="font-medium text-white">{escalation.room_name}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        escalation.severity === 'high' ? 'bg-red-500 text-white' :
+                        escalation.severity === 'medium' ? 'bg-yellow-500 text-black' :
+                        'bg-blue-500 text-white'
+                      }`}>
+                        {escalation.severity}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {Math.round(escalation.confidence * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-red-200 mb-2">{escalation.reason}</p>
+                  <p className="text-xs text-gray-400 italic">"{escalation.evidence}"</p>
+                </div>
+              ))}
+              
+              {escalations.total > 3 && (
+                <div className="text-center pt-3 border-t border-gray-700">
+                  <span className="text-sm text-gray-400">
+                    +{escalations.total - 3} more conversations need review
+                  </span>
+                </div>
+              )}
+              
+              <div className="text-xs text-gray-600 text-center pt-2">
+                Scanned {escalations.rooms_scanned} active conversations • {new Date(escalations.scan_timestamp * 1000).toLocaleString()}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
