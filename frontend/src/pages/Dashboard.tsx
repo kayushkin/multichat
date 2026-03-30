@@ -77,6 +77,7 @@ function Dashboard() {
   const sigContacts = contacts.filter(c => c.platform === 'signal')
   const fbContacts = contacts.filter(c => c.platform === 'facebook' || c.platform === 'meta')
   const igContacts = contacts.filter(c => c.platform === 'instagram')
+  const imContacts = contacts.filter(c => c.platform === 'imessage')
 
   const statCards = [
     { label: 'Contacts', value: contacts.length },
@@ -90,6 +91,7 @@ function Dashboard() {
     { key: 'signal', name: 'Signal', contacts: sigContacts },
     { key: 'facebook', name: 'Messenger', contacts: fbContacts },
     { key: 'instagram', name: 'Instagram', contacts: igContacts },
+    { key: 'imessage', name: 'iMessage', contacts: imContacts },
   ]
 
   return (

@@ -36,6 +36,13 @@ export default function PlatformIcon({ platform, size = 20, className = '' }: Pr
           <path d="M12 6C8.69 6 6 8.45 6 11.5c0 1.73.86 3.27 2.2 4.28V18l2.17-1.19c.58.16 1.19.25 1.83.25 3.31 0 6-2.45 6-5.5S15.31 6 12 6zm.6 7.4l-1.53-1.63L8.01 13.4l3.36-3.57 1.53 1.63 3.06-1.63-3.36 3.57z" fill="#fff" />
         </svg>
       )
+    case 'imessage':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={className}>
+          <circle cx="12" cy="12" r="12" fill="#34C759" />
+          <path d="M12 6C8.13 6 5 8.69 5 12c0 1.66.72 3.17 1.9 4.3L6.5 18l1.9-.7C9.5 17.7 10.7 18 12 18c3.87 0 7-2.69 7-6s-3.13-6-7-6z" fill="#fff" />
+        </svg>
+      )
     case 'instagram':
       return (
         <svg width={s} height={s} viewBox="0 0 24 24" className={className}>
