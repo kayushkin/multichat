@@ -8,6 +8,12 @@ interface Contact {
   platform: string
 }
 
+interface Tag {
+  id: number
+  name: string
+  color: string
+}
+
 interface Conversation {
   room_id: string
   name: string
@@ -46,6 +52,10 @@ function Chat() {
   const [summary, setSummary] = useState<{ summary: string; topics: string[]; sentiment: string } | null>(null)
   const [summarizing, setSummarizing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagFilter, setTagFilter] = useState<number | null>(null)
+  const [roomTags, setRoomTags] = useState<Record<string, Tag[]>>({})
+  const [selectedRoomTags, setSelectedRoomTags] = useState<Tag[]>([])
   const [showAddContact, setShowAddContact] = useState(false)
   const [newContact, setNewContact] = useState({
     display_name: '',
@@ -57,11 +67,84 @@ function Chat() {
   const membersRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    fetch('/api/conversations')
-      .then(r => r.json())
-      .then(data => setConversations(data || []))
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetch('/api/conversations').then(r => r.json()),
+      fetch('/api/tags').then(r => r.json()),
+    ]).then(([convos, t]) => {
+      setConversations(convos || [])
+      setTags(t || [])
+      // Load tags for all rooms via their members
+      loadAllRoomTags(convos || [])
+    }).finally(() => setLoading(false))
   }, [])
+
+  const loadAllRoomTags = async (convos: Conversation[]) => {
+    // For each conversation, get members and check their tags
+    const tagMap: Record<string, Tag[]> = {}
+    for (const conv of convos.slice(0, 30)) { // limit to first 30 for perf
+      try {
+        const membersRes = await fetch(`/api/conversations/${encodeURIComponent(conv.room_id)}/members`)
+        if (!membersRes.ok) continue
+        const roomMembers = await membersRes.json()
+        const allTags: Tag[] = []
+        for (const m of (roomMembers || [])) {
+          const tagsRes = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
+          if (!tagsRes.ok) continue
+          const mTags = await tagsRes.json()
+          for (const t of (mTags || [])) {
+            if (!allTags.some(at => at.id === t.id)) allTags.push(t)
+          }
+        }
+        if (allTags.length > 0) tagMap[conv.room_id] = allTags
+      } catch { /* skip */ }
+    }
+    setRoomTags(tagMap)
+  }
+
+  const loadRoomTags = async (roomId: string) => {
+    try {
+      const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
+      if (!membersRes.ok) return
+      const roomMembers = await membersRes.json()
+      const allTags: Tag[] = []
+      for (const m of (roomMembers || [])) {
+        const tagsRes = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
+        if (!tagsRes.ok) continue
+        const mTags = await tagsRes.json()
+        for (const t of (mTags || [])) {
+          if (!allTags.some(at => at.id === t.id)) allTags.push(t)
+        }
+      }
+      setSelectedRoomTags(allTags)
+      setRoomTags(prev => ({ ...prev, [roomId]: allTags }))
+    } catch { /* skip */ }
+  }
+
+  const assignTagToRoom = async (roomId: string, tagId: number) => {
+    // Assign tag to all non-self members of the room
+    const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
+    if (!membersRes.ok) return
+    const roomMembers = await membersRes.json()
+    for (const m of (roomMembers || [])) {
+      if (m.user_id?.includes('@admin')) continue
+      await fetch('/api/contacts/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_user_id: m.user_id, tag_id: tagId }),
+      })
+    }
+    loadRoomTags(roomId)
+  }
+
+  const removeTagFromRoom = async (roomId: string, tagId: number) => {
+    const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
+    if (!membersRes.ok) return
+    const roomMembers = await membersRes.json()
+    for (const m of (roomMembers || [])) {
+      await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}&tag=${tagId}`, { method: 'DELETE' })
+    }
+    loadRoomTags(roomId)
+  }
 
   const loadMessages = async (roomID: string) => {
     setSelected(roomID)
@@ -70,6 +153,8 @@ function Chat() {
     setShowMembers(false)
     setShowSummary(false)
     setSummary(null)
+    setSelectedRoomTags([])
+    loadRoomTags(roomID)
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(roomID)}/messages?limit=100`)
       if (!res.ok) throw new Error(`${res.status}`)
@@ -225,6 +310,7 @@ function Chat() {
 
   const filteredConversations = conversations.filter(conv => {
     if (platformFilter && conv.platform !== platformFilter) return false
+    if (tagFilter && !(roomTags[conv.room_id] || []).some(t => t.id === tagFilter)) return false
     if (search) {
       const q = search.toLowerCase()
       return conv.name.toLowerCase().includes(q) ||
@@ -310,6 +396,22 @@ function Chat() {
               </button>
             ))}
           </div>
+          {tags.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap">
+              {tags.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTagFilter(tagFilter === t.id ? null : t.id)}
+                  className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
+                    tagFilter === t.id ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-white border border-gray-700'
+                  }`}
+                  style={tagFilter === t.id ? { backgroundColor: t.color } : undefined}
+                >
+                  🏷 {t.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
           {loading && (
@@ -347,6 +449,15 @@ function Chat() {
                   <p className="text-gray-400 text-xs truncate">
                     {conv.last_message || `${conv.member_count} members · ${platformLabel(conv.platform)}`}
                   </p>
+                  {(roomTags[conv.room_id] || []).length > 0 && (
+                    <div className="flex gap-1 mt-0.5">
+                      {(roomTags[conv.room_id] || []).map(t => (
+                        <span key={t.id} className="text-[9px] px-1.5 py-0 rounded" style={{ backgroundColor: `${t.color}22`, color: t.color }}>
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -407,6 +518,28 @@ function Chat() {
                 </div>
               )}
             </div>
+
+            {/* Tags bar */}
+            {selected && (
+              <div className="border-b border-gray-800 px-4 py-2 flex items-center gap-2 flex-wrap bg-black/20">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Tags:</span>
+                {selectedRoomTags.map(t => (
+                  <span key={t.id} className="text-[11px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1" style={{ backgroundColor: `${t.color}22`, color: t.color, borderColor: `${t.color}44` }}>
+                    {t.name}
+                    <span onClick={() => removeTagFromRoom(selected, t.id)} className="cursor-pointer opacity-60 hover:opacity-100">×</span>
+                  </span>
+                ))}
+                {tags.filter(t => !selectedRoomTags.some(st => st.id === t.id)).map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => assignTagToRoom(selected, t.id)}
+                    className="text-[11px] px-2 py-0.5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors"
+                  >
+                    + {t.name}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {showSummary && (
               <div className="border-b border-gray-700 bg-gradient-to-r from-purple-900/20 to-blue-900/20 p-4">
