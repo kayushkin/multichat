@@ -58,6 +58,8 @@ function Chat() {
   const [selectedRoomTags, setSelectedRoomTags] = useState<Tag[]>([])
   const [newInlineTag, setNewInlineTag] = useState('')
   const [showInlineTagInput, setShowInlineTagInput] = useState(false)
+  const [autoTagging, setAutoTagging] = useState(false)
+  const [autoTagSuggestions, setAutoTagSuggestions] = useState<{ existing_tags: string[]; new_tags: string[] } | null>(null)
   const [showAddContact, setShowAddContact] = useState(false)
   const [newContact, setNewContact] = useState({
     display_name: '',
@@ -122,6 +124,67 @@ function Chat() {
     } catch { /* skip */ }
   }
 
+  const autoTag = async () => {
+    if (!selected) return
+    setAutoTagging(true)
+    setAutoTagSuggestions(null)
+    try {
+      const res = await fetch('/api/ai/auto-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: selected }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setAutoTagSuggestions(data)
+    } catch (e: any) {
+      console.error('Auto-tag failed:', e)
+    } finally {
+      setAutoTagging(false)
+    }
+  }
+
+  const applyAutoTag = async (tagName: string, isNew: boolean) => {
+    if (!selected) return
+    let tagId: number | null = null
+    if (isNew) {
+      // Create the tag first
+      const res = await fetch('/api/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: tagName, color: '#f5d40c' }),
+      })
+      if (res.ok) {
+        const t = await res.json()
+        tagId = t.id
+        setTags(prev => [...prev, t])
+      }
+    } else {
+      const existing = tags.find(t => t.name.toLowerCase() === tagName.toLowerCase())
+      if (existing) tagId = existing.id
+    }
+    if (!tagId) return
+    // Assign to non-self members
+    const membersRes = await fetch(`/api/conversations/${encodeURIComponent(selected)}/members`)
+    if (!membersRes.ok) return
+    const roomMembers = await membersRes.json()
+    for (const m of (roomMembers || [])) {
+      if (m.is_me) continue
+      await fetch('/api/contacts/tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact_user_id: m.user_id, tag_id: tagId }),
+      })
+    }
+    // Remove from suggestions
+    setAutoTagSuggestions(prev => prev ? {
+      existing_tags: prev.existing_tags.filter(t => t !== tagName),
+      new_tags: prev.new_tags.filter(t => t !== tagName),
+    } : null)
+    loadRoomTags(selected)
+    loadMemberTags(selected)
+  }
+
   const [memberTags, setMemberTags] = useState<Record<string, Tag[]>>({})
   const [showTagManager, setShowTagManager] = useState(false)
 
@@ -162,6 +225,7 @@ function Chat() {
     setSummary(null)
     setSelectedRoomTags([])
     setShowTagManager(false)
+    setAutoTagSuggestions(null)
     setMemberTags({})
     loadRoomTags(roomID)
     loadMemberTags(roomID)
@@ -507,6 +571,18 @@ function Chat() {
                   )}
                   {summarizing ? 'Analyzing...' : 'AI Summary'}
                 </button>
+                <button
+                  onClick={autoTag}
+                  disabled={autoTagging}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all disabled:opacity-50 bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700"
+                >
+                  {autoTagging ? (
+                    <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full" />
+                  ) : (
+                    <span>🏷</span>
+                  )}
+                  {autoTagging ? 'Tagging...' : 'Auto-tag'}
+                </button>
               </div>
               {showMembers && (
                 <div className="absolute top-full left-0 right-0 z-50 bg-gray-950 border border-gray-700 rounded-b-lg shadow-xl max-h-72 overflow-y-auto">
@@ -528,6 +604,40 @@ function Chat() {
                 </div>
               )}
             </div>
+
+            {/* Auto-tag suggestions */}
+            {autoTagSuggestions && (
+              <div className="border-b border-gray-800 bg-gradient-to-r from-yellow-900/10 to-gray-900/10 px-4 py-2.5">
+                <div className="flex items-start justify-between mb-2">
+                  <span className="text-xs text-gray-400 font-medium">🏷 AI suggested tags:</span>
+                  <button onClick={() => setAutoTagSuggestions(null)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {(autoTagSuggestions.existing_tags || []).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => applyAutoTag(t, false)}
+                      className="text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors hover:opacity-80"
+                      style={{ backgroundColor: '#f5d40c22', color: '#f5d40c', border: '1px solid #f5d40c44' }}
+                    >
+                      ✓ {t}
+                    </button>
+                  ))}
+                  {(autoTagSuggestions.new_tags || []).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => applyAutoTag(t, true)}
+                      className="text-[11px] px-2.5 py-1 rounded-full font-medium transition-colors border border-dashed border-green-500/40 text-green-400 hover:bg-green-500/10"
+                    >
+                      + {t}
+                    </button>
+                  ))}
+                  {(autoTagSuggestions.existing_tags || []).length === 0 && (autoTagSuggestions.new_tags || []).length === 0 && (
+                    <span className="text-xs text-gray-500">No tags suggested for this conversation</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Tags bar */}
             {selected && (

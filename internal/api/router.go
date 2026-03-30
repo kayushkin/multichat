@@ -81,6 +81,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/ai/escalation-scan", r.escalationScanHandler)
 	r.mux.HandleFunc("/tags", r.tagsHandler)
 	r.mux.HandleFunc("/contacts/tags", r.contactTagsHandler)
+	r.mux.HandleFunc("/ai/auto-tag", r.autoTagHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
@@ -1007,4 +1008,66 @@ func (r *Router) loginHandler(w http.ResponseWriter, req *http.Request) {
 		Secure:   true,
 	})
 	r.writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// autoTagHandler analyzes a conversation and suggests tags
+func (r *Router) autoTagHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" { r.writeError(w, 405, "Method not allowed"); return }
+
+	var body struct{ RoomID string `json:"room_id"` }
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.RoomID == "" {
+		r.writeError(w, 400, "room_id required"); return
+	}
+
+	openaiKey := os.Getenv("OPENAI_API_KEY")
+	if openaiKey == "" { r.writeError(w, 500, "No AI API key configured"); return }
+
+	// Get messages
+	msgs, err := r.matrix.GetMessages(body.RoomID, 50)
+	if err != nil { r.writeError(w, 500, err.Error()); return }
+
+	var convo strings.Builder
+	for _, m := range msgs {
+		if m.Body != "" { convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body)) }
+	}
+	if convo.Len() == 0 {
+		r.writeJSON(w, map[string]interface{}{"suggested_tags": []string{}, "new_tags": []string{}})
+		return
+	}
+
+	// Get existing tags
+	r.ensureTagsTables()
+	rows, err := r.db.Query(`SELECT name FROM tags ORDER BY name`)
+	var existingTags []string
+	if err == nil {
+		for rows.Next() {
+			var name string
+			rows.Scan(&name)
+			existingTags = append(existingTags, name)
+		}
+		rows.Close()
+	}
+
+	tagList := "none yet"
+	if len(existingTags) > 0 { tagList = strings.Join(existingTags, ", ") }
+
+	prompt := fmt.Sprintf(`You are analyzing a business conversation from a logistics/freight brokerage company.
+
+Existing tags in the system: [%s]
+
+Based on the conversation below, suggest which existing tags apply AND suggest new tags if the conversation covers topics not covered by existing tags.
+
+Focus on logistics-relevant categories like: freight type (LTL, FTL, Partial), equipment (Refrigerated, Flatbed, Dry Van, Power Only), service (Expedited, White Glove, Last Mile), status (Active, Pending, Closed), priority (Urgent, Routine), or any other relevant business category.
+
+Respond ONLY with JSON: {"existing_tags": ["tag1", "tag2"], "new_tags": ["suggested new tag 1"]}
+
+If no tags apply, return empty arrays.
+
+Conversation:
+%s`, tagList, convo.String())
+
+	result, err := callOpenAI(openaiKey, convo.String(), prompt)
+	if err != nil { r.writeError(w, 500, err.Error()); return }
+
+	r.writeJSON(w, result)
 }
