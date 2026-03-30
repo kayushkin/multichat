@@ -606,7 +606,10 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
-	r.writeJSON(w, map[string]interface{}{"alerts": alerts, "total": len(alerts), "hours_scanned": hours, "keywords_used": keywords, "cutoff_time": cutoff})
+	sevCounts := map[string]int{"high": 0, "medium": 0, "low": 0}
+	for _, a := range alerts { sevCounts[a.Severity]++ }
+	if alerts == nil { alerts = []Alert{} }
+	r.writeJSON(w, map[string]interface{}{"alerts": alerts, "total": len(alerts), "hours_scanned": hours, "keywords_used": keywords, "cutoff_time": cutoff, "severity_counts": sevCounts})
 }
 
 func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request) {
