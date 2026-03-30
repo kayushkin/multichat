@@ -65,3 +65,9 @@ Pick the top unclaimed item, do it, push. Mark `[x]` when done, `[~]` in progres
 - [x] **Platform filter pills** — filter conversation list by platform
 - [x] **Members dropdown** — clickable member count shows room members
 - [x] **Merge WSL + Linode branches** — unified codebase
+
+## Next Priority — Demo Wow Features
+
+- [ ] **AI auto-tag** — Button next to Summarize that analyzes convo and suggests/applies tags (LTL, Refrigerated, Power Only, etc.)
+- [ ] **Phone call transcription** — Upload or route phone recordings, transcribe via Whisper, display as viewable conversations
+- [ ] **Fact-check / cross-reference** — AI compares what a contact said in one convo vs another. Flag contradictions or changed claims.
