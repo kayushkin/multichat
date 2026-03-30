@@ -262,6 +262,7 @@ function Chat() {
       const data = await res.json()
       const older = data.messages || data || []
       if (older.length > 0) {
+        isLoadingOlderRef.current = true
         setMessages(prev => [...older, ...prev])
         setPaginationToken(data.end || null)
         setHasMore(data.has_more || false)
@@ -279,7 +280,12 @@ function Chat() {
     }
   }
 
+  const isLoadingOlderRef = useRef(false)
   useEffect(() => {
+    if (isLoadingOlderRef.current) {
+      isLoadingOlderRef.current = false
+      return // Don't auto-scroll when older messages were prepended
+    }
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
