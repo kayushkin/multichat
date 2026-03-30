@@ -753,6 +753,8 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 			r.writeError(w, 400, "keyword required"); return
 		}
 		r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE, severity TEXT NOT NULL DEFAULT 'low')`)
+		r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`) // migrate old schema
+	r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`)
 		switch body.Action {
 		case "remove":
 			r.db.Exec(`DELETE FROM alert_keywords WHERE keyword = ?`, strings.ToLower(body.Keyword))
@@ -781,6 +783,8 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 		"complaint": "medium", "failed": "medium", "refund": "medium",
 	}
 	r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE, severity TEXT NOT NULL DEFAULT 'low')`)
+	r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`) // migrate old schema
+	r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`)
 	rows, err := r.db.Query(`SELECT keyword, severity FROM alert_keywords`)
 	if err == nil {
 		for rows.Next() {
