@@ -4,6 +4,21 @@ Pick the top unclaimed item, do it, push. Mark `[x]` when done, `[~]` in progres
 
 ---
 
+## Up Next — Demo Polish
+
+- [ ] **Cross-conversation search** — Search bar that searches message content across ALL platforms. "Find every mention of [customer name] or [rate]"
+- [ ] **Keyword/phrase alerts** — Flag conversations containing configurable keywords: "complaint", "late", "damaged", "competitor", dollar amounts. Management gets notified.
+- [ ] **AI escalation detection** — Auto-scan conversations, flag ones needing attention (angry customer, missed deadline, risky promise). "⚠️ 3 conversations need review"
+- [ ] **Conversation export** — Export any conversation as PDF with timestamps. Compliance/audit trail.
+- [ ] **Read-only mode** — Management can view everything but can't accidentally send messages as the broker.
+- [ ] **Smart replies** — AI suggests 3 reply options based on conversation context
+- [ ] **Daily digest** — "Here's what happened across all platforms today" summary
+- [ ] **Response time analytics** — "Avg response time: 12min on Telegram, 45min on WhatsApp"
+- [ ] **Volume heatmap** — When are messages busiest? Time-of-day grid.
+- [ ] **Real-time WebSocket updates** — New messages push to frontend instantly
+
+---
+
 ## Phase 1 — Foundation
 
 - [ ] **Go project init** — `go mod init github.com/kayushkin/multichat`, basic main.go with HTTP server
