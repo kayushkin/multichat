@@ -18,7 +18,7 @@ function Layout() {
       {/* Top Nav */}
       <header className="bg-gray-800 border-b border-gray-700 px-4 h-12 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-6">
-          <Link to="/chat" className="text-lg font-bold text-white hover:text-blue-400 transition-colors">
+          <Link to="/chat" className="text-lg font-bold hover:opacity-80 transition-opacity" style={{ color: '#f5d40c' }}>
             MultiChat
           </Link>
           <nav className="flex items-center gap-1">
@@ -26,11 +26,12 @@ function Layout() {
               <Link
                 key={item.path}
                 to={item.path}
-                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   location.pathname === item.path
-                    ? 'bg-blue-600 text-white'
+                    ? 'text-gray-900'
                     : 'text-gray-400 hover:text-white hover:bg-gray-700'
                 }`}
+                style={location.pathname === item.path ? { backgroundColor: '#f5d40c' } : undefined}
               >
                 {item.label}
               </Link>
