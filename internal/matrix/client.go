@@ -293,8 +293,6 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 				} `json:"chunk"`
 			}
 			json.Unmarshal(memberData, &memberResp)
-			conv.MemberCount = len(memberResp.Chunk)
-
 			// Collect non-bot, non-self member IDs
 			for _, m := range memberResp.Chunk {
 				local := strings.Split(m.StateKey, ":")[0]
@@ -302,6 +300,8 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 					conv.MemberIDs = append(conv.MemberIDs, m.StateKey)
 				}
 			}
+			// Real member count = other people + you
+			conv.MemberCount = len(conv.MemberIDs) + 1
 
 			// Detect platform from member user IDs
 			for _, m := range memberResp.Chunk {

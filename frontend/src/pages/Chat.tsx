@@ -519,7 +519,14 @@ function Chat() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-white font-medium text-sm truncate">{conv.name}</p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="text-white font-medium text-sm truncate">{conv.name}</p>
+                      {conv.member_count > 2 && (
+                        <span className="text-[10px] px-1.5 py-0 rounded bg-gray-700 text-gray-400 flex-shrink-0">
+                          👥 {conv.member_count}
+                        </span>
+                      )}
+                    </div>
                     {conv.last_activity > 0 && (
                       <span className="text-gray-500 text-xs flex-shrink-0 ml-2">
                         {formatTime(conv.last_activity)}
