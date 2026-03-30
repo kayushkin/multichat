@@ -120,30 +120,35 @@ function Chat() {
     } catch { /* skip */ }
   }
 
-  const assignTagToRoom = async (roomId: string, tagId: number) => {
-    // Assign tag to all non-self members of the room
+  const [memberTags, setMemberTags] = useState<Record<string, Tag[]>>({})
+  const [showTagManager, setShowTagManager] = useState(false)
+
+  const loadMemberTags = async (roomId: string) => {
     const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
     if (!membersRes.ok) return
     const roomMembers = await membersRes.json()
+    const mt: Record<string, Tag[]> = {}
+    setMembers(roomMembers || [])
     for (const m of (roomMembers || [])) {
-      if (m.user_id?.includes('@admin')) continue
-      await fetch('/api/contacts/tags', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact_user_id: m.user_id, tag_id: tagId }),
-      })
+      if (m.is_me) continue
+      const res = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
+      if (res.ok) mt[m.user_id] = await res.json() || []
     }
-    loadRoomTags(roomId)
+    setMemberTags(mt)
   }
 
-  const removeTagFromRoom = async (roomId: string, tagId: number) => {
-    const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
-    if (!membersRes.ok) return
-    const roomMembers = await membersRes.json()
-    for (const m of (roomMembers || [])) {
-      await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}&tag=${tagId}`, { method: 'DELETE' })
-    }
-    loadRoomTags(roomId)
+  const assignTagToContact = async (contactId: string, tagId: number) => {
+    await fetch('/api/contacts/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contact_user_id: contactId, tag_id: tagId }),
+    })
+    if (selected) { loadMemberTags(selected); loadRoomTags(selected) }
+  }
+
+  const removeTagFromContact = async (contactId: string, tagId: number) => {
+    await fetch(`/api/contacts/tags?contact=${encodeURIComponent(contactId)}&tag=${tagId}`, { method: 'DELETE' })
+    if (selected) { loadMemberTags(selected); loadRoomTags(selected) }
   }
 
   const loadMessages = async (roomID: string) => {
@@ -154,7 +159,10 @@ function Chat() {
     setShowSummary(false)
     setSummary(null)
     setSelectedRoomTags([])
+    setShowTagManager(false)
+    setMemberTags({})
     loadRoomTags(roomID)
+    loadMemberTags(roomID)
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(roomID)}/messages?limit=100`)
       if (!res.ok) throw new Error(`${res.status}`)
@@ -524,20 +532,43 @@ function Chat() {
               <div className="border-b border-gray-800 px-4 py-2 flex items-center gap-2 flex-wrap bg-black/20">
                 <span className="text-[10px] text-gray-500 uppercase tracking-wider">Tags:</span>
                 {selectedRoomTags.map(t => (
-                  <span key={t.id} className="text-[11px] px-2 py-0.5 rounded-full border font-medium flex items-center gap-1" style={{ backgroundColor: `${t.color}22`, color: t.color, borderColor: `${t.color}44` }}>
+                  <span key={t.id} className="text-[11px] px-2 py-0.5 rounded-full border font-medium" style={{ backgroundColor: `${t.color}22`, color: t.color, borderColor: `${t.color}44` }}>
                     {t.name}
-                    <span onClick={() => removeTagFromRoom(selected, t.id)} className="cursor-pointer opacity-60 hover:opacity-100">×</span>
                   </span>
                 ))}
-                {tags.filter(t => !selectedRoomTags.some(st => st.id === t.id)).map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => assignTagToRoom(selected, t.id)}
-                    className="text-[11px] px-2 py-0.5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors"
-                  >
-                    + {t.name}
-                  </button>
-                ))}
+                <button
+                  onClick={() => setShowTagManager(!showTagManager)}
+                  className="text-[11px] px-2 py-0.5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  {showTagManager ? '✕ Close' : '✏️ Manage'}
+                </button>
+              </div>
+            )}
+            {/* Tag manager panel */}
+            {showTagManager && selected && (
+              <div className="border-b border-gray-800 bg-black/30 px-4 py-3 space-y-2 max-h-48 overflow-y-auto">
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Tag contacts in this conversation</p>
+                {Object.keys(memberTags).length === 0 && (
+                  <p className="text-xs text-gray-500">Loading contacts...</p>
+                )}
+                {Object.entries(memberTags).map(([userId, uTags]) => {
+                  const member = members.find(m => m.user_id === userId)
+                  const name = member?.display_name || userId.split(':')[0].replace('@', '').replace(/^(telegram_|whatsapp_|meta_|signal_)/, '')
+                  return (
+                    <div key={userId} className="flex items-center gap-2 flex-wrap py-1">
+                      <span className="text-xs text-gray-300 font-medium min-w-[120px] truncate">{name}</span>
+                      {(uTags || []).map(t => (
+                        <span key={t.id} className="text-[10px] px-1.5 py-0.5 rounded-full border font-medium flex items-center gap-1" style={{ backgroundColor: `${t.color}22`, color: t.color, borderColor: `${t.color}44` }}>
+                          {t.name}
+                          <span onClick={() => removeTagFromContact(userId, t.id)} className="cursor-pointer opacity-60 hover:opacity-100">×</span>
+                        </span>
+                      ))}
+                      {tags.filter(t => !(uTags || []).some(ut => ut.id === t.id)).map(t => (
+                        <button key={t.id} onClick={() => assignTagToContact(userId, t.id)} className="text-[10px] px-1.5 py-0.5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors">+ {t.name}</button>
+                      ))}
+                    </div>
+                  )
+                })}
               </div>
             )}
 

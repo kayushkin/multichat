@@ -201,6 +201,7 @@ type RoomMember struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
 	Platform    string `json:"platform,omitempty"`
+	IsMe        bool   `json:"is_me,omitempty"`
 }
 
 // GetRoomMembers returns joined members of a room with display names
@@ -250,6 +251,7 @@ func (c *Client) GetRoomMembers(roomID string) ([]RoomMember, error) {
 			UserID:      m.StateKey,
 			DisplayName: name,
 			Platform:    platform,
+			IsMe:        SelfUserIDs[m.StateKey],
 		})
 	}
 	return members, nil
