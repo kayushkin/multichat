@@ -1,14 +1,38 @@
+import { useState, useEffect } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 
 function Layout() {
   const location = useLocation()
+  const [alertCount, setAlertCount] = useState(0)
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/inbox', label: 'Inbox', icon: '💬' },
     { path: '/search', label: 'Search', icon: '🔍' },
+    { path: '/alerts', label: 'Alerts', icon: '🚨', badge: alertCount },
     { path: '/database', label: 'Database', icon: '🗄️' },
   ]
+
+  // Fetch alert count periodically
+  useEffect(() => {
+    const fetchAlertCount = async () => {
+      try {
+        const response = await fetch('/api/alerts?hours=24')
+        if (response.ok) {
+          const data = await response.json()
+          setAlertCount(data.total || 0)
+        }
+      } catch (error) {
+        // Silently fail - not critical for navigation
+      }
+    }
+
+    // Fetch immediately and then every 5 minutes
+    fetchAlertCount()
+    const interval = setInterval(fetchAlertCount, 5 * 60 * 1000)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <div className="h-screen flex bg-gray-900 text-white">
@@ -27,15 +51,22 @@ function Layout() {
                 <Link
                   to={item.path}
                   className={`
-                    flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors
+                    flex items-center justify-between px-3 py-2 rounded-lg transition-colors
                     ${location.pathname === item.path 
                       ? 'bg-blue-600 text-white' 
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                     }
                   `}
                 >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
+                  <div className="flex items-center space-x-3">
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                  {item.badge && item.badge > 0 && (
+                    <span className="bg-red-500 text-white text-xs font-medium px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
                 </Link>
               </li>
             ))}

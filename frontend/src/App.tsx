@@ -4,6 +4,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Inbox from './pages/Inbox'
 import Search from './pages/Search'
+import Alerts from './pages/Alerts'
 import Database from './pages/Database'
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="inbox" element={<Inbox />} />
         <Route path="search" element={<Search />} />
+        <Route path="alerts" element={<Alerts />} />
         <Route path="database" element={<Database />} />
       </Route>
     </Routes>

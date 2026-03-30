@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -60,6 +61,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/stats", r.statsHandler)
 	r.mux.HandleFunc("/ai/summarize", r.summarizeHandler)
 	r.mux.HandleFunc("/search", r.searchHandler)
+	r.mux.HandleFunc("/alerts", r.alertsHandler)
 }
 
 // --- Matrix helpers ---
@@ -931,6 +933,171 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 		"total":    len(allResults),
 		"groups":   groupedResults,
 	})
+}
+
+func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
+	// Default keywords that indicate issues requiring attention
+	defaultKeywords := []string{
+		"complaint", "urgent", "late", "damaged", "delay", "escalate", "cancel",
+		"problem", "issue", "error", "wrong", "broken", "failed", "missing",
+		"angry", "upset", "disappointed", "refund", "dispute", "fraud",
+		"deadline", "overdue", "rush", "emergency", "asap", "immediately",
+	}
+
+	// Get custom keywords from query params (comma-separated)
+	customKeywords := req.URL.Query().Get("keywords")
+	keywords := defaultKeywords
+	if customKeywords != "" {
+		keywords = append(keywords, strings.Split(customKeywords, ",")...)
+	}
+
+	// Get time range (default: last 24 hours)
+	hoursStr := req.URL.Query().Get("hours")
+	hours := 24
+	if hoursStr != "" {
+		if h, err := strconv.Atoi(hoursStr); err == nil && h > 0 {
+			hours = h
+		}
+	}
+
+	cutoffTime := time.Now().Add(time.Duration(-hours) * time.Hour).UnixMilli()
+
+	// Get all rooms
+	rooms, err := r.getJoinedRooms()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+
+	type AlertResult struct {
+		RoomID      string `json:"room_id"`
+		RoomName    string `json:"room_name"`
+		Platform    string `json:"platform"`
+		Sender      string `json:"sender"`
+		SenderName  string `json:"sender_name"`
+		Body        string `json:"body"`
+		Timestamp   int64  `json:"timestamp"`
+		EventID     string `json:"event_id"`
+		Keyword     string `json:"keyword_matched"`
+		Severity    string `json:"severity"`
+	}
+
+	var alerts []AlertResult
+
+	// Check messages in each room for keywords
+	for _, room := range rooms {
+		// Skip if no recent activity
+		if room.LastActivity < cutoffTime {
+			continue
+		}
+
+		// Fetch recent messages from this room
+		data, err := r.matrixGet("/_matrix/client/v3/rooms/" + url.PathEscape(room.RoomID) + "/messages?dir=b&limit=50")
+		if err != nil {
+			continue
+		}
+
+		var msgsResult struct {
+			Chunk []struct {
+				EventID        string                 `json:"event_id"`
+				Sender         string                 `json:"sender"`
+				Content        map[string]interface{} `json:"content"`
+				OriginServerTS int64                  `json:"origin_server_ts"`
+			} `json:"chunk"`
+		}
+		if err := json.Unmarshal(data, &msgsResult); err != nil {
+			continue
+		}
+
+		// Check messages from the last N hours
+		for _, msg := range msgsResult.Chunk {
+			if msg.OriginServerTS < cutoffTime {
+				continue
+			}
+
+			body, _ := msg.Content["body"].(string)
+			msgType, _ := msg.Content["msgtype"].(string)
+			if msgType == "" || body == "" {
+				continue
+			}
+
+			bodyLower := strings.ToLower(body)
+
+			// Check for keyword matches
+			for _, keyword := range keywords {
+				if strings.Contains(bodyLower, strings.ToLower(keyword)) {
+					// Determine severity based on keyword
+					severity := "medium"
+					if contains([]string{"urgent", "emergency", "asap", "immediately", "escalate"}, strings.ToLower(keyword)) {
+						severity = "high"
+					} else if contains([]string{"angry", "upset", "fraud", "dispute", "deadline"}, strings.ToLower(keyword)) {
+						severity = "high"
+					} else if contains([]string{"complaint", "problem", "issue", "error", "wrong", "broken"}, strings.ToLower(keyword)) {
+						severity = "medium"
+					} else {
+						severity = "low"
+					}
+
+					// Clean up sender name
+					senderName := msg.Sender
+					if idx := strings.Index(msg.Sender, ":"); idx > 0 {
+						senderName = strings.TrimPrefix(msg.Sender[:idx], "@")
+						for _, prefix := range []string{"telegram_", "whatsapp_", "meta_", "signal_", "instagram_"} {
+							senderName = strings.TrimPrefix(senderName, prefix)
+						}
+					}
+
+					alerts = append(alerts, AlertResult{
+						RoomID:     room.RoomID,
+						RoomName:   room.Name,
+						Platform:   room.Platform,
+						Sender:     msg.Sender,
+						SenderName: senderName,
+						Body:       body,
+						Timestamp:  msg.OriginServerTS,
+						EventID:    msg.EventID,
+						Keyword:    keyword,
+						Severity:   severity,
+					})
+					break // Only one alert per message
+				}
+			}
+		}
+	}
+
+	// Sort alerts by severity (high -> medium -> low) then by timestamp (newest first)
+	sort.Slice(alerts, func(i, j int) bool {
+		severityOrder := map[string]int{"high": 3, "medium": 2, "low": 1}
+		if severityOrder[alerts[i].Severity] != severityOrder[alerts[j].Severity] {
+			return severityOrder[alerts[i].Severity] > severityOrder[alerts[j].Severity]
+		}
+		return alerts[i].Timestamp > alerts[j].Timestamp
+	})
+
+	// Group by severity for summary
+	severityCounts := map[string]int{"high": 0, "medium": 0, "low": 0}
+	for _, alert := range alerts {
+		severityCounts[alert.Severity]++
+	}
+
+	r.writeJSON(w, map[string]interface{}{
+		"alerts":          alerts,
+		"total":           len(alerts),
+		"hours_scanned":   hours,
+		"keywords_used":   keywords,
+		"severity_counts": severityCounts,
+		"cutoff_time":     cutoffTime,
+	})
+}
+
+// Helper function to check if slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) writeError(w http.ResponseWriter, code int, message string) {
