@@ -56,6 +56,8 @@ function Chat() {
   const [tagFilter, setTagFilter] = useState<number | null>(null)
   const [roomTags, setRoomTags] = useState<Record<string, Tag[]>>({})
   const [selectedRoomTags, setSelectedRoomTags] = useState<Tag[]>([])
+  const [newInlineTag, setNewInlineTag] = useState('')
+  const [showInlineTagInput, setShowInlineTagInput] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
   const [newContact, setNewContact] = useState({
     display_name: '',
@@ -536,6 +538,30 @@ function Chat() {
                     {t.name}
                   </span>
                 ))}
+                {showInlineTagInput ? (
+                  <span className="flex items-center gap-1">
+                    <input
+                      value={newInlineTag}
+                      onChange={e => setNewInlineTag(e.target.value)}
+                      onKeyDown={async e => {
+                        if (e.key === 'Enter' && newInlineTag.trim()) {
+                          const res = await fetch('/api/tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newInlineTag.trim(), color: '#f5d40c' }) })
+                          if (res.ok) { const t = await res.json(); setTags(prev => [...prev, t]) }
+                          setNewInlineTag(''); setShowInlineTagInput(false)
+                        }
+                        if (e.key === 'Escape') { setNewInlineTag(''); setShowInlineTagInput(false) }
+                      }}
+                      placeholder="Tag name..."
+                      className="bg-gray-900 border border-gray-700 rounded px-2 py-0.5 text-[11px] text-white w-24 focus:outline-none"
+                      autoFocus
+                    />
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setShowInlineTagInput(true)}
+                    className="text-[11px] w-5 h-5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors flex items-center justify-center"
+                  >+</button>
+                )}
                 <button
                   onClick={() => setShowTagManager(!showTagManager)}
                   className="text-[11px] px-2 py-0.5 rounded-full border border-dashed border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 transition-colors"
