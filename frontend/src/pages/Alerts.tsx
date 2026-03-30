@@ -18,6 +18,7 @@ interface AlertsResponse {
   total: number
   hours_scanned: number
   keywords_used: string[]
+  keywords_detail?: { keyword: string; severity: string }[]
   severity_counts: {
     high: number
     medium: number
