@@ -1,9 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 )
 
 // Router handles all API routes
@@ -148,19 +153,137 @@ func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Note: This is a placeholder implementation
-	// In production, this would:
-	// 1. Fetch last 50 messages from Matrix Synapse for the room
-	// 2. Call Claude API with ANTHROPIC_API_KEY
-	// 3. Return real AI analysis
-	
-	response := map[string]interface{}{
-		"summary": "Recent conversation about dance practice scheduling and venue logistics. Team members discussed availability for upcoming sessions.",
-		"topics": []string{"dance practice", "scheduling", "venue booking", "team coordination"},
-		"sentiment": "positive",
+	// Check for API key
+	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	if apiKey == "" {
+		r.writeError(w, 500, "ANTHROPIC_API_KEY environment variable not set")
+		return
 	}
 
-	r.writeJSON(w, response)
+	// Fetch recent messages from Matrix (simulated)
+	messages, err := r.fetchMatrixMessages(reqBody.RoomID, 50)
+	if err != nil {
+		r.writeError(w, 500, fmt.Sprintf("Error fetching messages: %v", err))
+		return
+	}
+
+	// Generate summary using Claude API
+	summary, err := r.callClaudeAPI(apiKey, messages)
+	if err != nil {
+		r.writeError(w, 500, fmt.Sprintf("Error calling Claude API: %v", err))
+		return
+	}
+
+	r.writeJSON(w, summary)
+}
+
+// fetchMatrixMessages simulates fetching messages from Matrix Synapse
+func (r *Router) fetchMatrixMessages(roomID string, limit int) ([]map[string]interface{}, error) {
+	// In a real implementation, this would make HTTP requests to Matrix Synapse API
+	// For now, return simulated message data
+	
+	messages := []map[string]interface{}{
+		{
+			"sender": "Slava",
+			"body": "Hey everyone, are we still meeting for practice tomorrow?",
+			"timestamp": time.Now().Add(-2*time.Hour).Unix(),
+		},
+		{
+			"sender": "Maria",
+			"body": "Yes! The studio is booked from 7-9 PM",
+			"timestamp": time.Now().Add(-90*time.Minute).Unix(),
+		},
+		{
+			"sender": "Carl",
+			"body": "Perfect, I'll bring the music playlist we discussed",
+			"timestamp": time.Now().Add(-time.Hour).Unix(),
+		},
+		{
+			"sender": "Slava",
+			"body": "Great! Looking forward to working on the new choreography",
+			"timestamp": time.Now().Add(-30*time.Minute).Unix(),
+		},
+	}
+
+	return messages, nil
+}
+
+// callClaudeAPI calls the Anthropic Claude API for message summarization
+func (r *Router) callClaudeAPI(apiKey string, messages []map[string]interface{}) (map[string]interface{}, error) {
+	// Construct prompt from messages
+	var messageText strings.Builder
+	messageText.WriteString("Analyze the following conversation and provide a summary, key topics, and sentiment:\n\n")
+	
+	for _, msg := range messages {
+		sender, _ := msg["sender"].(string)
+		body, _ := msg["body"].(string)
+		messageText.WriteString(fmt.Sprintf("%s: %s\n", sender, body))
+	}
+
+	// Claude API request payload
+	requestBody := map[string]interface{}{
+		"model": "claude-sonnet-4-20250514",
+		"max_tokens": 1000,
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": messageText.String() + "\n\nProvide a JSON response with: summary (string), topics (array of strings), sentiment (string: positive/negative/neutral)",
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	// Make API request
+	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("Claude API returned status %d", resp.StatusCode)
+	}
+
+	var claudeResponse struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&claudeResponse); err != nil {
+		return nil, err
+	}
+
+	if len(claudeResponse.Content) == 0 {
+		return nil, fmt.Errorf("no content in Claude response")
+	}
+
+	// Parse Claude's JSON response
+	var aiAnalysis map[string]interface{}
+	if err := json.Unmarshal([]byte(claudeResponse.Content[0].Text), &aiAnalysis); err != nil {
+		// If Claude didn't return JSON, create a fallback response
+		return map[string]interface{}{
+			"summary": claudeResponse.Content[0].Text,
+			"topics": []string{"conversation"},
+			"sentiment": "neutral",
+		}, nil
+	}
+
+	return aiAnalysis, nil
 }
 
 // unifiedContactsHandler groups contacts by display name across platforms
@@ -170,36 +293,136 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Note: This is a placeholder implementation
-	// In production, this would query the actual contacts from Matrix Synapse
-	// and group them by matching display_name across platforms
-	
-	response := []map[string]interface{}{
+	// In a real implementation, this would fetch contacts from Matrix Synapse
+	// For now, we simulate the contact unification process
+	unifiedContacts, err := r.unifyContacts()
+	if err != nil {
+		r.writeError(w, 500, fmt.Sprintf("Error unifying contacts: %v", err))
+		return
+	}
+
+	r.writeJSON(w, unifiedContacts)
+}
+
+// unifyContacts simulates fetching and unifying contacts across platforms
+func (r *Router) unifyContacts() ([]map[string]interface{}, error) {
+	// In production, this would:
+	// 1. Fetch all contacts from Matrix Synapse
+	// 2. Group by display_name (fuzzy matching)
+	// 3. Merge platform identities
+
+	// Simulated unified contacts based on the real data structure
+	unifiedContacts := []map[string]interface{}{
 		{
 			"display_name": "Slava Kayushkin",
-			"unified_id": "unified_slava",
+			"unified_id": "unified_slava_kayushkin",
 			"platforms": []map[string]interface{}{
-				{"platform": "telegram", "user_id": "@telegram_9000000001:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar1"},
-				{"platform": "meta", "user_id": "@meta_910000000000001:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar2"},
+				{
+					"platform": "telegram", 
+					"user_id": "@telegram_9000000001:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/avatar1",
+					"phone": "15550100001",
+				},
+				{
+					"platform": "meta", 
+					"user_id": "@meta_910000000000001:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/MJBuozgIgfFnkRLzveUsmxol",
+					"telegram_id": "910000000000001",
+				},
 			},
 		},
 		{
 			"display_name": "Vera Ivanova",
-			"unified_id": "unified_vika",
+			"unified_id": "unified_vika_piram",
 			"platforms": []map[string]interface{}{
-				{"platform": "facebook", "user_id": "@meta_9100000007:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar3"},
-				{"platform": "facebook", "user_id": "@meta_910000000000005:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar4"},
+				{
+					"platform": "facebook", 
+					"user_id": "@meta_9100000007:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/xrRtohNaZBxGWoEaCuzQhauF",
+					"telegram_id": "9100000007",
+				},
+				{
+					"platform": "facebook", 
+					"user_id": "@meta_910000000000005:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/fdajPtGgcrGkaMeAeEXFpZmh",
+					"telegram_id": "910000000000005",
+				},
 			},
 		},
 		{
 			"display_name": "Mara Rowan",
-			"unified_id": "unified_mary",
+			"unified_id": "unified_mary_rankin",
 			"platforms": []map[string]interface{}{
-				{"platform": "facebook", "user_id": "@meta_910000000000002:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar5"},
-				{"platform": "instagram", "user_id": "@meta_910000000000003:chat.kayushkin.com", "avatar_url": "mxc://chat.kayushkin.com/avatar6"},
+				{
+					"platform": "facebook", 
+					"user_id": "@meta_910000000000002:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/BZapdErBsAaxGiXixXIyctsp",
+					"telegram_id": "910000000000002",
+				},
+				{
+					"platform": "instagram", 
+					"user_id": "@meta_910000000000003:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/ozrTWvnZDLBxpOhtexnpgfqX",
+					"telegram_id": "910000000000003",
+				},
+			},
+		},
+		{
+			"display_name": "Juan",
+			"unified_id": "unified_jose",
+			"platforms": []map[string]interface{}{
+				{
+					"platform": "whatsapp", 
+					"user_id": "@whatsapp_15550100004:chat.kayushkin.com", 
+					"phone": "15550100004",
+				},
+				{
+					"platform": "telegram", 
+					"user_id": "@telegram_9000000003:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/ISiJyzqycLyKQrqZXokHjvjX",
+					"telegram_id": "9000000003",
+					"phone": "15550100005",
+				},
+			},
+		},
+		{
+			"display_name": "Lucy",
+			"unified_id": "unified_lillie",
+			"platforms": []map[string]interface{}{
+				{
+					"platform": "whatsapp", 
+					"user_id": "@whatsapp_15550100003:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/AcHScUBYSZyZmCDOVQiQahhD",
+					"phone": "15550100003",
+				},
+				{
+					"platform": "instagram", 
+					"user_id": "@meta_910000000000004:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/EwAKlIAbCGQyCuuKsImekqUa",
+					"telegram_id": "910000000000004",
+				},
+			},
+		},
+		{
+			"display_name": "Arthur",
+			"unified_id": "unified_andrew",
+			"platforms": []map[string]interface{}{
+				{
+					"platform": "telegram", 
+					"user_id": "@telegram_9000000002:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/SVbHGnWLImgecPcwRMGfFTxi",
+					"telegram_id": "9000000002",
+					"phone": "15550100006",
+				},
+				{
+					"platform": "facebook", 
+					"user_id": "@meta_9100000008:chat.kayushkin.com", 
+					"avatar_url": "mxc://chat.kayushkin.com/RdYWqybFLlCnZWiaIdXZbvnf",
+					"telegram_id": "9100000008",
+				},
 			},
 		},
 	}
 
-	r.writeJSON(w, response)
+	return unifiedContacts, nil
 }
