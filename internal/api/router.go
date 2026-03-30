@@ -58,6 +58,8 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/alerts", r.alertsHandler)
 	r.mux.HandleFunc("/ai/summarize", r.summarizeHandler)
 	r.mux.HandleFunc("/ai/escalation-scan", r.escalationScanHandler)
+	r.mux.HandleFunc("/tags", r.tagsHandler)
+	r.mux.HandleFunc("/contacts/tags", r.contactTagsHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
@@ -250,7 +252,6 @@ func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// For now, store it in the local SQLite DB only
-	// We'll create a simple contacts table for local storage
 	_, err := r.db.Exec(`
 		CREATE TABLE IF NOT EXISTS local_contacts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,7 +260,18 @@ func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
 			identifier TEXT NOT NULL,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(platform, identifier)
-		)
+		);
+		CREATE TABLE IF NOT EXISTS tags (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			color TEXT NOT NULL DEFAULT '#f5d40c',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS contact_tags (
+			contact_user_id TEXT NOT NULL,
+			tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+			PRIMARY KEY (contact_user_id, tag_id)
+		);
 	`)
 	if err != nil {
 		r.writeError(w, 500, "Failed to create contacts table")
@@ -779,4 +791,116 @@ func callClaude(apiKey, conversation, systemPrompt string) (map[string]interface
 		return map[string]interface{}{"summary": text, "topics": []string{}, "sentiment": "neutral"}, nil
 	}
 	return result, nil
+}
+
+// --- Tags ---
+
+func (r *Router) ensureTagsTables() {
+	r.db.Exec(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL DEFAULT '#f5d40c', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+	r.db.Exec(`CREATE TABLE IF NOT EXISTS contact_tags (contact_user_id TEXT NOT NULL, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (contact_user_id, tag_id))`)
+}
+
+// GET /tags — list all tags
+// POST /tags — create a tag { name, color? }
+// DELETE /tags?id=N — delete a tag
+func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
+	r.ensureTagsTables()
+	switch req.Method {
+	case "GET":
+		rows, err := r.db.Query(`SELECT id, name, color FROM tags ORDER BY name`)
+		if err != nil { r.writeError(w, 500, err.Error()); return }
+		defer rows.Close()
+		type Tag struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			Color string `json:"color"`
+		}
+		var tags []Tag
+		for rows.Next() {
+			var t Tag
+			rows.Scan(&t.ID, &t.Name, &t.Color)
+			tags = append(tags, t)
+		}
+		if tags == nil { tags = []Tag{} }
+		r.writeJSON(w, tags)
+
+	case "POST":
+		var body struct {
+			Name  string `json:"name"`
+			Color string `json:"color"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Name == "" {
+			r.writeError(w, 400, "name required"); return
+		}
+		if body.Color == "" { body.Color = "#f5d40c" }
+		result, err := r.db.Exec(`INSERT INTO tags (name, color) VALUES (?, ?)`, body.Name, body.Color)
+		if err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				r.writeError(w, 409, "Tag already exists"); return
+			}
+			r.writeError(w, 500, err.Error()); return
+		}
+		id, _ := result.LastInsertId()
+		r.writeJSON(w, map[string]interface{}{"id": id, "name": body.Name, "color": body.Color})
+
+	case "DELETE":
+		id := req.URL.Query().Get("id")
+		if id == "" { r.writeError(w, 400, "id required"); return }
+		r.db.Exec(`DELETE FROM contact_tags WHERE tag_id = ?`, id)
+		r.db.Exec(`DELETE FROM tags WHERE id = ?`, id)
+		r.writeJSON(w, map[string]string{"status": "deleted"})
+
+	default:
+		r.writeError(w, 405, "Method not allowed")
+	}
+}
+
+// GET /contacts/tags?contact=USER_ID — get tags for a contact
+// POST /contacts/tags — assign tag { contact_user_id, tag_id }
+// DELETE /contacts/tags?contact=USER_ID&tag=TAG_ID — remove tag from contact
+func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
+	r.ensureTagsTables()
+	switch req.Method {
+	case "GET":
+		contactID := req.URL.Query().Get("contact")
+		if contactID == "" { r.writeError(w, 400, "contact required"); return }
+		rows, err := r.db.Query(`SELECT t.id, t.name, t.color FROM tags t JOIN contact_tags ct ON t.id = ct.tag_id WHERE ct.contact_user_id = ? ORDER BY t.name`, contactID)
+		if err != nil { r.writeError(w, 500, err.Error()); return }
+		defer rows.Close()
+		type Tag struct {
+			ID    int64  `json:"id"`
+			Name  string `json:"name"`
+			Color string `json:"color"`
+		}
+		var tags []Tag
+		for rows.Next() {
+			var t Tag
+			rows.Scan(&t.ID, &t.Name, &t.Color)
+			tags = append(tags, t)
+		}
+		if tags == nil { tags = []Tag{} }
+		r.writeJSON(w, tags)
+
+	case "POST":
+		var body struct {
+			ContactUserID string `json:"contact_user_id"`
+			TagID         int64  `json:"tag_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.ContactUserID == "" || body.TagID == 0 {
+			r.writeError(w, 400, "contact_user_id and tag_id required"); return
+		}
+		_, err := r.db.Exec(`INSERT OR IGNORE INTO contact_tags (contact_user_id, tag_id) VALUES (?, ?)`, body.ContactUserID, body.TagID)
+		if err != nil { r.writeError(w, 500, err.Error()); return }
+		r.writeJSON(w, map[string]string{"status": "assigned"})
+
+	case "DELETE":
+		contactID := req.URL.Query().Get("contact")
+		tagID := req.URL.Query().Get("tag")
+		if contactID == "" || tagID == "" { r.writeError(w, 400, "contact and tag required"); return }
+		r.db.Exec(`DELETE FROM contact_tags WHERE contact_user_id = ? AND tag_id = ?`, contactID, tagID)
+		r.writeJSON(w, map[string]string{"status": "removed"})
+
+	default:
+		r.writeError(w, 405, "Method not allowed")
+	}
 }
