@@ -799,12 +799,13 @@ function Chat() {
               }
             }}>
               {loadingMore && (
-                <div className="text-center py-2">
-                  <span className="animate-spin inline-block w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full" />
+                <div className="flex items-center justify-center gap-2 py-3">
+                  <span className="animate-spin inline-block w-5 h-5 border-2 border-t-transparent rounded-full" style={{ borderColor: '#f5d40c', borderTopColor: 'transparent' }} />
+                  <span className="text-sm text-gray-400">Loading older messages...</span>
                 </div>
               )}
               {hasMore && !loadingMore && (
-                <button onClick={loadOlderMessages} className="w-full text-center py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                <button onClick={loadOlderMessages} className="w-full text-center py-3 text-sm text-gray-500 hover:text-gray-300 transition-colors">
                   ↑ Load older messages
                 </button>
               )}
