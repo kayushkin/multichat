@@ -53,7 +53,7 @@ function Chat() {
   const [summarizing, setSummarizing] = useState(false)
   const [showSummary, setShowSummary] = useState(false)
   const [tags, setTags] = useState<Tag[]>([])
-  const [tagFilter, setTagFilter] = useState<number | null>(null)
+  const [tagFilters, setTagFilters] = useState<number[]>([])
   const [roomTags, setRoomTags] = useState<Record<string, Tag[]>>({})
   const [selectedRoomTags, setSelectedRoomTags] = useState<Tag[]>([])
   const [newInlineTag, setNewInlineTag] = useState('')
@@ -320,7 +320,7 @@ function Chat() {
 
   const filteredConversations = conversations.filter(conv => {
     if (platformFilter && conv.platform !== platformFilter) return false
-    if (tagFilter && !(roomTags[conv.room_id] || []).some(t => t.id === tagFilter)) return false
+    if (tagFilters.length > 0 && !tagFilters.every(tf => (roomTags[conv.room_id] || []).some(t => t.id === tf))) return false
     if (search) {
       const q = search.toLowerCase()
       return conv.name.toLowerCase().includes(q) ||
@@ -411,11 +411,11 @@ function Chat() {
               {tags.map(t => (
                 <button
                   key={t.id}
-                  onClick={() => setTagFilter(tagFilter === t.id ? null : t.id)}
+                  onClick={() => setTagFilters(prev => prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id])}
                   className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
-                    tagFilter === t.id ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-white border border-gray-700'
+                    tagFilters.includes(t.id) ? 'text-gray-900 font-medium' : 'text-gray-500 hover:text-white border border-gray-700'
                   }`}
-                  style={tagFilter === t.id ? { backgroundColor: t.color } : undefined}
+                  style={tagFilters.includes(t.id) ? { backgroundColor: t.color } : undefined}
                 >
                   🏷 {t.name}
                 </button>
