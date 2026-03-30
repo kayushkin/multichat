@@ -261,7 +261,7 @@ function Chat() {
   return (
     <div className="h-full flex">
       {/* Left Panel */}
-      <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+      <div className="w-80 bg-gray-950 border-r border-gray-700 flex flex-col">
         <div className="p-3 border-b border-gray-700 space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-gray-400">
@@ -284,13 +284,13 @@ function Chat() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search chats..."
-            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <div className="flex gap-1.5 flex-wrap">
             <button
               onClick={() => setPlatformFilter(null)}
               className={`px-2 py-0.5 rounded-full text-xs transition-colors ${
-                !platformFilter ? 'text-gray-900' : 'bg-gray-700 text-gray-400 hover:text-white'
+                !platformFilter ? 'text-gray-900' : 'bg-gray-800 text-gray-400 hover:text-white'
               }`}
               style={!platformFilter ? { backgroundColor: '#f5d40c' } : undefined}
             >
@@ -301,7 +301,7 @@ function Chat() {
                 key={p}
                 onClick={() => setPlatformFilter(platformFilter === p ? null : p)}
                 className={`px-2 py-0.5 rounded-full text-xs flex items-center gap-1 transition-colors ${
-                  platformFilter === p ? 'text-gray-900' : 'bg-gray-700 text-gray-400 hover:text-white'
+                  platformFilter === p ? 'text-gray-900' : 'bg-gray-800 text-gray-400 hover:text-white'
                 }`}
                 style={platformFilter === p ? { backgroundColor: '#f5d40c' } : undefined}
               >
@@ -327,7 +327,7 @@ function Chat() {
               key={conv.room_id}
               onClick={() => loadMessages(conv.room_id)}
               className={`px-3 py-2.5 border-b border-gray-700/50 cursor-pointer transition-colors ${
-                selected === conv.room_id ? 'bg-gray-700 border-l-4' : 'hover:bg-gray-700'
+                selected === conv.room_id ? 'bg-gray-800 border-l-4' : 'hover:bg-gray-800'
               }`}
               style={selected === conv.room_id ? { borderLeftColor: '#f5d40c' } : undefined}
             >
@@ -358,7 +358,7 @@ function Chat() {
       <div className="flex-1 flex flex-col">
         {selected && selectedConvo ? (
           <>
-            <div className="bg-gray-800 border-b border-gray-700 p-4 relative" ref={membersRef}>
+            <div className="bg-gray-950 border-b border-gray-700 p-4 relative" ref={membersRef}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <PlatformIcon platform={selectedConvo.platform} size={28} />
@@ -388,7 +388,7 @@ function Chat() {
                 </button>
               </div>
               {showMembers && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-gray-800 border border-gray-700 rounded-b-lg shadow-xl max-h-72 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 z-50 bg-gray-950 border border-gray-700 rounded-b-lg shadow-xl max-h-72 overflow-y-auto">
                   {membersLoading && (
                     <p className="text-gray-500 text-sm p-3 text-center">Loading members...</p>
                   )}
@@ -396,7 +396,7 @@ function Chat() {
                     <p className="text-gray-500 text-sm p-3 text-center">No members found.</p>
                   )}
                   {members.map(m => (
-                    <div key={m.user_id} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-700/50">
+                    <div key={m.user_id} className="flex items-center gap-3 px-4 py-2 hover:bg-gray-800/50">
                       <div className="w-7 h-7 bg-gray-600 rounded-full flex items-center justify-center text-xs text-white">
                         {m.display_name.charAt(0)}
                       </div>
@@ -434,7 +434,7 @@ function Chat() {
                         </span>
                       )}
                       {summary.topics?.map((t, i) => (
-                        <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-700/50 text-gray-300 border border-gray-600">{t}</span>
+                        <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-gray-800/50 text-gray-300 border border-gray-600">{t}</span>
                       ))}
                     </div>
                   </div>
@@ -452,7 +452,7 @@ function Chat() {
                 return (
                   <div key={msg.event_id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                      isMe ? 'bg-blue-600 text-white' : 'bg-gray-700 text-white'
+                      isMe ? 'bg-blue-600 text-white' : 'bg-gray-800 text-white'
                     }`}>
                       {!isMe && (
                         <p className="text-xs text-blue-300 mb-1">{msg.sender_name || msg.sender}</p>
@@ -467,7 +467,7 @@ function Chat() {
             </div>
 
             {/* Message input */}
-            <div className="bg-gray-800 border-t border-gray-700 p-4">
+            <div className="bg-gray-950 border-t border-gray-700 p-4">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -476,7 +476,7 @@ function Chat() {
                   onKeyDown={handleKeyDown}
                   placeholder="Type a message..."
                   disabled={sending}
-                  className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 />
                 <button
                   onClick={sendMessage}
@@ -507,7 +507,7 @@ function Chat() {
           setShowAddContact(false)
           setNewContact({ display_name: '', platform: 'telegram', identifier: '' })
         }}>
-          <div className="bg-gray-800 rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-gray-950 rounded-lg w-96 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-gray-700 flex items-center justify-between">
               <h3 className="text-white font-medium">New Chat</h3>
               <button 
@@ -528,7 +528,7 @@ function Chat() {
                 onChange={(e) => setContactSearch(e.target.value)}
                 placeholder="Search contacts..."
                 autoFocus
-                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               />
             </div>
             {/* Add New Contact Button */}
@@ -553,14 +553,14 @@ function Chat() {
                       value={newContact.display_name}
                       onChange={(e) => setNewContact({ ...newContact, display_name: e.target.value })}
                       placeholder="Contact name"
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
                   <div>
                     <select
                       value={newContact.platform}
                       onChange={(e) => setNewContact({ ...newContact, platform: e.target.value })}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     >
                       <option value="telegram">Telegram</option>
                       <option value="whatsapp">WhatsApp</option>
@@ -575,7 +575,7 @@ function Chat() {
                       value={newContact.identifier}
                       onChange={(e) => setNewContact({ ...newContact, identifier: e.target.value })}
                       placeholder={newContact.platform === 'telegram' ? 'Phone number or username' : 'Phone number or username'}
-                      className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                      className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                     />
                   </div>
                   <div className="flex gap-2">
@@ -608,7 +608,7 @@ function Chat() {
                 <div
                   key={contact.user_id}
                   onClick={() => startChat(contact)}
-                  className="flex items-center gap-3 p-3 hover:bg-gray-700 cursor-pointer transition-colors"
+                  className="flex items-center gap-3 p-3 hover:bg-gray-800 cursor-pointer transition-colors"
                 >
                   <div className="w-9 h-9 bg-blue-600 rounded-full flex items-center justify-center text-sm text-white">
                     {contact.display_name.charAt(0)}

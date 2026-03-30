@@ -14,9 +14,9 @@ function Layout() {
   const isChat = location.pathname === '/chat'
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900 text-white">
+    <div className="h-screen flex flex-col bg-black text-white">
       {/* Top Nav */}
-      <header className="bg-gray-800 border-b border-gray-700 px-4 h-12 flex items-center justify-between flex-shrink-0">
+      <header className="bg-gray-950 border-b border-gray-700 px-4 h-12 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-6">
           <Link to="/chat" className="text-lg font-bold hover:opacity-80 transition-opacity" style={{ color: '#f5d40c' }}>
             MultiChat
