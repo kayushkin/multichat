@@ -70,39 +70,38 @@ function Chat() {
   const messagesEnd = useRef<HTMLDivElement>(null)
   const membersRef = useRef<HTMLDivElement>(null)
 
+  // All contact→tag mappings (fetched once)
+  const [allContactTags, setAllContactTags] = useState<Record<string, Tag[]>>({})
+
+  const fetchBulkTags = async () => {
+    try {
+      const res = await fetch('/api/contacts/tags/bulk')
+      if (res.ok) setAllContactTags(await res.json() || {})
+    } catch { /* skip */ }
+  }
+
   useEffect(() => {
     Promise.all([
       fetch('/api/conversations').then(r => r.json()),
       fetch('/api/tags').then(r => r.json()),
-    ]).then(([convos, t]) => {
+      fetch('/api/contacts/tags/bulk').then(r => r.json()),
+    ]).then(([convos, t, bulk]) => {
       setConversations(convos || [])
       setTags(t || [])
-      // Load tags for all rooms via their members
-      loadAllRoomTags(convos || [])
+      setAllContactTags(bulk || {})
     }).finally(() => setLoading(false))
   }, [])
 
-  const loadAllRoomTags = async (convos: Conversation[]) => {
-    // For each conversation, get members and check their tags
-    const tagMap: Record<string, Tag[]> = {}
-    for (const conv of convos.slice(0, 30)) { // limit to first 30 for perf
-      try {
-        const membersRes = await fetch(`/api/conversations/${encodeURIComponent(conv.room_id)}/members`)
-        if (!membersRes.ok) continue
-        const roomMembers = await membersRes.json()
-        const allTags: Tag[] = []
-        for (const m of (roomMembers || [])) {
-          const tagsRes = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
-          if (!tagsRes.ok) continue
-          const mTags = await tagsRes.json()
-          for (const t of (mTags || [])) {
-            if (!allTags.some(at => at.id === t.id)) allTags.push(t)
-          }
-        }
-        if (allTags.length > 0) tagMap[conv.room_id] = allTags
-      } catch { /* skip */ }
+  // Derive room tags from members + bulk contact tags (no extra API calls)
+  const getRoomTagsFromMembers = (roomMembers: any[]): Tag[] => {
+    const tagMap = new Map<number, Tag>()
+    for (const m of roomMembers) {
+      if (m.is_me) continue
+      for (const t of (allContactTags[m.user_id] || [])) {
+        tagMap.set(t.id, t)
+      }
     }
-    setRoomTags(tagMap)
+    return Array.from(tagMap.values())
   }
 
   const loadRoomTags = async (roomId: string) => {
@@ -110,17 +109,9 @@ function Chat() {
       const membersRes = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/members`)
       if (!membersRes.ok) return
       const roomMembers = await membersRes.json()
-      const allTags: Tag[] = []
-      for (const m of (roomMembers || [])) {
-        const tagsRes = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
-        if (!tagsRes.ok) continue
-        const mTags = await tagsRes.json()
-        for (const t of (mTags || [])) {
-          if (!allTags.some(at => at.id === t.id)) allTags.push(t)
-        }
-      }
-      setSelectedRoomTags(allTags)
-      setRoomTags(prev => ({ ...prev, [roomId]: allTags }))
+      const tags = getRoomTagsFromMembers(roomMembers)
+      setSelectedRoomTags(tags)
+      setRoomTags(prev => ({ ...prev, [roomId]: tags }))
     } catch { /* skip */ }
   }
 
@@ -181,6 +172,7 @@ function Chat() {
       existing_tags: prev.existing_tags.filter(t => t !== tagName),
       new_tags: prev.new_tags.filter(t => t !== tagName),
     } : null)
+    await fetchBulkTags()
     loadRoomTags(selected)
     loadMemberTags(selected)
   }
@@ -196,8 +188,7 @@ function Chat() {
     setMembers(roomMembers || [])
     for (const m of (roomMembers || [])) {
       if (m.is_me) continue
-      const res = await fetch(`/api/contacts/tags?contact=${encodeURIComponent(m.user_id)}`)
-      if (res.ok) mt[m.user_id] = await res.json() || []
+      mt[m.user_id] = allContactTags[m.user_id] || []
     }
     setMemberTags(mt)
   }
@@ -208,11 +199,13 @@ function Chat() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contact_user_id: contactId, tag_id: tagId }),
     })
+    await fetchBulkTags()
     if (selected) { loadMemberTags(selected); loadRoomTags(selected) }
   }
 
   const removeTagFromContact = async (contactId: string, tagId: number) => {
     await fetch(`/api/contacts/tags?contact=${encodeURIComponent(contactId)}&tag=${tagId}`, { method: 'DELETE' })
+    await fetchBulkTags()
     if (selected) { loadMemberTags(selected); loadRoomTags(selected) }
   }
 

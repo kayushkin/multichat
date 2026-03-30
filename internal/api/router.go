@@ -81,6 +81,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/ai/escalation-scan", r.escalationScanHandler)
 	r.mux.HandleFunc("/tags", r.tagsHandler)
 	r.mux.HandleFunc("/contacts/tags", r.contactTagsHandler)
+	r.mux.HandleFunc("/contacts/tags/bulk", r.bulkContactTagsHandler)
 	r.mux.HandleFunc("/ai/auto-tag", r.autoTagHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
@@ -1129,5 +1130,27 @@ Conversation:
 	result, err := callOpenAI(openaiKey, convo.String(), prompt)
 	if err != nil { r.writeError(w, 500, err.Error()); return }
 
+	r.writeJSON(w, result)
+}
+
+// bulkContactTagsHandler returns ALL contact→tag mappings in one call
+// GET /contacts/tags/bulk → { "contact_user_id": [tag1, tag2], ... }
+func (r *Router) bulkContactTagsHandler(w http.ResponseWriter, req *http.Request) {
+	r.ensureTagsTables()
+	rows, err := r.db.Query(`SELECT ct.contact_user_id, t.id, t.name, t.color FROM contact_tags ct JOIN tags t ON ct.tag_id = t.id ORDER BY ct.contact_user_id, t.name`)
+	if err != nil { r.writeError(w, 500, err.Error()); return }
+	defer rows.Close()
+	type Tag struct {
+		ID    int64  `json:"id"`
+		Name  string `json:"name"`
+		Color string `json:"color"`
+	}
+	result := map[string][]Tag{}
+	for rows.Next() {
+		var contactID string
+		var t Tag
+		rows.Scan(&contactID, &t.ID, &t.Name, &t.Color)
+		result[contactID] = append(result[contactID], t)
+	}
 	r.writeJSON(w, result)
 }
