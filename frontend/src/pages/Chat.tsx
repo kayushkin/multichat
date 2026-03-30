@@ -18,6 +18,7 @@ interface Conversation {
   room_id: string
   name: string
   member_count: number
+  member_ids?: string[]
   platform: string
   last_activity: number
   last_message?: string
@@ -89,6 +90,18 @@ function Chat() {
       setConversations(convos || [])
       setTags(t || [])
       setAllContactTags(bulk || {})
+      // Build roomTags from member_ids + bulk contact tags
+      const rt: Record<string, Tag[]> = {}
+      for (const conv of (convos || [])) {
+        const tagMap = new Map<number, Tag>()
+        for (const mid of (conv.member_ids || [])) {
+          for (const tag of (bulk[mid] || [])) {
+            tagMap.set(tag.id, tag)
+          }
+        }
+        if (tagMap.size > 0) rt[conv.room_id] = Array.from(tagMap.values())
+      }
+      setRoomTags(rt)
     }).finally(() => setLoading(false))
   }, [])
 

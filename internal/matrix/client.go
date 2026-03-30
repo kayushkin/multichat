@@ -101,14 +101,15 @@ type Contact struct {
 
 // Conversation is a Matrix room (portal)
 type Conversation struct {
-	RoomID       string `json:"room_id"`
-	Name         string `json:"name"`
-	Topic        string `json:"topic,omitempty"`
-	AvatarURL    string `json:"avatar_url,omitempty"`
-	MemberCount  int    `json:"member_count"`
-	Platform     string `json:"platform,omitempty"`
-	LastActivity int64  `json:"last_activity"`
-	LastMessage  string `json:"last_message,omitempty"`
+	RoomID       string   `json:"room_id"`
+	Name         string   `json:"name"`
+	Topic        string   `json:"topic,omitempty"`
+	AvatarURL    string   `json:"avatar_url,omitempty"`
+	MemberCount  int      `json:"member_count"`
+	MemberIDs    []string `json:"member_ids,omitempty"`
+	Platform     string   `json:"platform,omitempty"`
+	LastActivity int64    `json:"last_activity"`
+	LastMessage  string   `json:"last_message,omitempty"`
 }
 
 // Message is a Matrix room event
@@ -293,6 +294,14 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			}
 			json.Unmarshal(memberData, &memberResp)
 			conv.MemberCount = len(memberResp.Chunk)
+
+			// Collect non-bot, non-self member IDs
+			for _, m := range memberResp.Chunk {
+				local := strings.Split(m.StateKey, ":")[0]
+				if !strings.HasSuffix(local, "bot") && m.StateKey != "@admin:chat.kayushkin.com" && !SelfUserIDs[m.StateKey] {
+					conv.MemberIDs = append(conv.MemberIDs, m.StateKey)
+				}
+			}
 
 			// Detect platform from member user IDs
 			for _, m := range memberResp.Chunk {
