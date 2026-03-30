@@ -51,3 +51,17 @@ Pick the top unclaimed item, do it, push. Mark `[x]` when done, `[~]` in progres
 - [ ] **Let's Encrypt** — SSL cert for subdomain
 - [ ] **deploy.sh** — build locally, push, SSH pull + restart
 - [ ] **GitHub repo** — push to kayushkin/multichat
+
+## Done
+
+- [x] **Dashboard stats** — real conversation counts, platform breakdown, recent activity
+- [x] **AI conversation summary** — Claude/OpenAI-powered summaries with topics + sentiment
+- [x] **Contact identity unification** — cross-platform grouping by display name
+- [x] **Cross-conversation search** — search message bodies across all platforms
+- [x] **Keyword/phrase alerts** — auto-scan for red-flag words with severity levels
+- [x] **AI escalation detection** — scan active conversations for manager attention
+- [x] **SVG platform icons** — proper Telegram/WhatsApp/Signal/Messenger/Instagram icons
+- [x] **Top nav bar** — replaced sidebar with compact top navigation
+- [x] **Platform filter pills** — filter conversation list by platform
+- [x] **Members dropdown** — clickable member count shows room members
+- [x] **Merge WSL + Linode branches** — unified codebase
