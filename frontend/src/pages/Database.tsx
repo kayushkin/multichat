@@ -1,272 +1,170 @@
 import { useEffect, useState } from 'react'
 
-interface SchemaItem {
-  name: string
-  type: string
-  sql: string
+interface PlatformIdentity {
+  user_id: string
+  platform: string
+  avatar_url?: string
+  phone?: string
 }
 
 interface UnifiedContact {
   display_name: string
-  unified_id: string
-  platforms: Array<{
-    platform: string
-    user_id: string
-    avatar_url?: string
-    phone?: string
-    telegram_id?: string
-  }>
+  identities: PlatformIdentity[]
+  platforms: string[]
+}
+
+const platformBadge: Record<string, { label: string; color: string; icon: string }> = {
+  telegram: { label: 'Telegram', color: 'bg-sky-500/20 text-sky-300 border-sky-500/30', icon: '✈️' },
+  whatsapp: { label: 'WhatsApp', color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', icon: '💬' },
+  facebook: { label: 'Facebook', color: 'bg-blue-600/20 text-blue-300 border-blue-600/30', icon: '📘' },
+  instagram: { label: 'Instagram', color: 'bg-pink-500/20 text-pink-300 border-pink-500/30', icon: '📷' },
+  signal: { label: 'Signal', color: 'bg-blue-400/20 text-blue-200 border-blue-400/30', icon: '🔒' },
+  unknown: { label: 'Unknown', color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', icon: '❓' },
 }
 
 function Database() {
-  const [schema, setSchema] = useState<SchemaItem[]>([])
-  const [unifiedContacts, setUnifiedContacts] = useState<UnifiedContact[]>([])
-  const [activeTab, setActiveTab] = useState<'schema' | 'contacts'>('schema')
-  const [error, setError] = useState('')
+  const [contacts, setContacts] = useState<UnifiedContact[]>([])
   const [loading, setLoading] = useState(true)
-  const [contactsLoading, setContactsLoading] = useState(false)
-  const [expandedContacts, setExpandedContacts] = useState<Set<string>>(new Set())
+  const [error, setError] = useState('')
+  const [search, setSearch] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [filter, setFilter] = useState<string>('all')
 
-  const fetchSchema = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/schema')
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      const data = await res.json()
-      setSchema(data || [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fetchUnifiedContacts = async () => {
-    setContactsLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/contacts/unified')
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-      const data = await res.json()
-      setUnifiedContacts(data || [])
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setContactsLoading(false)
-    }
-  }
-
-  const toggleContactExpansion = (unifiedId: string) => {
-    const newExpanded = new Set(expandedContacts)
-    if (newExpanded.has(unifiedId)) {
-      newExpanded.delete(unifiedId)
-    } else {
-      newExpanded.add(unifiedId)
-    }
-    setExpandedContacts(newExpanded)
-  }
-
-  useEffect(() => { 
-    fetchSchema()
-    fetchUnifiedContacts()
+  useEffect(() => {
+    fetch('/api/contacts/unified')
+      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json() })
+      .then(setContacts)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
   }, [])
 
-  const tables = schema.filter(s => s.type === 'table')
-  const indexes = schema.filter(s => s.type === 'index')
+  const filtered = contacts.filter(c => {
+    const matchesSearch = c.display_name?.toLowerCase().includes(search.toLowerCase())
+    const matchesFilter = filter === 'all' || filter === 'multi'
+      ? (filter === 'all' || c.platforms.length > 1)
+      : c.platforms.includes(filter)
+    return matchesSearch && matchesFilter
+  })
 
-  const getPlatformBadgeColor = (platform: string) => {
-    switch (platform) {
-      case 'telegram': return 'bg-blue-500'
-      case 'whatsapp': return 'bg-green-500'
-      case 'facebook': return 'bg-blue-600'
-      case 'instagram': return 'bg-purple-500'
-      case 'meta': return 'bg-blue-600'
-      case 'signal': return 'bg-indigo-500'
-      default: return 'bg-gray-500'
-    }
-  }
+  const multiPlatformCount = contacts.filter(c => c.platforms.length > 1).length
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20">
+      <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+    </div>
+  )
+
+  if (error) return (
+    <div className="bg-red-900/30 border border-red-700 rounded-lg p-4">
+      <p className="text-red-300">Error: {error}</p>
+    </div>
+  )
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Database</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={activeTab === 'schema' ? fetchSchema : fetchUnifiedContacts}
-            disabled={loading || contactsLoading}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-4 py-2 rounded-lg text-white transition-colors"
-          >
-            {(activeTab === 'schema' && loading) || (activeTab === 'contacts' && contactsLoading) ? 'Loading...' : 'Refresh'}
-          </button>
+        <div>
+          <h1 className="text-2xl font-bold text-white">Contacts</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            {contacts.length} contacts · {multiPlatformCount} cross-platform
+          </p>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-700">
-        <nav className="flex space-x-8">
+      {/* Filters */}
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { key: 'all', label: `All (${contacts.length})` },
+          { key: 'multi', label: `🔗 Cross-Platform (${multiPlatformCount})` },
+          { key: 'telegram', label: '✈️ Telegram' },
+          { key: 'whatsapp', label: '💬 WhatsApp' },
+          { key: 'facebook', label: '📘 Facebook' },
+          { key: 'instagram', label: '📷 Instagram' },
+        ].map(f => (
           <button
-            onClick={() => setActiveTab('schema')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'schema'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              filter === f.key
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-800 text-gray-300 hover:bg-gray-700 border border-gray-700'
             }`}
           >
-            Schema
+            {f.label}
           </button>
-          <button
-            onClick={() => setActiveTab('contacts')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-              activeTab === 'contacts'
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
-            }`}
-          >
-            Unified Contacts
-          </button>
-        </nav>
+        ))}
       </div>
 
-      {error && (
-        <div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
-          <p className="text-red-300">{error}</p>
-        </div>
-      )}
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Search contacts..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+      />
 
-      {activeTab === 'schema' ? (
-        <>
-          {/* Tables */}
-      {tables.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-300">
-            Tables ({tables.length})
-          </h2>
-          {tables.map((item) => (
-            <div key={item.name} className="bg-gray-800 rounded-lg overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3">
-                <span className="text-xs font-mono bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded">
-                  TABLE
-                </span>
-                <span className="text-white font-medium">{item.name}</span>
-              </div>
-              <pre className="p-4 text-sm text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap">
-                {item.sql}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Contact List */}
+      <div className="space-y-2">
+        {filtered.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">No contacts match your filters</div>
+        ) : (
+          filtered.map((contact, i) => (
+            <div key={i} className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+              <button
+                onClick={() => setExpanded(expanded === contact.display_name ? null : contact.display_name)}
+                className="w-full text-left px-5 py-3.5 hover:bg-gray-700/30 transition-colors flex items-center gap-3"
+              >
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                  {contact.display_name?.charAt(0)?.toUpperCase() || '?'}
+                </div>
 
-      {/* Indexes */}
-      {indexes.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-300">
-            Indexes ({indexes.length})
-          </h2>
-          {indexes.map((item) => (
-            <div key={item.name} className="bg-gray-800 rounded-lg overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-3">
-                <span className="text-xs font-mono bg-green-600/30 text-green-300 px-2 py-0.5 rounded">
-                  INDEX
-                </span>
-                <span className="text-white font-medium">{item.name}</span>
-              </div>
-              <pre className="p-4 text-sm text-gray-300 font-mono overflow-x-auto whitespace-pre-wrap">
-                {item.sql}
-              </pre>
-            </div>
-          ))}
-        </div>
-      )}
-
-          {!loading && !error && schema.length === 0 && (
-            <div className="bg-gray-800 rounded-lg p-8 text-center">
-              <p className="text-gray-400">No schema found. Database may be empty.</p>
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          {/* Unified Contacts */}
-          {contactsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <p className="text-gray-400">Loading unified contacts...</p>
-            </div>
-          ) : unifiedContacts.length === 0 ? (
-            <div className="bg-gray-800 rounded-lg p-8 text-center">
-              <p className="text-gray-400">No unified contacts found.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-300">
-                Unified Contacts ({unifiedContacts.length})
-              </h2>
-              <div className="space-y-3">
-                {unifiedContacts.map((contact) => (
-                  <div key={contact.unified_id} className="bg-gray-800 rounded-lg overflow-hidden">
-                    <div 
-                      className="p-4 cursor-pointer hover:bg-gray-750 transition-colors"
-                      onClick={() => toggleContactExpansion(contact.unified_id)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-white font-medium">{contact.display_name}</h3>
-                          <div className="flex gap-2">
-                            {contact.platforms.map((platform, idx) => (
-                              <span
-                                key={idx}
-                                className={`text-xs px-2 py-1 rounded-full text-white ${getPlatformBadgeColor(platform.platform)}`}
-                              >
-                                {platform.platform}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <span className="text-gray-400 text-sm">
-                          {expandedContacts.has(contact.unified_id) ? '▼' : '▶'}
-                        </span>
-                      </div>
-                      <p className="text-gray-400 text-sm mt-1">
-                        {contact.platforms.length} platform{contact.platforms.length !== 1 ? 's' : ''}
-                      </p>
-                    </div>
-                    
-                    {expandedContacts.has(contact.unified_id) && (
-                      <div className="border-t border-gray-700 p-4 bg-gray-750">
-                        <div className="space-y-3">
-                          {contact.platforms.map((platform, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
-                              <div className="flex items-center gap-3">
-                                <span className={`w-3 h-3 rounded-full ${getPlatformBadgeColor(platform.platform)}`} />
-                                <div>
-                                  <p className="text-white font-medium capitalize">{platform.platform}</p>
-                                  <p className="text-gray-400 text-sm font-mono">{platform.user_id}</p>
-                                  {platform.phone && (
-                                    <p className="text-gray-400 text-xs">Phone: {platform.phone}</p>
-                                  )}
-                                  {platform.telegram_id && (
-                                    <p className="text-gray-400 text-xs">ID: {platform.telegram_id}</p>
-                                  )}
-                                </div>
-                              </div>
-                              {platform.avatar_url && (
-                                <div className="text-gray-400 text-xs">
-                                  📷 Avatar
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-medium truncate">{contact.display_name}</span>
+                    {contact.platforms.length > 1 && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">
+                        {contact.platforms.length} platforms
+                      </span>
                     )}
                   </div>
-                ))}
-              </div>
+                  <div className="flex gap-1.5 mt-1">
+                    {contact.platforms.map(p => {
+                      const badge = platformBadge[p] || platformBadge.unknown
+                      return (
+                        <span key={p} className={`text-[10px] px-2 py-0.5 rounded-full border ${badge.color}`}>
+                          {badge.icon} {badge.label}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <span className="text-gray-500 text-sm">{expanded === contact.display_name ? '▲' : '▼'}</span>
+              </button>
+
+              {/* Expanded Details */}
+              {expanded === contact.display_name && (
+                <div className="border-t border-gray-700 bg-gray-900/30 px-5 py-3 space-y-2">
+                  <p className="text-xs text-gray-500 uppercase tracking-wider font-medium">Platform Identities</p>
+                  {contact.identities.map((id, j) => {
+                    const badge = platformBadge[id.platform] || platformBadge.unknown
+                    return (
+                      <div key={j} className="flex items-center gap-3 py-1.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${badge.color}`}>
+                          {badge.icon} {badge.label}
+                        </span>
+                        <span className="text-gray-400 text-xs font-mono truncate">{id.user_id}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </>
-      )}
+          ))
+        )}
+      </div>
     </div>
   )
 }

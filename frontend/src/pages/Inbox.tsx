@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react'
 interface Conversation {
   room_id: string
   name: string
-  platform: string
-  last_message: string
-  last_activity: number
   member_count: number
+  platform: string
+  last_activity: number
+  last_message?: string
 }
 
 interface Message {
@@ -25,239 +25,257 @@ interface AISummary {
   sentiment: string
 }
 
+const platformColors: Record<string, string> = {
+  telegram: 'bg-sky-500',
+  whatsapp: 'bg-emerald-500',
+  facebook: 'bg-blue-600',
+  instagram: 'bg-pink-500',
+  signal: 'bg-blue-400',
+}
+
+const platformBadgeColors: Record<string, string> = {
+  telegram: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+  whatsapp: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  facebook: 'bg-blue-600/20 text-blue-300 border-blue-600/30',
+  instagram: 'bg-pink-500/20 text-pink-300 border-pink-500/30',
+  signal: 'bg-blue-400/20 text-blue-200 border-blue-400/30',
+}
+
+const sentimentColors: Record<string, string> = {
+  positive: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  negative: 'bg-red-500/20 text-red-300 border-red-500/30',
+  neutral: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
+  urgent: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+}
+
+const sentimentEmoji: Record<string, string> = {
+  positive: '😊',
+  negative: '😟',
+  neutral: '😐',
+  urgent: '🚨',
+}
+
+function timeAgo(ts: number): string {
+  if (!ts) return ''
+  const now = Date.now()
+  const diff = now - ts
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(ts).toLocaleDateString()
+}
+
 function Inbox() {
   const [conversations, setConversations] = useState<Conversation[]>([])
-  const [selectedConv, setSelectedConv] = useState<Conversation | null>(null)
+  const [selected, setSelected] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState(true)
-  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [loadingConvos, setLoadingConvos] = useState(true)
+  const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [search, setSearch] = useState('')
   const [summary, setSummary] = useState<AISummary | null>(null)
-  const [summaryLoading, setSummaryLoading] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
+  const [summarizing, setSummarizing] = useState(false)
+  const [showSummary, setShowSummary] = useState(false)
 
-  const fetchConversations = async () => {
-    setLoading(true)
-    try {
-      const res = await fetch('/api/conversations')
-      if (!res.ok) throw new Error('Failed to fetch conversations')
-      const data = await res.json()
-      setConversations(data || [])
-    } catch (e) {
-      console.error('Error fetching conversations:', e)
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    fetch('/api/conversations')
+      .then(r => r.json())
+      .then(setConversations)
+      .catch(console.error)
+      .finally(() => setLoadingConvos(false))
+  }, [])
 
-  const fetchMessages = async (roomId: string) => {
-    setMessagesLoading(true)
+  const selectConversation = async (conv: Conversation) => {
+    setSelected(conv)
+    setMessages([])
+    setSummary(null)
+    setShowSummary(false)
+    setLoadingMsgs(true)
     try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(roomId)}/messages`)
-      if (!res.ok) throw new Error('Failed to fetch messages')
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conv.room_id)}/messages`)
       const data = await res.json()
       setMessages(data || [])
     } catch (e) {
-      console.error('Error fetching messages:', e)
-      setMessages([])
+      console.error(e)
     } finally {
-      setMessagesLoading(false)
+      setLoadingMsgs(false)
     }
   }
 
-  const summarizeConversation = async () => {
-    if (!selectedConv) return
-    
-    setSummaryLoading(true)
+  const summarize = async () => {
+    if (!selected) return
+    setSummarizing(true)
+    setShowSummary(true)
+    setSummary(null)
     try {
       const res = await fetch('/api/ai/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room_id: selectedConv.room_id })
+        body: JSON.stringify({ room_id: selected.room_id }),
       })
-      
-      if (!res.ok) {
-        const error = await res.text()
-        throw new Error(error)
-      }
-      
       const data = await res.json()
+      if (data.error) throw new Error(data.error)
       setSummary(data)
     } catch (e: any) {
-      console.error('Error summarizing:', e)
-      alert(`Failed to summarize: ${e.message}`)
+      setSummary({ summary: `Error: ${e.message}`, topics: [], sentiment: 'neutral' })
     } finally {
-      setSummaryLoading(false)
+      setSummarizing(false)
     }
   }
 
-  useEffect(() => { fetchConversations() }, [])
-
-  const handleConversationSelect = (conv: Conversation) => {
-    setSelectedConv(conv)
-    setSummary(null)
-    fetchMessages(conv.room_id)
-  }
-
-  const filteredConversations = conversations.filter(conv =>
-    conv.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    conv.platform.toLowerCase().includes(searchTerm.toLowerCase())
+  const filtered = conversations.filter(c =>
+    c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.last_message?.toLowerCase().includes(search.toLowerCase())
   )
 
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
-    
-    if (diffHours < 24) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    } else {
-      return date.toLocaleDateString()
-    }
-  }
-
   return (
-    <div className="h-full flex">
-      {/* Left Panel — Conversation list */}
-      <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-4 border-b border-gray-700">
+    <div className="h-full flex -m-6">
+      {/* Conversation List */}
+      <div className="w-80 bg-gray-800/50 border-r border-gray-700 flex flex-col flex-shrink-0">
+        <div className="p-3 border-b border-gray-700">
           <input
             type="text"
             placeholder="Search conversations..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full bg-gray-700/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
           />
         </div>
-        
         <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <p className="text-gray-500">Loading conversations...</p>
+          {loadingConvos ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
             </div>
-          ) : filteredConversations.length === 0 ? (
-            <div className="flex items-center justify-center py-8">
-              <p className="text-gray-500 text-sm px-4 text-center">
-                {searchTerm ? 'No matching conversations' : 'No conversations yet. Connect a platform to see your messages.'}
-              </p>
-            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-gray-500 text-sm text-center p-4">No conversations found</p>
           ) : (
-            <div className="space-y-1 p-2">
-              {filteredConversations.map((conv) => (
-                <div
-                  key={conv.room_id}
-                  onClick={() => handleConversationSelect(conv)}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                    selectedConv?.room_id === conv.room_id
-                      ? 'bg-blue-600/30 border border-blue-500'
-                      : 'hover:bg-gray-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-white font-medium truncate">{conv.name}</h3>
-                    <div className={`w-2 h-2 rounded-full ${
-                      conv.platform === 'telegram' ? 'bg-blue-500' :
-                      conv.platform === 'whatsapp' ? 'bg-green-500' :
-                      conv.platform === 'facebook' ? 'bg-blue-600' :
-                      'bg-purple-500'
-                    }`} />
-                  </div>
-                  <p className="text-gray-400 text-xs truncate mb-1">
-                    {conv.last_message || 'No recent message'}
-                  </p>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-500 text-xs capitalize">{conv.platform}</span>
-                    <span className="text-gray-500 text-xs">{formatTime(conv.last_activity)}</span>
-                  </div>
+            filtered.map(conv => (
+              <button
+                key={conv.room_id}
+                onClick={() => selectConversation(conv)}
+                className={`w-full text-left px-4 py-3 border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors ${
+                  selected?.room_id === conv.room_id ? 'bg-gray-700/50 border-l-2 border-l-blue-500' : ''
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${platformColors[conv.platform] || 'bg-gray-500'}`} />
+                  <span className="text-white font-medium text-sm truncate">{conv.name}</span>
+                  <span className="text-gray-500 text-xs ml-auto flex-shrink-0">{timeAgo(conv.last_activity)}</span>
                 </div>
-              ))}
-            </div>
+                {conv.last_message && (
+                  <p className="text-gray-400 text-xs mt-1 truncate pl-4.5 ml-[18px]">{conv.last_message}</p>
+                )}
+              </button>
+            ))
           )}
         </div>
       </div>
 
-      {/* Right Panel — Message thread */}
-      <div className="flex-1 flex flex-col">
-        {!selectedConv ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-6xl mb-4">💬</div>
-              <h3 className="text-xl text-white mb-2">No conversation selected</h3>
-              <p className="text-gray-400">Select a conversation to view messages.</p>
-            </div>
-          </div>
-        ) : (
+      {/* Message Thread */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {selected ? (
           <>
             {/* Header */}
-            <div className="bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-white font-semibold">{selectedConv.name}</h2>
-                <p className="text-gray-400 text-sm capitalize">{selectedConv.platform} • {selectedConv.member_count} members</p>
+            <div className="px-5 py-3 border-b border-gray-700 flex items-center justify-between bg-gray-800/30">
+              <div className="flex items-center gap-3">
+                <div className={`w-3 h-3 rounded-full ${platformColors[selected.platform] || 'bg-gray-500'}`} />
+                <div>
+                  <h3 className="text-white font-semibold">{selected.name}</h3>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${platformBadgeColors[selected.platform] || 'bg-gray-700 text-gray-300'}`}>
+                    {selected.platform} · {selected.member_count} members
+                  </span>
+                </div>
               </div>
               <button
-                onClick={summarizeConversation}
-                disabled={summaryLoading}
-                className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 px-4 py-2 rounded-lg text-white transition-colors flex items-center gap-2"
+                onClick={summarize}
+                disabled={summarizing}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 rounded-lg text-white text-sm font-medium transition-all shadow-lg shadow-purple-900/20"
               >
-                <span>✨</span>
-                {summaryLoading ? 'Summarizing...' : 'Summarize'}
+                {summarizing ? (
+                  <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                ) : (
+                  <span>✨</span>
+                )}
+                {summarizing ? 'Analyzing...' : 'AI Summary'}
               </button>
             </div>
 
-            {/* AI Summary */}
-            {summary && (
-              <div className="bg-purple-900/30 border-b border-purple-500/30 p-4">
-                <h3 className="text-purple-300 font-semibold mb-2">AI Summary</h3>
-                <p className="text-gray-300 mb-3">{summary.summary}</p>
-                <div className="flex gap-4">
-                  <div>
-                    <span className="text-purple-400 text-sm font-medium">Topics: </span>
-                    <span className="text-gray-300 text-sm">{summary.topics.join(', ')}</span>
+            {/* AI Summary Panel */}
+            {showSummary && (
+              <div className="border-b border-gray-700 bg-gradient-to-r from-purple-900/20 to-blue-900/20 p-4">
+                {summarizing ? (
+                  <div className="flex items-center gap-3 text-purple-300">
+                    <div className="animate-spin w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full" />
+                    <span className="text-sm">Analyzing conversation with AI...</span>
                   </div>
-                  <div>
-                    <span className="text-purple-400 text-sm font-medium">Sentiment: </span>
-                    <span className={`text-sm capitalize ${
-                      summary.sentiment === 'positive' ? 'text-green-400' :
-                      summary.sentiment === 'negative' ? 'text-red-400' :
-                      'text-gray-400'
-                    }`}>{summary.sentiment}</span>
+                ) : summary ? (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <h4 className="text-white font-semibold text-sm flex items-center gap-2">
+                        ✨ AI Analysis
+                      </h4>
+                      <button onClick={() => setShowSummary(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕ Close</button>
+                    </div>
+                    <p className="text-gray-200 text-sm leading-relaxed">{summary.summary}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {summary.sentiment && (
+                        <span className={`text-xs px-2.5 py-1 rounded-full border font-medium ${sentimentColors[summary.sentiment] || sentimentColors.neutral}`}>
+                          {sentimentEmoji[summary.sentiment] || '😐'} {summary.sentiment}
+                        </span>
+                      )}
+                      {summary.topics?.map((topic, i) => (
+                        <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-gray-700/50 text-gray-300 border border-gray-600">
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             )}
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {messagesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <p className="text-gray-500">Loading messages...</p>
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {loadingMsgs ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <p className="text-gray-500">No messages in this conversation.</p>
+                <div className="text-center py-12">
+                  <p className="text-gray-500">No messages in this conversation</p>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {messages.map((msg) => (
-                    <div key={msg.event_id} className={`flex ${msg.is_me ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-lg rounded-lg p-3 ${
-                        msg.is_me 
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-gray-700 text-gray-100'
-                      }`}>
-                        {!msg.is_me && (
-                          <p className="text-gray-300 text-xs mb-1">{msg.sender_name}</p>
-                        )}
-                        <p>{msg.body}</p>
-                        <p className={`text-xs mt-1 ${msg.is_me ? 'text-blue-200' : 'text-gray-400'}`}>
-                          {formatTime(msg.timestamp)}
-                        </p>
-                      </div>
+                messages.map(msg => (
+                  <div key={msg.event_id} className={`flex ${msg.is_me ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 ${
+                      msg.is_me
+                        ? 'bg-blue-600 text-white rounded-br-md'
+                        : 'bg-gray-700/70 text-gray-100 rounded-bl-md'
+                    }`}>
+                      {!msg.is_me && (
+                        <p className="text-xs font-medium text-blue-300 mb-1">{msg.sender_name}</p>
+                      )}
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{msg.body}</p>
+                      <p className={`text-[10px] mt-1 ${msg.is_me ? 'text-blue-200/60' : 'text-gray-500'}`}>
+                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))
               )}
             </div>
           </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <div className="text-6xl mb-4">💬</div>
+              <h3 className="text-xl text-white mb-2">Select a conversation</h3>
+              <p className="text-gray-400">Choose a conversation from the sidebar to view messages</p>
+            </div>
+          </div>
         )}
       </div>
     </div>
