@@ -404,6 +404,76 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 }
 
 // GetMessages returns messages from a room
+// MessagePage is a page of messages with pagination info
+type MessagePage struct {
+	Messages []Message `json:"messages"`
+	End      string    `json:"end,omitempty"`
+	HasMore  bool      `json:"has_more"`
+}
+
+func (c *Client) GetMessagePage(roomID string, limit int, from string) (*MessagePage, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/messages?dir=b&limit=%d&filter=%s",
+		url.PathEscape(roomID), limit,
+		url.QueryEscape(`{"types":["m.room.message"]}`))
+	if from != "" {
+		path += "&from=" + url.QueryEscape(from)
+	}
+
+	data, err := c.request("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		Chunk []struct {
+			EventID        string `json:"event_id"`
+			Sender         string `json:"sender"`
+			OriginServerTS int64  `json:"origin_server_ts"`
+			Content        struct {
+				Body    string `json:"body"`
+				MsgType string `json:"msgtype"`
+			} `json:"content"`
+		} `json:"chunk"`
+		End string `json:"end"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+
+	names := map[string]string{}
+	var messages []Message
+	for i := len(resp.Chunk) - 1; i >= 0; i-- {
+		evt := resp.Chunk[i]
+		if evt.Content.Body == "" {
+			continue
+		}
+		senderName := names[evt.Sender]
+		if senderName == "" {
+			if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(evt.Sender)+"/displayname", nil); err == nil {
+				var p struct{ DisplayName string `json:"displayname"` }
+				json.Unmarshal(profile, &p)
+				senderName = stripBridgeSuffix(p.DisplayName)
+				names[evt.Sender] = senderName
+			}
+		}
+		messages = append(messages, Message{
+			EventID:    evt.EventID,
+			Sender:     evt.Sender,
+			SenderName: senderName,
+			Body:       evt.Content.Body,
+			MsgType:    evt.Content.MsgType,
+			Timestamp:  evt.OriginServerTS,
+			IsMe:       SelfUserIDs[evt.Sender],
+		})
+	}
+
+	hasMore := len(resp.Chunk) >= limit && resp.End != ""
+	return &MessagePage{Messages: messages, End: resp.End, HasMore: hasMore}, nil
+}
+
 func (c *Client) GetMessages(roomID string, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = 50

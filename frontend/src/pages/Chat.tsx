@@ -38,8 +38,12 @@ function Chat() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [paginationToken, setPaginationToken] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [loading, setLoading] = useState(true)
   const [msgLoading, setMsgLoading] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [showNewChat, setShowNewChat] = useState(false)
@@ -236,12 +240,42 @@ function Chat() {
     loadRoomTags(roomID)
     loadMemberTags(roomID)
     try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(roomID)}/messages?limit=100`)
+      const res = await fetch(`/api/conversations/${encodeURIComponent(roomID)}/messages?limit=50`)
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
-      setMessages(data || [])
+      setMessages(data.messages || data || [])
+      setPaginationToken(data.end || null)
+      setHasMore(data.has_more || false)
     } finally {
       setMsgLoading(false)
+    }
+  }
+
+  const loadOlderMessages = async () => {
+    if (!selected || !paginationToken || loadingMore) return
+    setLoadingMore(true)
+    const container = scrollContainerRef.current
+    const prevHeight = container?.scrollHeight || 0
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(selected)}/messages?limit=50&from=${encodeURIComponent(paginationToken)}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const older = data.messages || data || []
+      if (older.length > 0) {
+        setMessages(prev => [...older, ...prev])
+        setPaginationToken(data.end || null)
+        setHasMore(data.has_more || false)
+        // Maintain scroll position
+        requestAnimationFrame(() => {
+          if (container) {
+            container.scrollTop = container.scrollHeight - prevHeight
+          }
+        })
+      } else {
+        setHasMore(false)
+      }
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -254,11 +288,14 @@ function Chat() {
     if (!selected) return
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/conversations/${encodeURIComponent(selected)}/messages?limit=100`)
+        const res = await fetch(`/api/conversations/${encodeURIComponent(selected)}/messages?limit=50`)
         if (res.ok) {
           const data = await res.json()
-          if (data && data.length !== messages.length) {
-            setMessages(data)
+          const msgs = data.messages || data || []
+          if (msgs.length !== messages.length) {
+            setMessages(msgs)
+            setPaginationToken(data.end || null)
+            setHasMore(data.has_more || false)
           }
         }
       } catch {}
@@ -279,7 +316,7 @@ function Chat() {
         setInput('')
         // Reload messages
         const msgRes = await fetch(`/api/conversations/${encodeURIComponent(selected)}/messages?limit=100`)
-        if (msgRes.ok) setMessages(await msgRes.json() || [])
+        if (msgRes.ok) { const d = await msgRes.json(); setMessages(d.messages || d || []); setPaginationToken(d.end || null); setHasMore(d.has_more || false) }
       }
     } finally {
       setSending(false)
@@ -755,7 +792,22 @@ function Chat() {
               </div>
             )}
 
-            <div className="flex-1 p-4 overflow-y-auto space-y-3">
+            <div ref={scrollContainerRef} className="flex-1 p-4 overflow-y-auto space-y-3" onScroll={(e) => {
+              const el = e.currentTarget
+              if (el.scrollTop < 50 && hasMore && !loadingMore) {
+                loadOlderMessages()
+              }
+            }}>
+              {loadingMore && (
+                <div className="text-center py-2">
+                  <span className="animate-spin inline-block w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full" />
+                </div>
+              )}
+              {hasMore && !loadingMore && (
+                <button onClick={loadOlderMessages} className="w-full text-center py-2 text-xs text-gray-500 hover:text-gray-300 transition-colors">
+                  ↑ Load older messages
+                </button>
+              )}
               {msgLoading && <p className="text-gray-500 text-center">Loading messages...</p>}
               {!msgLoading && messages.length === 0 && (
                 <p className="text-gray-500 text-center">No messages yet.</p>

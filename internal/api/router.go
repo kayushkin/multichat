@@ -483,13 +483,14 @@ func (r *Router) messagesHandler(w http.ResponseWriter, req *http.Request, roomI
 			limit = n
 		}
 	}
+	from := req.URL.Query().Get("from")
 
-	messages, err := r.matrix.GetMessages(roomID, limit)
+	page, err := r.matrix.GetMessagePage(roomID, limit, from)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, messages)
+	r.writeJSON(w, page)
 }
 
 func (r *Router) writeJSON(w http.ResponseWriter, data interface{}) {
