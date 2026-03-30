@@ -37,17 +37,38 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath, metaDBPath str
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// CORS for development
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	if req.Method == "OPTIONS" {
 		return
 	}
+
+	// Token auth — skip for login and health
+	if req.URL.Path != "/auth/login" && req.URL.Path != "/health" {
+		authToken := os.Getenv("MULTICHAT_TOKEN")
+		if authToken != "" {
+			token := ""
+			if auth := req.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+				token = strings.TrimPrefix(auth, "Bearer ")
+			}
+			if token == "" {
+				if c, err := req.Cookie("multichat_token"); err == nil {
+					token = c.Value
+				}
+			}
+			if token != authToken {
+				r.writeError(w, 401, "Unauthorized")
+				return
+			}
+		}
+	}
+
 	r.mux.ServeHTTP(w, req)
 }
 
 func (r *Router) setupRoutes() {
+	r.mux.HandleFunc("/auth/login", r.loginHandler)
 	r.mux.HandleFunc("/health", r.healthHandler)
 	r.mux.HandleFunc("/schema", r.schemaHandler)
 	r.mux.HandleFunc("/contacts", r.contactsHandler)
@@ -956,4 +977,34 @@ func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
 	default:
 		r.writeError(w, 405, "Method not allowed")
 	}
+}
+
+// loginHandler validates token and sets a cookie
+func (r *Router) loginHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		r.writeError(w, 400, "Invalid body")
+		return
+	}
+	authToken := os.Getenv("MULTICHAT_TOKEN")
+	if authToken == "" || body.Token != authToken {
+		r.writeError(w, 401, "Invalid token")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "multichat_token",
+		Value:    body.Token,
+		Path:     "/",
+		MaxAge:   86400 * 30, // 30 days
+		HttpOnly: false,      // frontend needs to read it
+		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+	})
+	r.writeJSON(w, map[string]string{"status": "ok"})
 }
