@@ -300,23 +300,49 @@ function Alerts() {
         </div>
       )}
 
-      {/* Keywords info */}
+      {/* Keywords management */}
       {alerts && (
-        <div className="mt-8 text-center text-sm text-gray-500">
-          <details className="inline-block">
-            <summary className="cursor-pointer hover:text-gray-400">
-              Monitoring {alerts.keywords_used.length} keywords
-            </summary>
-            <div className="mt-2 text-left bg-gray-800 border border-gray-700 rounded-lg p-3 max-w-2xl mx-auto">
-              <div className="flex flex-wrap gap-1">
-                {alerts.keywords_used.map((keyword, index) => (
-                  <span key={index} className="text-xs bg-gray-700 text-gray-300 px-2 py-1 rounded">
-                    {keyword}
-                  </span>
-                ))}
-              </div>
+        <div className="mt-8">
+          <div className="bg-gray-950 border border-gray-800 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-400">Monitoring {alerts.keywords_used.length} keywords</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                const input = (e.target as HTMLFormElement).querySelector('input') as HTMLInputElement
+                const kw = input.value.trim()
+                if (!kw) return
+                await fetch('/api/alerts', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'add', keyword: kw }),
+                })
+                input.value = ''
+                fetchAlerts()
+              }} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Add keyword..."
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 w-40"
+                />
+                <button type="submit" className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-900" style={{ backgroundColor: '#f5d40c' }}>Add</button>
+              </form>
             </div>
-          </details>
+            <div className="flex flex-wrap gap-1.5">
+              {alerts.keywords_used.map((keyword, index) => (
+                <span key={index} className="text-xs bg-gray-800 text-gray-300 px-2.5 py-1 rounded-full border border-gray-700 flex items-center gap-1.5">
+                  {keyword}
+                  <button onClick={async () => {
+                    await fetch('/api/alerts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'remove', keyword }),
+                    })
+                    fetchAlerts()
+                  }} className="text-gray-500 hover:text-red-400 transition-colors">×</button>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

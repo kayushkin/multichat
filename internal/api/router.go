@@ -742,11 +742,44 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
+	// POST to add/remove custom keywords
+	if req.Method == "POST" {
+		var body struct {
+			Action  string `json:"action"` // "add" or "remove"
+			Keyword string `json:"keyword"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Keyword == "" {
+			r.writeError(w, 400, "keyword required"); return
+		}
+		r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE)`)
+		if body.Action == "remove" {
+			r.db.Exec(`DELETE FROM alert_keywords WHERE keyword = ?`, strings.ToLower(body.Keyword))
+		} else {
+			r.db.Exec(`INSERT OR IGNORE INTO alert_keywords (keyword) VALUES (?)`, strings.ToLower(body.Keyword))
+		}
+		r.writeJSON(w, map[string]string{"status": "ok"})
+		return
+	}
+
 	hours := 24
 	if h := req.URL.Query().Get("hours"); h != "" {
 		if v, err := strconv.Atoi(h); err == nil { hours = v }
 	}
+	// Default keywords + custom from DB
 	keywords := []string{"complaint", "urgent", "late", "damaged", "delay", "escalate", "cancel", "problem", "issue", "wrong", "broken", "failed", "missing", "angry", "refund"}
+	r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE)`)
+	rows, err := r.db.Query(`SELECT keyword FROM alert_keywords`)
+	if err == nil {
+		for rows.Next() {
+			var kw string
+			rows.Scan(&kw)
+			// Don't duplicate
+			found := false
+			for _, existing := range keywords { if existing == kw { found = true; break } }
+			if !found { keywords = append(keywords, kw) }
+		}
+		rows.Close()
+	}
 	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
 	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
 	type Alert struct {
