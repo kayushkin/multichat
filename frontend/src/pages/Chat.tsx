@@ -72,10 +72,11 @@ function Chat() {
 
   const selectConversation = (roomId: string, split: boolean) => {
     if (split && selectedPanes.length >= 1) {
-      // Add as second pane (or replace second)
-      if (selectedPanes[0] === roomId) return // already in first pane
+      if (selectedPanes.includes(roomId)) return // already open
       setSelectedPanes([selectedPanes[0], roomId])
     } else {
+      // If already selected as the only pane, don't re-set (avoids re-render)
+      if (selectedPanes.length === 1 && selectedPanes[0] === roomId) return
       setSelectedPanes([roomId])
     }
   }
@@ -245,10 +246,15 @@ function Chat() {
         {selectedPanes.length > 0 ? (
           selectedPanes.map((paneId, index) => {
             const conv = conversations.find(c => c.room_id === paneId)
-            if (!conv) return null
+            if (!conv) return (
+              <div key={paneId} className="flex-1 flex items-center justify-center">
+                <p className="text-gray-500">Loading conversation...</p>
+              </div>
+            )
             return (
-              <div key={paneId} className={`flex-1 flex flex-col min-w-0 ${index > 0 ? 'border-l border-gray-700' : ''}`}>
+              <div key={paneId} className={`flex-1 flex min-w-0 ${index > 0 ? 'border-l border-gray-700' : ''}`}>
                 <ConversationView
+                  key={paneId}
                   conversationId={paneId}
                   conversation={conv}
                   tags={tags}

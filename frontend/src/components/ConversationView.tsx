@@ -128,18 +128,20 @@ function ConversationView({ conversationId, conversation, tags, allContactTags, 
     setShowTagManager(false)
     setAutoTagSuggestions(null)
     setMemberTags({})
-    loadRoomTags()
-    loadMemberTags()
     try {
-      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=50`)
-      if (!res.ok) throw new Error(`${res.status}`)
-      const data = await res.json()
-      setMessages(data.messages || data || [])
-      setPaginationToken(data.end || null)
-      setHasMore(data.has_more || false)
-    } finally {
-      setMsgLoading(false)
-    }
+      const [msgRes] = await Promise.all([
+        fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=50`),
+        loadRoomTags().catch(() => {}),
+        loadMemberTags().catch(() => {}),
+      ])
+      if (msgRes.ok) {
+        const data = await msgRes.json()
+        setMessages(data.messages || data || [])
+        setPaginationToken(data.end || null)
+        setHasMore(data.has_more || false)
+      }
+    } catch { /* skip */ }
+    setMsgLoading(false)
   }
 
   useEffect(() => { loadMessages() }, [conversationId])
