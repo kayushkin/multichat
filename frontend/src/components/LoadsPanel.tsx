@@ -15,6 +15,7 @@ interface Load {
   pickup_date: string
   delivery_date: string
   equipment_type: string
+  attachment_status?: string // tentative or confirmed
 }
 
 interface LoadsPanelProps {
@@ -76,17 +77,30 @@ function LoadsPanel({ conversationId }: LoadsPanelProps) {
     setSearching(false)
   }
 
-  const attachLoad = async (loadId: number) => {
+  const attachLoad = async (loadId: number, attachmentStatus: string = 'tentative') => {
     try {
       const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/loads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ load_id: loadId }),
+        body: JSON.stringify({ load_id: loadId, attachment_status: attachmentStatus }),
       })
       if (res.ok) {
         await fetchAttachedLoads()
-        // Remove from search results
         setSearchResults(prev => prev.filter(l => l.id !== loadId))
+      }
+    } catch { /* skip */ }
+  }
+
+  const toggleAttachmentStatus = async (loadId: number, currentStatus: string) => {
+    const newStatus = currentStatus === 'tentative' ? 'confirmed' : 'tentative'
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/loads`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ load_id: loadId, attachment_status: newStatus }),
+      })
+      if (res.ok) {
+        setAttachedLoads(prev => prev.map(l => l.id === loadId ? { ...l, attachment_status: newStatus } : l))
       }
     } catch { /* skip */ }
   }
@@ -150,6 +164,17 @@ function LoadsPanel({ conversationId }: LoadsPanelProps) {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-800 text-gray-400">
                         {equipmentLabels[load.equipment_type] || load.equipment_type}
                       </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleAttachmentStatus(load.id, load.attachment_status || 'tentative') }}
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium border transition-colors ${
+                          load.attachment_status === 'confirmed'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/40 hover:bg-yellow-500/30'
+                        }`}
+                        title={`Click to mark as ${load.attachment_status === 'confirmed' ? 'tentative' : 'confirmed'}`}
+                      >
+                        {load.attachment_status === 'confirmed' ? '✓ Confirmed' : '⏳ Tentative'}
+                      </button>
                     </div>
                     <div className="flex items-center gap-1 mt-0.5">
                       <span className="text-xs text-gray-400">
@@ -218,8 +243,7 @@ function LoadsPanel({ conversationId }: LoadsPanelProps) {
                 return (
                   <div
                     key={load.id}
-                    onClick={() => attachLoad(load.id)}
-                    className="px-4 py-3 hover:bg-gray-800 cursor-pointer transition-colors border-b border-gray-800/50"
+                    className="px-4 py-3 hover:bg-gray-800/50 transition-colors border-b border-gray-800/50"
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-white text-sm font-mono font-medium">{load.reference_number}</span>
@@ -240,8 +264,24 @@ function LoadsPanel({ conversationId }: LoadsPanelProps) {
                         {load.destination_city}, {load.destination_state}
                       </span>
                     </div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">
-                      {load.shipper} → {load.consignee} · {load.weight?.toLocaleString()} lbs · Pickup {load.pickup_date}
+                    <div className="flex items-center justify-between mt-1.5">
+                      <div className="text-[10px] text-gray-500">
+                        {load.shipper} → {load.consignee} · {load.weight?.toLocaleString()} lbs · Pickup {load.pickup_date}
+                      </div>
+                      <div className="flex gap-1.5 flex-shrink-0 ml-2">
+                        <button
+                          onClick={() => attachLoad(load.id, 'tentative')}
+                          className="text-[10px] px-2.5 py-1 rounded font-medium border transition-colors bg-yellow-500/20 text-yellow-400 border-yellow-500/40 hover:bg-yellow-500/30"
+                        >
+                          ⏳ Tentative
+                        </button>
+                        <button
+                          onClick={() => attachLoad(load.id, 'confirmed')}
+                          className="text-[10px] px-2.5 py-1 rounded font-medium border transition-colors bg-emerald-500/20 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/30"
+                        >
+                          ✓ Confirmed
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )

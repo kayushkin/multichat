@@ -148,6 +148,7 @@ func createSchema(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS conversation_loads (
 		conversation_id TEXT NOT NULL,
 		load_id INTEGER NOT NULL REFERENCES loads(id) ON DELETE CASCADE,
+		attachment_status TEXT NOT NULL DEFAULT 'tentative',
 		attached_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (conversation_id, load_id)
 	);
@@ -168,6 +169,9 @@ func createSchema(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
+
+	// Migrate: add attachment_status column if missing
+	db.Exec(`ALTER TABLE conversation_loads ADD COLUMN attachment_status TEXT NOT NULL DEFAULT 'tentative'`)
 
 	// Seed loads if table is empty
 	var count int

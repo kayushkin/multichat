@@ -7,21 +7,22 @@ import (
 )
 
 type Load struct {
-	ID              int64   `json:"id"`
-	ReferenceNumber string  `json:"reference_number"`
-	Shipper         string  `json:"shipper"`
-	Consignee       string  `json:"consignee"`
-	OriginCity      string  `json:"origin_city"`
-	OriginState     string  `json:"origin_state"`
-	DestinationCity string  `json:"destination_city"`
-	DestinationState string `json:"destination_state"`
-	Status          string  `json:"status"`
-	Rate            float64 `json:"rate"`
-	Weight          int     `json:"weight"`
-	PickupDate      string  `json:"pickup_date"`
-	DeliveryDate    string  `json:"delivery_date"`
-	EquipmentType   string  `json:"equipment_type"`
-	CreatedAt       string  `json:"created_at"`
+	ID               int64   `json:"id"`
+	ReferenceNumber  string  `json:"reference_number"`
+	Shipper          string  `json:"shipper"`
+	Consignee        string  `json:"consignee"`
+	OriginCity       string  `json:"origin_city"`
+	OriginState      string  `json:"origin_state"`
+	DestinationCity  string  `json:"destination_city"`
+	DestinationState string  `json:"destination_state"`
+	Status           string  `json:"status"`
+	Rate             float64 `json:"rate"`
+	Weight           int     `json:"weight"`
+	PickupDate       string  `json:"pickup_date"`
+	DeliveryDate     string  `json:"delivery_date"`
+	EquipmentType    string  `json:"equipment_type"`
+	CreatedAt        string  `json:"created_at"`
+	AttachmentStatus string  `json:"attachment_status,omitempty"` // tentative or confirmed (only set when attached to a conversation)
 }
 
 // GET /loads?status=open
@@ -82,7 +83,7 @@ func (r *Router) loadsSearchHandler(w http.ResponseWriter, req *http.Request) {
 func (r *Router) conversationLoadsHandler(w http.ResponseWriter, req *http.Request, conversationID string) {
 	switch req.Method {
 	case "GET":
-		rows, err := r.db.Query(`SELECT l.id, l.reference_number, l.shipper, l.consignee, l.origin_city, l.origin_state, l.destination_city, l.destination_state, l.status, l.rate, l.weight, l.pickup_date, l.delivery_date, l.equipment_type, l.created_at FROM loads l JOIN conversation_loads cl ON l.id = cl.load_id WHERE cl.conversation_id = ? ORDER BY cl.attached_at DESC`, conversationID)
+		rows, err := r.db.Query(`SELECT l.id, l.reference_number, l.shipper, l.consignee, l.origin_city, l.origin_state, l.destination_city, l.destination_state, l.status, l.rate, l.weight, l.pickup_date, l.delivery_date, l.equipment_type, l.created_at, COALESCE(cl.attachment_status, 'tentative') FROM loads l JOIN conversation_loads cl ON l.id = cl.load_id WHERE cl.conversation_id = ? ORDER BY cl.attached_at DESC`, conversationID)
 		if err != nil {
 			r.writeError(w, 500, err.Error())
 			return
@@ -91,7 +92,7 @@ func (r *Router) conversationLoadsHandler(w http.ResponseWriter, req *http.Reque
 		loads := []Load{}
 		for rows.Next() {
 			var l Load
-			if err := rows.Scan(&l.ID, &l.ReferenceNumber, &l.Shipper, &l.Consignee, &l.OriginCity, &l.OriginState, &l.DestinationCity, &l.DestinationState, &l.Status, &l.Rate, &l.Weight, &l.PickupDate, &l.DeliveryDate, &l.EquipmentType, &l.CreatedAt); err != nil {
+			if err := rows.Scan(&l.ID, &l.ReferenceNumber, &l.Shipper, &l.Consignee, &l.OriginCity, &l.OriginState, &l.DestinationCity, &l.DestinationState, &l.Status, &l.Rate, &l.Weight, &l.PickupDate, &l.DeliveryDate, &l.EquipmentType, &l.CreatedAt, &l.AttachmentStatus); err != nil {
 				r.writeError(w, 500, err.Error())
 				return
 			}
@@ -101,18 +102,43 @@ func (r *Router) conversationLoadsHandler(w http.ResponseWriter, req *http.Reque
 
 	case "POST":
 		var body struct {
-			LoadID int64 `json:"load_id"`
+			LoadID           int64  `json:"load_id"`
+			AttachmentStatus string `json:"attachment_status"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LoadID == 0 {
 			r.writeError(w, 400, "load_id required")
 			return
 		}
-		_, err := r.db.Exec(`INSERT OR IGNORE INTO conversation_loads (conversation_id, load_id) VALUES (?, ?)`, conversationID, body.LoadID)
+		if body.AttachmentStatus != "confirmed" {
+			body.AttachmentStatus = "tentative"
+		}
+		_, err := r.db.Exec(`INSERT INTO conversation_loads (conversation_id, load_id, attachment_status) VALUES (?, ?, ?) ON CONFLICT(conversation_id, load_id) DO UPDATE SET attachment_status = ?`, conversationID, body.LoadID, body.AttachmentStatus, body.AttachmentStatus)
 		if err != nil {
 			r.writeError(w, 500, err.Error())
 			return
 		}
-		r.writeJSON(w, map[string]string{"status": "attached"})
+		r.writeJSON(w, map[string]string{"status": "attached", "attachment_status": body.AttachmentStatus})
+
+	case "PATCH", "PUT":
+		// Toggle attachment status
+		var body struct {
+			LoadID           int64  `json:"load_id"`
+			AttachmentStatus string `json:"attachment_status"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.LoadID == 0 {
+			r.writeError(w, 400, "load_id and attachment_status required")
+			return
+		}
+		if body.AttachmentStatus != "confirmed" && body.AttachmentStatus != "tentative" {
+			r.writeError(w, 400, "attachment_status must be 'tentative' or 'confirmed'")
+			return
+		}
+		_, err := r.db.Exec(`UPDATE conversation_loads SET attachment_status = ? WHERE conversation_id = ? AND load_id = ?`, body.AttachmentStatus, conversationID, body.LoadID)
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+		r.writeJSON(w, map[string]string{"status": "updated", "attachment_status": body.AttachmentStatus})
 
 	default:
 		r.writeError(w, 405, "Method not allowed")
