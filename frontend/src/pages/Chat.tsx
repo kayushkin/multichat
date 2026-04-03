@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import PlatformIcon from '../components/PlatformIcon'
+import LoadsPanel from '../components/LoadsPanel'
 
 interface Contact {
   user_id: string
@@ -763,6 +764,9 @@ function Chat() {
                 })}
               </div>
             )}
+
+            {/* Loads panel */}
+            {selected && <LoadsPanel conversationId={selected} />}
 
             {showSummary && (
               <div className="border-b border-gray-700 bg-gradient-to-r from-purple-900/20 to-blue-900/20 p-4">

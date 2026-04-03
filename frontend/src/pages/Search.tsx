@@ -19,10 +19,32 @@ interface GroupedResult {
   match_count: number
 }
 
+interface LoadResult {
+  load: {
+    id: number
+    reference_number: string
+    shipper: string
+    consignee: string
+    origin_city: string
+    origin_state: string
+    destination_city: string
+    destination_state: string
+    status: string
+    rate: number
+    weight: number
+    pickup_date: string
+    delivery_date: string
+    equipment_type: string
+  }
+  conversation_ids: string[] | null
+  conversation_names: string[] | null
+}
+
 interface SearchResponse {
   query: string
   total: number
   groups: GroupedResult[]
+  load_results?: LoadResult[] | null
 }
 
 function Search() {
@@ -133,6 +155,58 @@ function Search() {
       {error && (
         <div className="bg-red-900/50 border border-red-600 rounded-lg p-4 mb-4">
           <p className="text-red-200">{error}</p>
+        </div>
+      )}
+
+      {/* Load Results */}
+      {results && results.load_results && results.load_results.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">📦 Load Matches</h3>
+          <div className="space-y-2">
+            {results.load_results.map(lr => {
+              const statusColors: Record<string, string> = {
+                open: 'text-emerald-400 bg-emerald-500/20',
+                in_transit: 'text-blue-400 bg-blue-500/20',
+                delivered: 'text-gray-400 bg-gray-500/20',
+                cancelled: 'text-red-400 bg-red-500/20',
+              }
+              const statusLabels: Record<string, string> = {
+                open: 'Open', in_transit: 'In Transit', delivered: 'Delivered', cancelled: 'Cancelled',
+              }
+              const equipLabels: Record<string, string> = {
+                dry_van: 'Dry Van', reefer: 'Reefer', flatbed: 'Flatbed', power_only: 'Power Only',
+              }
+              const st = statusColors[lr.load.status] || statusColors.open
+              return (
+                <div key={lr.load.id} className="bg-gray-800 rounded-lg border border-gray-700 p-4">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-white font-mono font-medium">{lr.load.reference_number}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${st}`}>
+                      {statusLabels[lr.load.status] || lr.load.status}
+                    </span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-700 text-gray-400">
+                      {equipLabels[lr.load.equipment_type] || lr.load.equipment_type}
+                    </span>
+                    <span className="text-sm text-green-400 font-medium ml-auto">${lr.load.rate.toLocaleString()}</span>
+                  </div>
+                  <div className="text-xs text-gray-400 mb-1">
+                    {lr.load.origin_city}, {lr.load.origin_state} → {lr.load.destination_city}, {lr.load.destination_state}
+                  </div>
+                  <div className="text-[10px] text-gray-500">
+                    {lr.load.shipper} → {lr.load.consignee} · {lr.load.weight?.toLocaleString()} lbs
+                  </div>
+                  {lr.conversation_names && lr.conversation_names.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-700">
+                      <span className="text-[10px] text-gray-500 uppercase tracking-wider">Attached to: </span>
+                      {lr.conversation_names.map((name, i) => (
+                        <span key={i} className="text-xs text-blue-400 ml-1">{name}{i < lr.conversation_names!.length - 1 ? ', ' : ''}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 

@@ -83,6 +83,8 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/contacts/tags", r.contactTagsHandler)
 	r.mux.HandleFunc("/contacts/tags/bulk", r.bulkContactTagsHandler)
 	r.mux.HandleFunc("/ai/auto-tag", r.autoTagHandler)
+	r.mux.HandleFunc("/loads", r.loadsHandler)
+	r.mux.HandleFunc("/loads/search", r.loadsSearchHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
@@ -422,13 +424,18 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 	roomID := parts[0]
 	action := parts[1]
 
-	switch action {
-	case "messages":
+	switch {
+	case action == "messages":
 		r.messagesHandler(w, req, roomID)
-	case "members":
+	case action == "members":
 		r.membersHandler(w, req, roomID)
-	case "send":
+	case action == "send":
 		r.sendHandler(w, req, roomID)
+	case action == "loads":
+		r.conversationLoadsHandler(w, req, roomID)
+	case strings.HasPrefix(action, "loads/"):
+		loadID := strings.TrimPrefix(action, "loads/")
+		r.conversationLoadDeleteHandler(w, req, roomID, loadID)
 	default:
 		r.writeError(w, 404, "Not found")
 	}
@@ -737,10 +744,45 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
+	// Also search loads by reference number
+	type LoadResult struct {
+		Load           Load     `json:"load"`
+		ConversationIDs []string `json:"conversation_ids"`
+		ConversationNames []string `json:"conversation_names"`
+	}
+	var loadResults []LoadResult
+	loadRows, err := r.db.Query(`SELECT id, reference_number, shipper, consignee, origin_city, origin_state, destination_city, destination_state, status, rate, weight, pickup_date, delivery_date, equipment_type, created_at FROM loads WHERE LOWER(reference_number) LIKE ? OR LOWER(shipper) LIKE ? OR LOWER(consignee) LIKE ?`, "%"+q+"%", "%"+q+"%", "%"+q+"%")
+	if err == nil {
+		for loadRows.Next() {
+			var l Load
+			loadRows.Scan(&l.ID, &l.ReferenceNumber, &l.Shipper, &l.Consignee, &l.OriginCity, &l.OriginState, &l.DestinationCity, &l.DestinationState, &l.Status, &l.Rate, &l.Weight, &l.PickupDate, &l.DeliveryDate, &l.EquipmentType, &l.CreatedAt)
+			lr := LoadResult{Load: l}
+			// Find conversations this load is attached to
+			clRows, _ := r.db.Query(`SELECT conversation_id FROM conversation_loads WHERE load_id = ?`, l.ID)
+			if clRows != nil {
+				for clRows.Next() {
+					var cid string
+					clRows.Scan(&cid)
+					lr.ConversationIDs = append(lr.ConversationIDs, cid)
+					// Find conversation name
+					for _, c := range convos {
+						if c.RoomID == cid {
+							lr.ConversationNames = append(lr.ConversationNames, c.Name)
+							break
+						}
+					}
+				}
+				clRows.Close()
+			}
+			loadResults = append(loadResults, lr)
+		}
+		loadRows.Close()
+	}
+
 	groups := make([]Group, 0, len(groupMap))
 	total := 0
 	for _, g := range groupMap { groups = append(groups, *g); total += len(g.Results) }
-	r.writeJSON(w, map[string]interface{}{"groups": groups, "total": total, "query": q})
+	r.writeJSON(w, map[string]interface{}{"groups": groups, "total": total, "query": q, "load_results": loadResults})
 }
 
 func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
