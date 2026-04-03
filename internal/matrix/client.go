@@ -70,6 +70,57 @@ func (c *Client) SendMessage(roomID, body string) (string, error) {
 	return resp.EventID, nil
 }
 
+// UploadMedia uploads a file to Matrix and returns the mxc:// URI
+func (c *Client) UploadMedia(data []byte, contentType, filename string) (string, error) {
+	path := fmt.Sprintf("/_matrix/media/v3/upload?filename=%s", url.QueryEscape(filename))
+	req, err := http.NewRequest("POST", c.homeserver+path, bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	req.Header.Set("Content-Type", contentType)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	respData, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("upload failed: %d %s", resp.StatusCode, string(respData))
+	}
+	var result struct {
+		ContentURI string `json:"content_uri"`
+	}
+	json.Unmarshal(respData, &result)
+	return result.ContentURI, nil
+}
+
+// SendImage sends an image message to a Matrix room
+func (c *Client) SendImage(roomID, mxcURI, filename, contentType string, size int) (string, error) {
+	txnID := fmt.Sprintf("%d", time.Now().UnixNano())
+	msg := map[string]interface{}{
+		"msgtype": "m.image",
+		"body":    filename,
+		"url":     mxcURI,
+		"info": map[string]interface{}{
+			"mimetype": contentType,
+			"size":     size,
+		},
+	}
+	payload, _ := json.Marshal(msg)
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
+		url.PathEscape(roomID), txnID)
+	data, err := c.request("PUT", path, bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		EventID string `json:"event_id"`
+	}
+	json.Unmarshal(data, &resp)
+	return resp.EventID, nil
+}
+
 // CreateDM creates a direct message room with a user and returns the room ID
 func (c *Client) CreateDM(userID string) (string, error) {
 	payload, _ := json.Marshal(map[string]interface{}{

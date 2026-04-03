@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import PlatformIcon from './PlatformIcon'
 import LoadsPanel from './LoadsPanel'
 
@@ -81,6 +81,8 @@ function ConversationView({ conversationId, conversation, tags, allContactTags, 
   const [autoTagging, setAutoTagging] = useState(false)
   const [autoTagSuggestions, setAutoTagSuggestions] = useState<{ existing_tags: string[]; new_tags: string[] } | null>(null)
   const [memberTags, setMemberTags] = useState<Record<string, Tag[]>>({})
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const membersRef = useRef<HTMLDivElement>(null)
   const isLoadingOlderRef = useRef(false)
@@ -215,6 +217,32 @@ function ConversationView({ conversationId, conversation, tags, allContactTags, 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
+  }
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+      if (res.ok) {
+        // Reload messages to show the uploaded image
+        const msgRes = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=50`)
+        if (msgRes.ok) { const d = await msgRes.json(); setMessages(d.messages || d || []); setPaginationToken(d.end || null); setHasMore(d.has_more || false) }
+      } else {
+        const err = await res.json()
+        alert(`Upload failed: ${err.error}`)
+      }
+    } catch { alert('Upload failed') }
+    finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   const toggleMembers = async () => {
@@ -488,6 +516,25 @@ function ConversationView({ conversationId, conversation, tags, allContactTags, 
       {/* Message input */}
       <div className="bg-gray-950 border-t border-gray-700 p-4">
         <div className="flex gap-2">
+          <input type="hidden" ref={fileInputRef} />
+          <button
+            onClick={() => {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = 'image/*'
+              input.onchange = (e) => handleFileUpload(e as any)
+              input.click()
+            }}
+            disabled={uploading}
+            className="px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-50"
+            title="Upload image"
+          >
+            {uploading ? (
+              <span className="animate-spin inline-block w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full" />
+            ) : (
+              <span>📎</span>
+            )}
+          </button>
           <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
             placeholder="Type a message..." disabled={sending}
             className="flex-1 bg-gray-800 border border-gray-600 rounded-lg px-4 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50" />
