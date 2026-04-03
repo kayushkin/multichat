@@ -196,10 +196,8 @@ function Chat() {
             return (
               <div key={conv.room_id}
                 onClick={() => selectConversation(conv.room_id, false)}
-                onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); selectConversation(conv.room_id, true) } }}
                 className={`px-3 py-2.5 border-b border-gray-700/50 cursor-pointer transition-colors ${isSelected ? 'bg-gray-800 border-l-4' : 'hover:bg-gray-800'}`}
                 style={isSelected ? { borderLeftColor: '#f5d40c' } : undefined}
-                title="Click to open · Middle-click to split"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center">
@@ -213,10 +211,11 @@ function Chat() {
                           <span className="text-[10px] px-1.5 py-0 rounded bg-gray-700 text-gray-400 flex-shrink-0">👥 {conv.member_count}</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                        {selectedPanes.length < 2 && selectedPanes[0] !== conv.room_id && selectedPanes.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                        {selectedPanes.length >= 1 && selectedPanes.length < 2 && !selectedPanes.includes(conv.room_id) && (
                           <button onClick={(e) => { e.stopPropagation(); selectConversation(conv.room_id, true) }}
-                            className="text-gray-600 hover:text-blue-400 text-xs px-1" title="Open in split view">⫽</button>
+                            className="text-gray-500 hover:text-blue-400 text-[10px] px-1.5 py-0.5 rounded border border-gray-700 hover:border-blue-500/50 transition-colors"
+                            title="Open in split view">Split ⫽</button>
                         )}
                         {conv.last_activity > 0 && (
                           <span className="text-gray-500 text-xs">{formatTime(conv.last_activity)}</span>
