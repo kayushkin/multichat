@@ -1,2 +1,8 @@
 multichat.db
 server
+
+# The compiled server. It was COMMITTED as a 13 MB ELF binary alongside its own
+# source until 2026-07-13, so every build left the tree dirty and invited someone to
+# commit the new one. Anchored with a leading slash on purpose: a bare
+# "multichat-server" would also match a directory of that name anywhere in the tree.
+/multichat-server

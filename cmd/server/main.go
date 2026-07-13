@@ -14,11 +14,27 @@ import (
 )
 
 func main() {
-	database, err := db.Initialize("multichat.db")
+	// MULTICHAT_DB pins the database to an absolute path. Left unset it falls back
+	// to the relative "multichat.db" this has always used, so behaviour is unchanged
+	// for anyone running the binary by hand from the repo.
+	//
+	// It exists because a RELATIVE database path makes the process's working
+	// directory a load-bearing, invisible part of the config: start the server from
+	// anywhere else and SQLite does not fail, it CREATES a brand-new empty database
+	// and the service comes up looking perfectly healthy -- schema migrated, every
+	// route answering, zero rows. The live DB (contacts, tags, loads) simply stops
+	// being the one that is open. A deploy is exactly when a working directory
+	// changes, which is exactly when you would not notice.
+	dbPath := os.Getenv("MULTICHAT_DB")
+	if dbPath == "" {
+		dbPath = "multichat.db"
+	}
+	database, err := db.Initialize(dbPath)
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
 	}
 	defer database.Close()
+	log.Printf("Database: %s", dbPath)
 
 	// Matrix client — connects to Synapse
 	var matrixClient *matrix.Client

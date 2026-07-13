@@ -1,0 +1,45 @@
+[Unit]
+Description=MultiChat API server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/bin/multichat-server
+WorkingDirectory=%h/repos/multichat
+Environment=PORT=8402
+
+# MULTICHAT_DB pins the database ABSOLUTELY. It points at the same file the service
+# has always used -- the one inside the checkout -- but it pins it, and that is the
+# whole point. cmd/server/main.go used to open the bare relative path "multichat.db",
+# so the database was wherever systemd happened to chdir. SQLite does not fail on a
+# missing file, it creates one: get the working directory wrong and multichat comes
+# up with every route answering out of a brand-new EMPTY database while the real
+# contacts and tags sit untouched on disk. Absolute path, no ambiguity.
+Environment=MULTICHAT_DB=%h/repos/multichat/multichat.db
+
+Environment=SYNAPSE_URL=http://localhost:8008
+Environment=TELEGRAM_DB=%h/multichat/telegram-data/mautrix-telegram.db
+Environment=META_DB=%h/multichat/meta-data/mautrix-meta.db
+
+# The secrets -- MULTICHAT_TOKEN, MATRIX_TOKEN, OPENAI_API_KEY -- live in this
+# host-local file, mode 600, and NOT in this template. They used to sit inline as
+# Environment= lines in the live unit, which was survivable only because that unit
+# was untracked; committing them here would publish a live Matrix access token and a
+# live OpenAI key to a public GitHub repo. deploy.sh creates this file (migrating the
+# values off the live unit the first time) and REFUSES to deploy if it is missing.
+#
+# 🔴 MULTICHAT_TOKEN IS NOT OPTIONAL AND ITS AUTH FAILS OPEN. api/router.go:49 reads
+# `if authToken != "" { ...check the bearer token... }` -- so an EMPTY or absent
+# MULTICHAT_TOKEN does not lock everyone out, it turns authentication OFF ENTIRELY.
+# This API is proxied to the internet at chat.kayushkin.com, and it serves contacts,
+# conversations and message history, plus AI routes that spend the OpenAI key. Losing
+# this one variable silently publishes all of it. That is why deploy.sh will not
+# install a unit it cannot prove the token behind, and asserts a 401 after every
+# deploy rather than trusting that the file was read.
+EnvironmentFile=%h/.config/multichat/multichat.env
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
