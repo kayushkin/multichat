@@ -1,5 +1,14 @@
 multichat.db
-server
+
+# ANCHORED. This rule exists for the stale ELF binary at the repo root, but written
+# bare as "server" it also matched cmd/server/ -- THE MAIN PACKAGE'S OWN SOURCE
+# DIRECTORY -- because an unanchored pattern matches at every level. cmd/server/main.go
+# survives only because it was tracked before the rule existed; the next file added to
+# the main package would have been silently ignored, never shipped, and the committed
+# tree would no longer build while `git status` looked perfectly clean. A "!*.go"
+# exception cannot rescue this: git will not re-include a file inside an excluded
+# directory. Anchoring is the only fix.
+/server
 
 # The compiled server. It was COMMITTED as a 13 MB ELF binary alongside its own
 # source until 2026-07-13, so every build left the tree dirty and invited someone to
