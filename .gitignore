@@ -15,3 +15,14 @@ multichat.db
 # commit the new one. Anchored with a leading slash on purpose: a bare
 # "multichat-server" would also match a directory of that name anywhere in the tree.
 /multichat-server
+
+# The .openclaw/ subtree is a committed OpenClaw agent workspace. Whether its docs
+# (AGENTS.md, SOUL.md, ...) belong in this repo is a judgment call left to the owner,
+# but two things inside it are build artifacts that never belong in git under any
+# resolution of that call, so they were untracked 2026-07-16:
+#   - the vendored frontend node_modules (esbuild/rollup ELF binaries + 10k JS files)
+#   - the compiled .openclaw/server ELF binary
+# Both anchored to the subtree root so the rules can't leak to a same-named path
+# elsewhere in the tree. Files remain on disk; only the git tracking was removed.
+/.openclaw/frontend/node_modules/
+/.openclaw/server
