@@ -30,3 +30,18 @@ func truncateAtRuneBoundary(s string, maxBytes int) string {
 	}
 	return s[:cut]
 }
+
+// lastMessagePreviewBytes is the byte budget for a conversation's last-message
+// preview, before the ellipsis is appended.
+const lastMessagePreviewBytes = 100
+
+// lastMessagePreview shortens a Matrix room message to the preview served as a
+// conversation's last_message. The body arrives from Telegram, WhatsApp, Signal
+// or Discord over a bridge, so it is the text in the fleet most likely to carry
+// multi-byte runes.
+func lastMessagePreview(body string) string {
+	if len(body) <= lastMessagePreviewBytes {
+		return body
+	}
+	return truncateAtRuneBoundary(body, lastMessagePreviewBytes) + "…"
+}

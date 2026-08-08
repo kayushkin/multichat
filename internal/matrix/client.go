@@ -441,11 +441,7 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			}
 			if json.Unmarshal(msgData, &msgResp) == nil && len(msgResp.Chunk) > 0 {
 				conv.LastActivity = msgResp.Chunk[0].OriginServerTS
-				body := msgResp.Chunk[0].Content.Body
-				if len(body) > 100 {
-					body = body[:100] + "…"
-				}
-				conv.LastMessage = body
+				conv.LastMessage = lastMessagePreview(msgResp.Chunk[0].Content.Body)
 			}
 		}
 
