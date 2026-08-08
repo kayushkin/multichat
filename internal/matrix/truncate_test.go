@@ -103,6 +103,18 @@ func TestLastMessagePreviewLeavesShortBodiesAlone(t *testing.T) {
 	}
 }
 
+// TestLastMessagePreviewBudgetIsAHundredBytes pins the budget with a literal
+// rather than with lastMessagePreviewBytes. A test that reads the constant it
+// is checking moves with that constant and cannot see it drift, so every
+// assertion above — which does read it — is blind to the budget changing.
+func TestLastMessagePreviewBudgetIsAHundredBytes(t *testing.T) {
+	body := strings.Repeat("a", 250)
+	want := strings.Repeat("a", 100) + "…"
+	if got := lastMessagePreview(body); got != want {
+		t.Errorf("preview kept %d bytes, want 100 followed by an ellipsis", len(strings.TrimSuffix(got, "…")))
+	}
+}
+
 // TestTruncateAtRuneBoundary covers the helper directly, including the budgets
 // the one call site never reaches.
 func TestTruncateAtRuneBoundary(t *testing.T) {
