@@ -33,3 +33,6 @@ multichat.db
 # clean -- and a clean deploy becomes indistinguishable from one built off a dirty
 # tree. Anchored so it cannot match a same-named folder elsewhere.
 /frontend/.dist-staging/
+
+# The sabotage engine creates this on import
+scripts/__pycache__/
