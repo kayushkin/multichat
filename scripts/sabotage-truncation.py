@@ -21,6 +21,23 @@ PACKAGES = ["./internal/matrix/"]
 
 TARGET = REPO / "internal" / "matrix" / "truncate.go"
 
+# The suite's fixture guards, by message. These fire when a mutation stops the
+# test input reaching the code under test — the test falling over, not detecting
+# anything — and `go test` exits non-zero for that exactly as it does for a real
+# assertion. Naming them here is what lets the engine tell the two apart; see
+# sabotage.classify_caught().
+#
+# This suite is where the 42nd pass found the defect: "the budget itself drifts
+# from 100 to 50" resizes the fixture out of range of the guard on line 98, so
+# the row went red with nothing having checked the budget. It reads CAUGHT today
+# because 6d4e23e added TestLastMessagePreviewBudgetIsAHundredBytes, which pins
+# the budget against a literal — and with these markers declared, the run proves
+# that rather than inheriting the same red the guard used to supply.
+GUARD_MARKERS = (
+    "input never reaches the cut",
+    "case is not a short body",
+)
+
 CASES = [
     # --- the helper ---
     # Written as drifted comparisons rather than deletions so no identifier is
@@ -61,4 +78,4 @@ CASES = [
 ]
 
 if __name__ == "__main__":
-    sys.exit(score(TARGET, PACKAGES, CASES))
+    sys.exit(score(TARGET, PACKAGES, CASES, GUARD_MARKERS))
