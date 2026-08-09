@@ -61,4 +61,4 @@ CASES = [
 ]
 
 if __name__ == "__main__":
-    score(TARGET, PACKAGES, CASES)
+    sys.exit(score(TARGET, PACKAGES, CASES))

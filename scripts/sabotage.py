@@ -21,6 +21,14 @@ its absence:
   - Restores from git, so the tree must be committed before running (27th).
   - Prints the diff it actually applied, because the row prints the name you
     gave it, not the edit you made (33rd).
+  - Returns a process STATUS, not the results list, and every case file ends
+    with `sys.exit(score(...))`. Both halves are needed and neither is a fix
+    alone (54th, 88th). A bare caller exits 0 whatever it finds, so a guard or
+    a script running this cannot tell a clean sweep from a broken one. And
+    wrapping a bare caller while this still returned the list would have been
+    no better: `sys.exit` of a non-int prints it and exits 1, turning an
+    always-0 instrument into an always-1 one, which looks more like working
+    than the defect it replaced.
 
 The engine was extracted from scripts/sabotage-kanban-curator.py when cmd/ask
 became the second binary to need it. Ten unattended passes had each rebuilt
@@ -176,4 +184,4 @@ def score(target: Path, packages, cases):
         print("  ⚠️  " + p)
     if not problems:
         print("  both controls behaved; every real mechanism is pinned")
-    return results
+    return 1 if problems else 0
