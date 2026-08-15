@@ -115,6 +115,46 @@ func TestLastMessagePreviewBudgetIsAHundredBytes(t *testing.T) {
 	}
 }
 
+// TestLastMessagePreviewStraddlesItsBudget pins the "is this body short enough"
+// test from both sides: a body of exactly 100 bytes is served whole, and one of
+// exactly 101 is cut back to 100 and gains an ellipsis.
+//
+// The tests above have only the first half. TestLastMessagePreviewLeavesShortBodiesAlone
+// carries an exactly-100 body, and nothing carried an exactly-101 one, so
+// `len(body) <= lastMessagePreviewBytes` could drift to `<= lastMessagePreviewBytes+1`
+// with the whole suite green — a 101-byte preview would then be served whole,
+// one byte over its budget and with no ellipsis to say it had been shortened.
+// The 250-byte body in TestLastMessagePreviewBudgetIsAHundredBytes cannot see
+// that: it is far past the cut whichever side of it the comparison lands.
+//
+// Both lengths are written as literals. A fixture that reads
+// lastMessagePreviewBytes moves with the constant and can never fail for a wrong
+// value of it.
+func TestLastMessagePreviewStraddlesItsBudget(t *testing.T) {
+	// Mark the last byte that must be kept rather than counting bytes: a cut
+	// that keeps the wrong end of the body returns the right length. '~' appears
+	// nowhere else in the string, so its position is the whole assertion.
+	whole := strings.Repeat("a", 99) + "~"
+	over := whole + "!"
+
+	// Fixture self-checks. These read no constant from the source, so no
+	// mutation of truncate.go can trip them — they only fire if someone edits
+	// the two lines above, which is why they are not declared as guard markers
+	// in scripts/sabotage-truncation.py.
+	if len(whole) != 100 || len(over) != 101 {
+		t.Fatalf("fixture is the wrong size: len(whole)=%d want 100, len(over)=%d want 101", len(whole), len(over))
+	}
+
+	if got := lastMessagePreview(whole); got != whole {
+		t.Errorf("a body of exactly 100 bytes must be served whole, got %q", got)
+	}
+
+	want := whole + "…"
+	if got := lastMessagePreview(over); got != want {
+		t.Errorf("a body of exactly 101 bytes must be cut back to 100 with an ellipsis, got %q", got)
+	}
+}
+
 // TestTruncateAtRuneBoundary covers the helper directly, including the budgets
 // the one call site never reaches.
 func TestTruncateAtRuneBoundary(t *testing.T) {
@@ -126,6 +166,11 @@ func TestTruncateAtRuneBoundary(t *testing.T) {
 	}{
 		{name: "zero budget keeps nothing", s: "hello", maxBytes: 0, want: ""},
 		{name: "negative budget keeps nothing", s: "hello", maxBytes: -1, want: ""},
+		// The other half of the guard's straddle. Every case below asks for 2 or
+		// more, so `maxBytes <= 0` could drift up to `<= 1` with the whole suite
+		// still green: 1 is the smallest budget the guard has to let through, and
+		// it was the only value that told `<= 0` apart from `<= 1`.
+		{name: "a budget of one keeps one ascii byte", s: "hello", maxBytes: 1, want: "h"},
 		{name: "string within budget is untouched", s: "hello", maxBytes: 5, want: "hello"},
 		{name: "ascii cut needs no walk-back", s: "hello", maxBytes: 3, want: "hel"},
 		{name: "cut walks back off a straddled rune", s: "a" + fourByteRune, maxBytes: 3, want: "a"},
