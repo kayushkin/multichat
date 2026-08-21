@@ -23,9 +23,10 @@
 #     a multichat.db; the assertion below pins that the file landed in the temp
 #     dir and NOT in the source tree.
 #   * PORT moves it off the live :8402, where multichat-server is running now.
-#     A collision is fatal (main.go:92 log.Fatal on ListenAndServe).
+#     A collision is fatal (main.go, the log.Fatal on http.ListenAndServe).
 #   * SYNAPSE_URL / MATRIX_TOKEN are left unset, so no Matrix client is built and
-#     nothing dials Synapse (main.go:27-32). Matrix is NOT required to boot.
+#     nothing dials Synapse (main.go, the SYNAPSE_URL/MATRIX_TOKEN guard).
+#     Matrix is NOT required to boot.
 #   * MULTICHAT_TOKEN is forced empty: an ambient token in the environment would
 #     switch auth on (router.go:49) and lock this script out of its own server.
 #   * No NATS anywhere in this module, and no network calls at boot.
@@ -47,7 +48,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${E2E_PORT:-19134}"
-# Every route is served under the /api prefix — main.go:83 registers the router
+# Every route is served under the /api prefix — main.go registers the router
 # behind http.StripPrefix("/api", ...), so router.go:72's "/health" is on the
 # wire as "/api/health". Do not go looking for a bare /health; it 404s.
 BASE="http://127.0.0.1:$PORT/api"
