@@ -24,6 +24,10 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create schema: %v", err)
 	}
 
+	if err := createInboundSchema(db); err != nil {
+		return nil, err
+	}
+
 	return db, nil
 }
 

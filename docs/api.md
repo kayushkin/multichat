@@ -451,3 +451,69 @@ Returns the raw SQLite schema. Admin/debug use only.
   { "name": "tags", "type": "table", "sql": "CREATE TABLE tags (...)" }
 ]
 ```
+
+---
+
+## Messaging a person
+
+### POST /messages/send
+
+Send a text message to **one person**, identified by their bridge puppet id, in the direct-message room we already share with them. A room is created only when none exists — unlike `POST /conversations/new`, which creates a fresh room on every call.
+
+**Request:**
+```json
+{ "user_id": "@whatsapp_15551234567:chat.kayushkin.com", "body": "running 10 min late" }
+```
+
+**Response:**
+```json
+{ "room_id": "!abc:chat.kayushkin.com", "event_id": "$xyz", "created_room": false }
+```
+
+**Errors:** `400` missing `user_id` or `body`; `502` Synapse refused (message in `error`); `503` Matrix client not configured.
+
+The `user_id` comes from `GET /contacts/unified` (`identities[].user_id`). `~/bin/multichat-send` wraps this route for the shell and the scheduler, resolving a display name + platform to that id and refusing anything ambiguous.
+
+---
+
+## Inbound rules
+
+What happens when a person messages us. The server long-polls Synapse `/sync` (when `NATS_URL` is set), publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`), and applies these rules to that stream as durable consumer `multichat-inbound-dispatcher`. A match starts an **autonomous** session on an llm-bridge-server instance by publishing `bridge.inbound` (`messages.BridgeInbound`), the same path the scheduler's agent jobs use. Our own sends and our own platform puppets are never published.
+
+With no rules, nothing happens — there is no default.
+
+### GET /inbound-rules
+
+All rules, enabled or not.
+
+### POST /inbound-rules
+
+```json
+{
+  "name": "Alex on WhatsApp mentioning the invoice",
+  "platform": "whatsapp",
+  "sender_user_id": "@whatsapp_15551234567:chat.kayushkin.com",
+  "body_pattern": "(?i)invoice",
+  "direct_messages_only": true,
+  "instance_id": "inst-cc-local",
+  "agent_id": "",
+  "prompt_template": "{{.SenderDisplayName}} wrote on {{.Platform}}: {{.Body}}\n\nDraft a reply and save it to noteboard; do not send anything."
+}
+```
+
+Every filter is optional and an empty one matches anything: `platform` (one of `GET /inbound-platforms`), `sender_user_id` (exact puppet id), `body_pattern` (RE2 against the body), `direct_messages_only` (default **true**). `instance_id` is required and is **checked with llm-bridge-server on write** — `400` when it knows no such instance, `502` when it cannot answer, nothing stored either way. `prompt_template` is required, a Go `text/template` over `Body`, `SenderUserID`, `SenderDisplayName`, `Platform`, `RoomID`, `RoomName`, `EventID`, `MessageType`, `IsDirectMessage`, `Timestamp`; a template that does not parse is `400`. Unknown JSON fields are `400`. Responds `201` with the stored rule; new rules are enabled.
+
+### GET /inbound-rules/{id}, PATCH /inbound-rules/{id}, DELETE /inbound-rules/{id}
+
+PATCH merges the fields sent onto the stored row and re-validates the whole rule (`{"enabled": false}` is the off switch). DELETE answers `204`.
+
+### GET /inbound-dispatches?limit=100
+
+What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user_id`, `bus_session_id` (the id llm-bridge-adapter maps to a bridge session), and `error` when the session could not be started (instance disabled, bus down). One row per rule per message — the `(rule_id, event_id)` pair is unique, which is how a JetStream redelivery is absorbed.
+
+### GET /inbound-platforms
+
+The platform vocabulary a rule may name: `["whatsapp","telegram","signal","meta"]`.
+
+⚠️ A session started this way runs with nobody at the keyboard. The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so such a session **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
+

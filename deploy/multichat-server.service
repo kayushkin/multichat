@@ -21,6 +21,14 @@ Environment=SYNAPSE_URL=http://localhost:8008
 Environment=TELEGRAM_DB=%h/multichat/telegram-data/mautrix-telegram.db
 Environment=META_DB=%h/multichat/meta-data/mautrix-meta.db
 
+# Inbound messaging. With NATS_URL set the server long-polls Synapse /sync,
+# publishes every message a person sends us as messaging.inbound (JetStream)
+# and applies the inbound_rules table, which starts agent sessions on
+# llm-bridge-server instances -- so LLM_BRIDGE_URL is required alongside it,
+# and the server refuses to start with one and not the other.
+Environment=NATS_URL=nats://localhost:4222
+Environment=LLM_BRIDGE_URL=http://localhost:8160
+
 # The secrets -- MULTICHAT_TOKEN, MATRIX_TOKEN, OPENAI_API_KEY -- live in this
 # host-local file, mode 600, and NOT in this template. They used to sit inline as
 # Environment= lines in the live unit, which was survivable only because that unit

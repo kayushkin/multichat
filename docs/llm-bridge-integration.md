@@ -1,6 +1,15 @@
 # Multichat ↔ bus integration — options
 
-Status: exploration. Leaning bus-first.
+Status: **built 2026-09-11 as Option D** (bus for inbound events, direct HTTP for sends), plus Option C for agents. What exists:
+
+- **Inbound (bus):** `internal/inbound.SyncWorker` long-polls `/sync` and publishes `messaging.inbound` (JetStream stream `MESSAGING`, envelope `messages.MessagingInbound` in `bus/messages/messaging.go`). `internal/inbound.Dispatcher` consumes it (durable `multichat-inbound-dispatcher`), applies the `inbound_rules` table and starts autonomous sessions by publishing `bridge.inbound` — see `docs/api.md` § Inbound rules.
+- **Outbound (HTTP):** `POST /api/messages/send` (find-or-create the DM, then send); `~/bin/multichat-send` for shells and scheduler jobs, token resolved from auth-store provider `multichat`.
+- **Agent tool (Option C):** `~/bin/multichat-mcp`, a stdio MCP server registered in tool-store as `multichat`; `send_message` is `ask` at global scope in permission-store.
+- **Not built:** outbound over the bus (`messaging.outbound.*`, `messaging.sent`). Both callers are fine with a synchronous HTTP answer, and putting NATS in the path of "did it send" bought nothing.
+
+The exploration below is kept as the record of why.
+
+---
 
 ## Problem
 

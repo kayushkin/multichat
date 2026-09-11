@@ -6,9 +6,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
+	"github.com/kayushkin/bus"
 	"github.com/kayushkin/multichat/internal/api"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -94,7 +98,32 @@ func main() {
 		log.Printf("  %s", id)
 	}
 
-	router := api.NewRouter(database, matrixClient, tgDBPath, metaDBPath)
+	llmBridgeURL := os.Getenv("LLM_BRIDGE_URL")
+	router := api.NewRouter(database, matrixClient, tgDBPath, metaDBPath, llmBridgeURL)
+
+	// Inbound: /sync -> messaging.inbound -> rules -> agent sessions. Gated on
+	// NATS_URL because the bus is the contract; with it set, a bus that cannot
+	// be reached is fatal rather than a silent "inbound disabled".
+	if natsURL := os.Getenv("NATS_URL"); natsURL != "" {
+		if matrixClient == nil {
+			log.Fatal("NATS_URL is set but the Matrix client is not configured; inbound needs both")
+		}
+		if llmBridgeURL == "" {
+			log.Fatal("NATS_URL is set but LLM_BRIDGE_URL is not; inbound rules dispatch to llm-bridge-server instances")
+		}
+		busClient, err := bus.Connect(bus.Options{URL: natsURL, Name: "multichat"})
+		if err != nil {
+			log.Fatalf("NATS: %v", err)
+		}
+		if err := busClient.EnsureStreams(); err != nil {
+			log.Fatalf("NATS streams: %v", err)
+		}
+		log.Printf("NATS connected: %s", natsURL)
+		go (&inbound.SyncWorker{Matrix: matrixClient, Database: database, Bus: busClient}).Run()
+		go (&inbound.Dispatcher{Database: database, Bus: busClient, LLMBridgeURL: strings.TrimRight(llmBridgeURL, "/"), HTTPClient: &http.Client{Timeout: 10 * time.Second}}).Run()
+	} else {
+		log.Println("NATS_URL not set: inbound messaging (sync worker, rule dispatcher) is off")
+	}
 
 	http.Handle("/api/", http.StripPrefix("/api", router))
 

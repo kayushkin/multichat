@@ -22,15 +22,23 @@ type Router struct {
 	mux        *http.ServeMux
 	tgDBPath   string // path to mautrix-telegram SQLite DB (for phone lookups)
 	metaDBPath string // path to mautrix-meta SQLite DB (for FB vs IG distinction)
+
+	// llmBridgeURL is where inbound rules have their instance_id checked
+	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
+	// written: the write answers 502 naming the missing setting.
+	llmBridgeURL string
+	httpClient   *http.Client
 }
 
-func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath, metaDBPath string) *Router {
+func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath, metaDBPath, llmBridgeURL string) *Router {
 	r := &Router{
-		db:         db,
-		matrix:     matrixClient,
-		mux:        http.NewServeMux(),
-		tgDBPath:   tgDBPath,
-		metaDBPath: metaDBPath,
+		db:           db,
+		matrix:       matrixClient,
+		mux:          http.NewServeMux(),
+		tgDBPath:     tgDBPath,
+		metaDBPath:   metaDBPath,
+		llmBridgeURL: strings.TrimRight(llmBridgeURL, "/"),
+		httpClient:   &http.Client{Timeout: 10 * time.Second},
 	}
 	r.setupRoutes()
 	return r
@@ -88,6 +96,11 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
+	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
+	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
+	r.mux.HandleFunc("/inbound-rules/", r.inboundRuleHandler)
+	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)
+	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
 }
 
 func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {
@@ -131,7 +144,7 @@ func (r *Router) contactsHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Load Telegram phone numbers for merging
-	tgPhones := map[string]string{}   // phone -> telegram display name
+	tgPhones := map[string]string{}    // phone -> telegram display name
 	tgIDToPhone := map[string]string{} // telegram ID -> phone
 	if r.tgDBPath != "" {
 		if tgDB, err := sql.Open("sqlite3", r.tgDBPath+"?mode=ro"); err == nil {
@@ -268,7 +281,7 @@ func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
 		Platform    string `json:"platform"`
 		Identifier  string `json:"identifier"`
 	}
-	
+
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		r.writeError(w, 400, "Invalid JSON")
 		return
@@ -317,7 +330,7 @@ func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	id, _ := result.LastInsertId()
-	
+
 	// Return the new contact
 	contact := map[string]interface{}{
 		"id":           id,
@@ -326,7 +339,7 @@ func (r *Router) addContactHandler(w http.ResponseWriter, req *http.Request) {
 		"identifier":   body.Identifier,
 		"user_id":      fmt.Sprintf("local_%d", id), // Create a synthetic user_id for consistency
 	}
-	
+
 	r.writeJSON(w, contact)
 }
 
@@ -515,9 +528,13 @@ func (r *Router) writeError(w http.ResponseWriter, code int, message string) {
 
 // loadMetaPlatforms builds a map of Matrix room IDs to platform names from the meta bridge DB
 func (r *Router) loadMetaPlatforms() matrix.MetaPlatformMap {
-	if r.metaDBPath == "" { return nil }
+	if r.metaDBPath == "" {
+		return nil
+	}
 	metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro")
-	if err != nil { return nil }
+	if err != nil {
+		return nil
+	}
 	defer metaDB.Close()
 	metaPlatforms := make(matrix.MetaPlatformMap)
 	loginPlatform := map[string]string{}
@@ -535,7 +552,9 @@ func (r *Router) loadMetaPlatforms() matrix.MetaPlatformMap {
 		for rows.Next() {
 			var mxid, receiver string
 			rows.Scan(&mxid, &receiver)
-			if p, ok := loginPlatform[receiver]; ok { metaPlatforms[mxid] = p }
+			if p, ok := loginPlatform[receiver]; ok {
+				metaPlatforms[mxid] = p
+			}
 		}
 		rows.Close()
 	}
@@ -545,7 +564,9 @@ func (r *Router) loadMetaPlatforms() matrix.MetaPlatformMap {
 			var mxid, loginID string
 			rows.Scan(&mxid, &loginID)
 			if _, exists := metaPlatforms[mxid]; !exists {
-				if p, ok := loginPlatform[loginID]; ok { metaPlatforms[mxid] = p }
+				if p, ok := loginPlatform[loginID]; ok {
+					metaPlatforms[mxid] = p
+				}
 			}
 		}
 		rows.Close()
@@ -574,13 +595,17 @@ func (r *Router) statsHandler(w http.ResponseWriter, req *http.Request) {
 	var breakdown []map[string]interface{}
 	for p, count := range platformCounts {
 		pct := 0
-		if total > 0 { pct = count * 100 / total }
+		if total > 0 {
+			pct = count * 100 / total
+		}
 		breakdown = append(breakdown, map[string]interface{}{"platform": p, "count": count, "percentage": pct})
 	}
 	sort.Slice(breakdown, func(i, j int) bool { return breakdown[i]["count"].(int) > breakdown[j]["count"].(int) })
 	var mostActive []map[string]interface{}
 	for i, c := range convos {
-		if i >= 5 || c.LastActivity == 0 { break }
+		if i >= 5 || c.LastActivity == 0 {
+			break
+		}
 		mostActive = append(mostActive, map[string]interface{}{"name": c.Name, "platform": c.Platform, "room_id": c.RoomID})
 	}
 	r.writeJSON(w, map[string]interface{}{
@@ -590,16 +615,27 @@ func (r *Router) statsHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" { r.writeError(w, 405, "Method not allowed"); return }
-	var body struct{ RoomID string `json:"room_id"` }
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	var body struct {
+		RoomID string `json:"room_id"`
+	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.RoomID == "" {
-		r.writeError(w, 400, "room_id required"); return
+		r.writeError(w, 400, "room_id required")
+		return
 	}
 	msgs, err := r.matrix.GetMessages(body.RoomID, 50)
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 	var convo strings.Builder
 	for _, m := range msgs {
-		if m.Body != "" { convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body)) }
+		if m.Body != "" {
+			convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body))
+		}
 	}
 	if convo.Len() == 0 {
 		r.writeJSON(w, map[string]interface{}{"summary": "No messages found.", "topics": []string{}, "sentiment": "neutral"})
@@ -613,15 +649,22 @@ func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
 	} else if anthropicKey != "" {
 		result, err = callClaude(anthropicKey, convo.String(), "Analyze the following conversation. Provide: 1) concise summary (2-3 sentences) 2) key topics as tags 3) sentiment (positive/negative/neutral/urgent). Respond ONLY with JSON: {\"summary\": \"...\", \"topics\": [\"...\"], \"sentiment\": \"...\"}")
 	} else {
-		r.writeError(w, 500, "No AI API key configured"); return
+		r.writeError(w, 500, "No AI API key configured")
+		return
 	}
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 	r.writeJSON(w, result)
 }
 
 func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request) {
 	contacts, err := r.matrix.ListContacts()
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 
 	// Resolve meta → facebook/instagram using bridge DB
 	metaUserPlatforms := map[string]string{} // meta user ID → "facebook" or "instagram"
@@ -678,7 +721,9 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 	groups := map[string]*Unified{}
 	for _, c := range contacts {
 		key := strings.ToLower(strings.TrimSpace(c.DisplayName))
-		if key == "" { continue }
+		if key == "" {
+			continue
+		}
 		if _, ok := groups[key]; !ok {
 			groups[key] = &Unified{DisplayName: c.DisplayName}
 		}
@@ -691,7 +736,10 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 		}
 		found := false
 		for _, id := range groups[key].Identities {
-			if id.UserID == c.UserID { found = true; break }
+			if id.UserID == c.UserID {
+				found = true
+				break
+			}
 		}
 		if !found {
 			groups[key].Identities = append(groups[key].Identities, Identity{UserID: c.UserID, Platform: platform, Avatar: c.AvatarURL})
@@ -700,12 +748,18 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 	result := make([]Unified, 0, len(groups))
 	for _, g := range groups {
 		platSet := map[string]bool{}
-		for _, id := range g.Identities { platSet[id.Platform] = true }
-		for p := range platSet { g.Platforms = append(g.Platforms, p) }
+		for _, id := range g.Identities {
+			platSet[id.Platform] = true
+		}
+		for p := range platSet {
+			g.Platforms = append(g.Platforms, p)
+		}
 		result = append(result, *g)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		if len(result[i].Platforms) != len(result[j].Platforms) { return len(result[i].Platforms) > len(result[j].Platforms) }
+		if len(result[i].Platforms) != len(result[j].Platforms) {
+			return len(result[i].Platforms) > len(result[j].Platforms)
+		}
 		return result[i].DisplayName < result[j].DisplayName
 	})
 	r.writeJSON(w, result)
@@ -713,7 +767,10 @@ func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request
 
 func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 	q := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("q")))
-	if q == "" { r.writeError(w, 400, "q parameter required"); return }
+	if q == "" {
+		r.writeError(w, 400, "q parameter required")
+		return
+	}
 	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
 	type Result struct {
 		RoomID   string `json:"room_id"`
@@ -733,7 +790,9 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 	groupMap := map[string]*Group{}
 	for _, c := range convos {
 		msgs, err := r.matrix.GetMessages(c.RoomID, 50)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		for _, m := range msgs {
 			if strings.Contains(strings.ToLower(m.Body), q) {
 				if _, ok := groupMap[c.RoomID]; !ok {
@@ -748,8 +807,8 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	// Also search loads by reference number
 	type LoadResult struct {
-		Load           Load     `json:"load"`
-		ConversationIDs []string `json:"conversation_ids"`
+		Load              Load     `json:"load"`
+		ConversationIDs   []string `json:"conversation_ids"`
 		ConversationNames []string `json:"conversation_names"`
 	}
 	var loadResults []LoadResult
@@ -783,7 +842,10 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 
 	groups := make([]Group, 0, len(groupMap))
 	total := 0
-	for _, g := range groupMap { groups = append(groups, *g); total += len(g.Results) }
+	for _, g := range groupMap {
+		groups = append(groups, *g)
+		total += len(g.Results)
+	}
 	r.writeJSON(w, map[string]interface{}{"groups": groups, "total": total, "query": q, "load_results": loadResults})
 }
 
@@ -791,26 +853,31 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	// POST to add/remove custom keywords
 	if req.Method == "POST" {
 		var body struct {
-			Action   string `json:"action"`   // "add", "remove", or "set-severity"
+			Action   string `json:"action"` // "add", "remove", or "set-severity"
 			Keyword  string `json:"keyword"`
 			Severity string `json:"severity"` // "high", "medium", "low"
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Keyword == "" {
-			r.writeError(w, 400, "keyword required"); return
+			r.writeError(w, 400, "keyword required")
+			return
 		}
 		r.db.Exec(`CREATE TABLE IF NOT EXISTS alert_keywords (keyword TEXT NOT NULL UNIQUE, severity TEXT NOT NULL DEFAULT 'low')`)
 		r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`) // migrate old schema
-	r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`)
+		r.db.Exec(`ALTER TABLE alert_keywords ADD COLUMN severity TEXT NOT NULL DEFAULT 'low'`)
 		switch body.Action {
 		case "remove":
 			r.db.Exec(`DELETE FROM alert_keywords WHERE keyword = ?`, strings.ToLower(body.Keyword))
 		case "set-severity":
 			sev := body.Severity
-			if sev != "high" && sev != "medium" && sev != "low" { sev = "low" }
+			if sev != "high" && sev != "medium" && sev != "low" {
+				sev = "low"
+			}
 			r.db.Exec(`INSERT INTO alert_keywords (keyword, severity) VALUES (?, ?) ON CONFLICT(keyword) DO UPDATE SET severity = ?`, strings.ToLower(body.Keyword), sev, sev)
 		default: // "add"
 			sev := body.Severity
-			if sev == "" { sev = "low" }
+			if sev == "" {
+				sev = "low"
+			}
 			r.db.Exec(`INSERT INTO alert_keywords (keyword, severity) VALUES (?, ?) ON CONFLICT(keyword) DO UPDATE SET severity = ?`, strings.ToLower(body.Keyword), sev, sev)
 		}
 		r.writeJSON(w, map[string]string{"status": "ok"})
@@ -819,7 +886,9 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 
 	hours := 24
 	if h := req.URL.Query().Get("hours"); h != "" {
-		if v, err := strconv.Atoi(h); err == nil { hours = v }
+		if v, err := strconv.Atoi(h); err == nil {
+			hours = v
+		}
 	}
 	// Default keywords + custom from DB
 	keywords := []string{"complaint", "urgent", "late", "damaged", "delay", "escalate", "cancel", "problem", "issue", "wrong", "broken", "failed", "missing", "angry", "refund"}
@@ -838,8 +907,15 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 			rows.Scan(&kw, &sev)
 			kwSeverity[kw] = sev
 			found := false
-			for _, existing := range keywords { if existing == kw { found = true; break } }
-			if !found { keywords = append(keywords, kw) }
+			for _, existing := range keywords {
+				if existing == kw {
+					found = true
+					break
+				}
+			}
+			if !found {
+				keywords = append(keywords, kw)
+			}
 		}
 		rows.Close()
 	}
@@ -858,14 +934,20 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	var alerts []Alert
 	for _, c := range convos {
 		msgs, err := r.matrix.GetMessages(c.RoomID, 30)
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		for _, m := range msgs {
-			if m.Timestamp < cutoff { continue }
+			if m.Timestamp < cutoff {
+				continue
+			}
 			lower := strings.ToLower(m.Body)
 			for _, kw := range keywords {
 				if strings.Contains(lower, kw) {
 					sev := "low"
-					if s, ok := kwSeverity[kw]; ok { sev = s }
+					if s, ok := kwSeverity[kw]; ok {
+						sev = s
+					}
 					alerts = append(alerts, Alert{RoomID: c.RoomID, RoomName: c.Name, Platform: c.Platform, Keyword: kw, Body: m.Body, Sender: m.SenderName, Time: m.Timestamp, Severity: sev})
 					break
 				}
@@ -873,8 +955,12 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	sevCounts := map[string]int{"high": 0, "medium": 0, "low": 0}
-	for _, a := range alerts { sevCounts[a.Severity]++ }
-	if alerts == nil { alerts = []Alert{} }
+	for _, a := range alerts {
+		sevCounts[a.Severity]++
+	}
+	if alerts == nil {
+		alerts = []Alert{}
+	}
 	// Build keyword list with severities
 	type KWInfo struct {
 		Keyword  string `json:"keyword"`
@@ -883,28 +969,48 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 	var kwList []KWInfo
 	for _, kw := range keywords {
 		sev := "low"
-		if s, ok := kwSeverity[kw]; ok { sev = s }
+		if s, ok := kwSeverity[kw]; ok {
+			sev = s
+		}
 		kwList = append(kwList, KWInfo{Keyword: kw, Severity: sev})
 	}
 	r.writeJSON(w, map[string]interface{}{"alerts": alerts, "total": len(alerts), "hours_scanned": hours, "keywords_used": keywords, "keywords_detail": kwList, "cutoff_time": cutoff, "severity_counts": sevCounts})
 }
 
 func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" { r.writeError(w, 405, "Method not allowed"); return }
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
 	openaiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiKey == "" { r.writeError(w, 500, "No AI API key configured"); return }
+	if openaiKey == "" {
+		r.writeError(w, 500, "No AI API key configured")
+		return
+	}
 	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
 	limit := 10
-	if len(convos) < limit { limit = len(convos) }
+	if len(convos) < limit {
+		limit = len(convos)
+	}
 	var escalations []map[string]interface{}
 	for _, c := range convos[:limit] {
 		msgs, err := r.matrix.GetMessages(c.RoomID, 20)
-		if err != nil || len(msgs) == 0 { continue }
+		if err != nil || len(msgs) == 0 {
+			continue
+		}
 		var convo strings.Builder
-		for _, m := range msgs { if m.Body != "" { convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body)) } }
-		if convo.Len() == 0 { continue }
+		for _, m := range msgs {
+			if m.Body != "" {
+				convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body))
+			}
+		}
+		if convo.Len() == 0 {
+			continue
+		}
 		result, err := callOpenAI(openaiKey, convo.String(), "You are analyzing business conversations for a logistics company. Does this conversation need manager attention? Look for: angry customers, missed deadlines, risky promises, compliance issues. Respond ONLY with JSON: {\"needs_attention\": true/false, \"reason\": \"...\", \"severity\": \"high/medium/low\"}")
-		if err != nil { continue }
+		if err != nil {
+			continue
+		}
 		if needs, ok := result["needs_attention"].(bool); ok && needs {
 			result["room_id"] = c.RoomID
 			result["room_name"] = c.Name
@@ -927,17 +1033,30 @@ func callOpenAI(apiKey, conversation, systemPrompt string) (map[string]interface
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("OpenAI returned %d: %s", resp.StatusCode, string(b))
 	}
-	var oai struct { Choices []struct { Message struct { Content string `json:"content"` } `json:"message"` } `json:"choices"` }
+	var oai struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
 	json.NewDecoder(resp.Body).Decode(&oai)
-	if len(oai.Choices) == 0 { return nil, fmt.Errorf("no choices") }
+	if len(oai.Choices) == 0 {
+		return nil, fmt.Errorf("no choices")
+	}
 	text := strings.TrimSpace(oai.Choices[0].Message.Content)
-	text = strings.TrimPrefix(text, "```json"); text = strings.TrimPrefix(text, "```"); text = strings.TrimSuffix(text, "```"); text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		return map[string]interface{}{"summary": text, "topics": []string{}, "sentiment": "neutral"}, nil
@@ -956,17 +1075,28 @@ func callClaude(apiKey, conversation, systemPrompt string) (map[string]interface
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("Claude returned %d: %s", resp.StatusCode, string(b))
 	}
-	var cr struct { Content []struct { Text string `json:"text"` } `json:"content"` }
+	var cr struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
 	json.NewDecoder(resp.Body).Decode(&cr)
-	if len(cr.Content) == 0 { return nil, fmt.Errorf("no content") }
+	if len(cr.Content) == 0 {
+		return nil, fmt.Errorf("no content")
+	}
 	text := strings.TrimSpace(cr.Content[0].Text)
-	text = strings.TrimPrefix(text, "```json"); text = strings.TrimPrefix(text, "```"); text = strings.TrimSuffix(text, "```"); text = strings.TrimSpace(text)
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		return map[string]interface{}{"summary": text, "topics": []string{}, "sentiment": "neutral"}, nil
@@ -989,7 +1119,10 @@ func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "GET":
 		rows, err := r.db.Query(`SELECT id, name, color FROM tags ORDER BY name`)
-		if err != nil { r.writeError(w, 500, err.Error()); return }
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
 		defer rows.Close()
 		type Tag struct {
 			ID    int64  `json:"id"`
@@ -1002,7 +1135,9 @@ func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
 			rows.Scan(&t.ID, &t.Name, &t.Color)
 			tags = append(tags, t)
 		}
-		if tags == nil { tags = []Tag{} }
+		if tags == nil {
+			tags = []Tag{}
+		}
 		r.writeJSON(w, tags)
 
 	case "POST":
@@ -1011,22 +1146,30 @@ func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
 			Color string `json:"color"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Name == "" {
-			r.writeError(w, 400, "name required"); return
+			r.writeError(w, 400, "name required")
+			return
 		}
-		if body.Color == "" { body.Color = "#f5d40c" }
+		if body.Color == "" {
+			body.Color = "#f5d40c"
+		}
 		result, err := r.db.Exec(`INSERT INTO tags (name, color) VALUES (?, ?)`, body.Name, body.Color)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
-				r.writeError(w, 409, "Tag already exists"); return
+				r.writeError(w, 409, "Tag already exists")
+				return
 			}
-			r.writeError(w, 500, err.Error()); return
+			r.writeError(w, 500, err.Error())
+			return
 		}
 		id, _ := result.LastInsertId()
 		r.writeJSON(w, map[string]interface{}{"id": id, "name": body.Name, "color": body.Color})
 
 	case "DELETE":
 		id := req.URL.Query().Get("id")
-		if id == "" { r.writeError(w, 400, "id required"); return }
+		if id == "" {
+			r.writeError(w, 400, "id required")
+			return
+		}
 		r.db.Exec(`DELETE FROM contact_tags WHERE tag_id = ?`, id)
 		r.db.Exec(`DELETE FROM tags WHERE id = ?`, id)
 		r.writeJSON(w, map[string]string{"status": "deleted"})
@@ -1044,9 +1187,15 @@ func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "GET":
 		contactID := req.URL.Query().Get("contact")
-		if contactID == "" { r.writeError(w, 400, "contact required"); return }
+		if contactID == "" {
+			r.writeError(w, 400, "contact required")
+			return
+		}
 		rows, err := r.db.Query(`SELECT t.id, t.name, t.color FROM tags t JOIN contact_tags ct ON t.id = ct.tag_id WHERE ct.contact_user_id = ? ORDER BY t.name`, contactID)
-		if err != nil { r.writeError(w, 500, err.Error()); return }
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
 		defer rows.Close()
 		type Tag struct {
 			ID    int64  `json:"id"`
@@ -1059,7 +1208,9 @@ func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
 			rows.Scan(&t.ID, &t.Name, &t.Color)
 			tags = append(tags, t)
 		}
-		if tags == nil { tags = []Tag{} }
+		if tags == nil {
+			tags = []Tag{}
+		}
 		r.writeJSON(w, tags)
 
 	case "POST":
@@ -1068,16 +1219,23 @@ func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
 			TagID         int64  `json:"tag_id"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.ContactUserID == "" || body.TagID == 0 {
-			r.writeError(w, 400, "contact_user_id and tag_id required"); return
+			r.writeError(w, 400, "contact_user_id and tag_id required")
+			return
 		}
 		_, err := r.db.Exec(`INSERT OR IGNORE INTO contact_tags (contact_user_id, tag_id) VALUES (?, ?)`, body.ContactUserID, body.TagID)
-		if err != nil { r.writeError(w, 500, err.Error()); return }
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
 		r.writeJSON(w, map[string]string{"status": "assigned"})
 
 	case "DELETE":
 		contactID := req.URL.Query().Get("contact")
 		tagID := req.URL.Query().Get("tag")
-		if contactID == "" || tagID == "" { r.writeError(w, 400, "contact and tag required"); return }
+		if contactID == "" || tagID == "" {
+			r.writeError(w, 400, "contact and tag required")
+			return
+		}
 		r.db.Exec(`DELETE FROM contact_tags WHERE contact_user_id = ? AND tag_id = ?`, contactID, tagID)
 		r.writeJSON(w, map[string]string{"status": "removed"})
 
@@ -1118,23 +1276,37 @@ func (r *Router) loginHandler(w http.ResponseWriter, req *http.Request) {
 
 // autoTagHandler analyzes a conversation and suggests tags
 func (r *Router) autoTagHandler(w http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" { r.writeError(w, 405, "Method not allowed"); return }
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
 
-	var body struct{ RoomID string `json:"room_id"` }
+	var body struct {
+		RoomID string `json:"room_id"`
+	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.RoomID == "" {
-		r.writeError(w, 400, "room_id required"); return
+		r.writeError(w, 400, "room_id required")
+		return
 	}
 
 	openaiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiKey == "" { r.writeError(w, 500, "No AI API key configured"); return }
+	if openaiKey == "" {
+		r.writeError(w, 500, "No AI API key configured")
+		return
+	}
 
 	// Get messages
 	msgs, err := r.matrix.GetMessages(body.RoomID, 50)
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 
 	var convo strings.Builder
 	for _, m := range msgs {
-		if m.Body != "" { convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body)) }
+		if m.Body != "" {
+			convo.WriteString(fmt.Sprintf("%s: %s\n", m.SenderName, m.Body))
+		}
 	}
 	if convo.Len() == 0 {
 		r.writeJSON(w, map[string]interface{}{"suggested_tags": []string{}, "new_tags": []string{}})
@@ -1155,7 +1327,9 @@ func (r *Router) autoTagHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	tagList := "none yet"
-	if len(existingTags) > 0 { tagList = strings.Join(existingTags, ", ") }
+	if len(existingTags) > 0 {
+		tagList = strings.Join(existingTags, ", ")
+	}
 
 	prompt := fmt.Sprintf(`You are analyzing a business conversation from a logistics/freight brokerage company.
 
@@ -1173,7 +1347,10 @@ Conversation:
 %s`, tagList, convo.String())
 
 	result, err := callOpenAI(openaiKey, convo.String(), prompt)
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 
 	r.writeJSON(w, result)
 }
@@ -1183,7 +1360,10 @@ Conversation:
 func (r *Router) bulkContactTagsHandler(w http.ResponseWriter, req *http.Request) {
 	r.ensureTagsTables()
 	rows, err := r.db.Query(`SELECT ct.contact_user_id, t.id, t.name, t.color FROM contact_tags ct JOIN tags t ON ct.tag_id = t.id ORDER BY ct.contact_user_id, t.name`)
-	if err != nil { r.writeError(w, 500, err.Error()); return }
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 	defer rows.Close()
 	type Tag struct {
 		ID    int64  `json:"id"`

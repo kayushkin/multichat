@@ -186,6 +186,20 @@ BUILT_BIN="$BUILD_DIR/$BINARY_NAME"
 CGO_ENABLED=1 "$GO" build -o "$BUILT_BIN" ./cmd/server
 echo "    built: $(ls -lh "$BUILT_BIN" | awk '{print $5}')"
 
+# The two companion binaries: the shell CLI the scheduler's jobs call, and the
+# MCP server tool-store launches inside an agent session. Pure HTTP clients of
+# the server above, no sqlite, so cgo is not needed -- but leaving it on costs
+# nothing and keeps one build line shape.
+echo "==> Building companion binaries..."
+for companion in multichat-send multichat-mcp; do
+  CGO_ENABLED=1 "$GO" build -o "$BUILD_DIR/$companion" "./cmd/$companion"
+  echo "    built: $companion $(ls -lh "$BUILD_DIR/$companion" | awk '{print $5}')"
+done
+
+echo "==> Testing..."
+"$GO" test ./... >/dev/null
+echo "    tests green"
+
 echo "==> Vetting..."
 "$GO" vet ./...
 echo "    vet clean"
@@ -252,6 +266,14 @@ chmod 755 "$FRONTEND_ROOT"
 find "$FRONTEND_ROOT" -type d -exec chmod 755 {} +
 find "$FRONTEND_ROOT" -type f -exec chmod 644 {} +
 echo "    frontend installed (replaced, not merged; 755/644)"
+
+echo "==> Installing companion binaries -> $(dirname "$BINARY_PATH")..."
+for companion in multichat-send multichat-mcp; do
+  cp "$BUILD_DIR/$companion" "$(dirname "$BINARY_PATH")/$companion.new"
+  chmod 755 "$(dirname "$BINARY_PATH")/$companion.new"
+  mv "$(dirname "$BINARY_PATH")/$companion.new" "$(dirname "$BINARY_PATH")/$companion"
+  echo "    installed $companion"
+done
 
 echo "==> Installing binary -> $BINARY_PATH..."
 # Stage next to the target and rename into place. A plain `cp` over the live binary
