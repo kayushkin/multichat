@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# One shared gate decides whether this tree may be deployed (main clone, default
+# branch, clean, pushed, not behind, and the same for every tree the build reads).
+# It lives in healthcheck/scripts/deploy-gate.sh. Do not inline or copy it.
+( cd "$(dirname "$0")" && "$HOME/bin/deploy-gate" check )
+
 # Builds multichat (frontend + backend), installs the binary, the frontend and the
 # systemd user unit, restarts the service, and refuses to report success unless the
 # thing actually answers -- with authentication ON and its real database open.
@@ -366,3 +371,6 @@ echo "==> Installing nginx vhost..."
 ./deploy/nginx/install.sh
 
 echo "==> Done. Deployed $(git rev-parse --short HEAD)."
+
+# Last act: write this deploy to repo-store's ledger, so the next agent sees what is live.
+( cd "$(dirname "$0")" && "$HOME/bin/deploy-gate" record )
