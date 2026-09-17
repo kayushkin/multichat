@@ -56,9 +56,9 @@ func (r *Router) uploadHandler(w http.ResponseWriter, req *http.Request, roomID 
 	}
 
 	r.writeJSON(w, map[string]string{
-		"event_id":    eventID,
-		"mxc_uri":     mxcURI,
-		"filename":    filename,
+		"event_id":     eventID,
+		"mxc_uri":      mxcURI,
+		"filename":     filename,
 		"content_type": contentType,
 	})
 }

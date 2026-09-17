@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"text/template"
 	"time"
@@ -188,11 +189,29 @@ func (e *InstanceLookupError) Error() string { return e.Err.Error() }
 func (e *InstanceLookupError) Unwrap() error { return e.Err }
 
 // LookupInstance asks llm-bridge-server for one instance by id.
+// BridgeServiceTokenHeader is where llm-bridge-server reads an internal
+// service's token, and BridgeServiceTokenEnvironmentVariable is where this
+// service's unit carries it.
+const (
+	BridgeServiceTokenHeader              = "X-LLM-Bridge-Service-Token"
+	BridgeServiceTokenEnvironmentVariable = "LLMBRIDGE_SERVICE_TOKEN"
+)
+
 func LookupInstance(client *http.Client, llmBridgeURL, instanceID string) (msg.Instance, error) {
 	if llmBridgeURL == "" {
 		return msg.Instance{}, &InstanceLookupError{Err: fmt.Errorf("LLM_BRIDGE_URL is not set; cannot check instance %q", instanceID)}
 	}
-	resp, err := client.Get(llmBridgeURL + "/instances/" + instanceID)
+	request, err := http.NewRequest(http.MethodGet, llmBridgeURL+"/instances/"+instanceID, nil)
+	if err != nil {
+		return msg.Instance{}, &InstanceLookupError{Err: err}
+	}
+	// llm-bridge-server gates every route: without this token the check is a
+	// 401, which reads as "that instance does not exist" to whoever is saving
+	// the rule.
+	if token := os.Getenv(BridgeServiceTokenEnvironmentVariable); token != "" {
+		request.Header.Set(BridgeServiceTokenHeader, token)
+	}
+	resp, err := client.Do(request)
 	if err != nil {
 		return msg.Instance{}, &InstanceLookupError{Err: fmt.Errorf("llm-bridge-server: %w", err)}
 	}

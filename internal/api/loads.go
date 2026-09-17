@@ -28,7 +28,11 @@ type Load struct {
 // GET /loads?status=open
 func (r *Router) loadsHandler(w http.ResponseWriter, req *http.Request) {
 	status := req.URL.Query().Get("status")
-	var rows_ interface{ Next() bool; Scan(...interface{}) error; Close() error }
+	var rows_ interface {
+		Next() bool
+		Scan(...interface{}) error
+		Close() error
+	}
 	var err error
 	if status != "" {
 		rows_, err = r.db.Query(`SELECT id, reference_number, shipper, consignee, origin_city, origin_state, destination_city, destination_state, status, rate, weight, pickup_date, delivery_date, equipment_type, created_at FROM loads WHERE status = ? ORDER BY created_at DESC`, status)

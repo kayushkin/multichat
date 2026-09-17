@@ -331,7 +331,9 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 
 		// Get room name
 		if nameData, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state/m.room.name", nil); err == nil {
-			var nameEvt struct{ Name string `json:"name"` }
+			var nameEvt struct {
+				Name string `json:"name"`
+			}
 			json.Unmarshal(nameData, &nameEvt)
 			conv.Name = nameEvt.Name
 		}
@@ -389,7 +391,9 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 				for _, m := range memberResp.Chunk {
 					if m.StateKey != "@admin:chat.kayushkin.com" {
 						if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(m.StateKey)+"/displayname", nil); err == nil {
-							var p struct{ DisplayName string `json:"displayname"` }
+							var p struct {
+								DisplayName string `json:"displayname"`
+							}
 							json.Unmarshal(profile, &p)
 							name := stripBridgeSuffix(p.DisplayName)
 							if name != "" && name != "Telegram Bridge Bot" {
@@ -504,7 +508,9 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 		senderName := names[evt.Sender]
 		if senderName == "" {
 			if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(evt.Sender)+"/displayname", nil); err == nil {
-				var p struct{ DisplayName string `json:"displayname"` }
+				var p struct {
+					DisplayName string `json:"displayname"`
+				}
 				json.Unmarshal(profile, &p)
 				senderName = stripBridgeSuffix(p.DisplayName)
 				names[evt.Sender] = senderName
@@ -567,7 +573,9 @@ func (c *Client) GetMessages(roomID string, limit int) ([]Message, error) {
 		senderName := names[evt.Sender]
 		if senderName == "" {
 			if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(evt.Sender)+"/displayname", nil); err == nil {
-				var p struct{ DisplayName string `json:"displayname"` }
+				var p struct {
+					DisplayName string `json:"displayname"`
+				}
 				json.Unmarshal(profile, &p)
 				senderName = stripBridgeSuffix(p.DisplayName)
 				names[evt.Sender] = senderName
