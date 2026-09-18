@@ -186,6 +186,15 @@ func DeleteInboundRule(database *sql.DB, id int64) error {
 	return nil
 }
 
+// InboundPromptField is one field a rule's prompt_template may reference, as
+// GET /inbound-prompt-fields serves it. The list is read off the struct the
+// dispatcher renders the template with (inbound.PromptFields), so an editor
+// never carries its own copy.
+type InboundPromptField struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
 // --- dispatches ---------------------------------------------------------------
 
 // InboundDispatch is one session a rule started (or tried to) for one message.

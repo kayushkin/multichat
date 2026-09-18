@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"text/template"
 	"time"
@@ -34,6 +36,30 @@ type PromptFields struct {
 	MessageType       string
 	IsDirectMessage   bool
 	Timestamp         time.Time
+}
+
+// CheckPromptTemplate is the write-time check: the template must parse and
+// must render against an empty message. Parsing alone cannot know the field
+// set, so {{.NoSuchField}} parses and would fail only when a message arrived;
+// rendering it here refuses the rule before it is stored.
+func CheckPromptTemplate(text string) error {
+	tmpl, err := ParsePromptTemplate(text)
+	if err != nil {
+		return err
+	}
+	return tmpl.Execute(io.Discard, PromptFields{})
+}
+
+// PromptFieldList names every field of PromptFields with its Go type, in
+// declaration order. It is what GET /inbound-prompt-fields serves.
+func PromptFieldList() []db.InboundPromptField {
+	fieldsType := reflect.TypeOf(PromptFields{})
+	list := make([]db.InboundPromptField, 0, fieldsType.NumField())
+	for i := 0; i < fieldsType.NumField(); i++ {
+		field := fieldsType.Field(i)
+		list = append(list, db.InboundPromptField{Name: field.Name, Type: field.Type.String()})
+	}
+	return list
 }
 
 // ParsePromptTemplate is the one parser for rule templates, shared by the

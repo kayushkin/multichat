@@ -101,6 +101,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-rules/", r.inboundRuleHandler)
 	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
+	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 }
 
 func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {

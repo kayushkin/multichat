@@ -1,0 +1,12 @@
+{
+  "name": "@kayushkin/multichat-types",
+  "version": "0.1.0",
+  "description": "TypeScript types for multichat inbound rules. Generated from internal/db/inbound.go — the Go package is the source of truth.",
+  "type": "module",
+  "types": "./inbound.ts",
+  "exports": { ".": { "types": "./inbound.ts", "default": "./inbound.ts" } },
+  "files": ["inbound.ts", "README.md"],
+  "license": "Apache-2.0",
+  "author": "kayushkin",
+  "repository": { "type": "git", "url": "git+https://github.com/kayushkin/multichat.git", "directory": "ts" }
+}

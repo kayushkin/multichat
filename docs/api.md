@@ -501,7 +501,7 @@ All rules, enabled or not.
 }
 ```
 
-Every filter is optional and an empty one matches anything: `platform` (one of `GET /inbound-platforms`), `sender_user_id` (exact puppet id), `body_pattern` (RE2 against the body), `direct_messages_only` (default **true**). `instance_id` is required and is **checked with llm-bridge-server on write** — `400` when it knows no such instance, `502` when it cannot answer, nothing stored either way. `prompt_template` is required, a Go `text/template` over `Body`, `SenderUserID`, `SenderDisplayName`, `Platform`, `RoomID`, `RoomName`, `EventID`, `MessageType`, `IsDirectMessage`, `Timestamp`; a template that does not parse is `400`. Unknown JSON fields are `400`. Responds `201` with the stored rule; new rules are enabled.
+Every filter is optional and an empty one matches anything: `platform` (one of `GET /inbound-platforms`), `sender_user_id` (exact puppet id), `body_pattern` (RE2 against the body), `direct_messages_only` (default **true**). `instance_id` is required and is **checked with llm-bridge-server on write** — `400` when it knows no such instance, `502` when it cannot answer, nothing stored either way. `prompt_template` is required, a Go `text/template` over `Body`, `SenderUserID`, `SenderDisplayName`, `Platform`, `RoomID`, `RoomName`, `EventID`, `MessageType`, `IsDirectMessage`, `Timestamp`; a template that does not parse, or that names a field outside that list, is `400` — it is rendered against an empty message on write, so it cannot fail for the first time when a person writes in. Unknown JSON fields are `400`. Responds `201` with the stored rule; new rules are enabled.
 
 ### GET /inbound-rules/{id}, PATCH /inbound-rules/{id}, DELETE /inbound-rules/{id}
 
@@ -514,6 +514,14 @@ What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user
 ### GET /inbound-platforms
 
 The platform vocabulary a rule may name: `["whatsapp","telegram","signal","meta"]`.
+
+### GET /inbound-prompt-fields
+
+The fields a `prompt_template` may reference, read off the struct the dispatcher renders with: `[{"name":"Body","type":"string"}, …]`. An editor asks this instead of carrying the list.
+
+### TypeScript types
+
+`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) to `ts/inbound.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`). bridge-ui's Inbound rules page imports them; multichat's own frontend does not.
 
 ⚠️ A session started this way runs with nobody at the keyboard. The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so such a session **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
 

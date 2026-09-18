@@ -24,6 +24,7 @@ import (
 //	DELETE /inbound-rules/{id}
 //	GET    /inbound-dispatches?limit= what the rules did, newest first
 //	GET    /inbound-platforms        the platform vocabulary a rule may name
+//	GET    /inbound-prompt-fields    the fields a prompt_template may reference
 
 func (r *Router) inboundRulesHandler(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
@@ -131,6 +132,10 @@ func (r *Router) inboundPlatformsHandler(w http.ResponseWriter, req *http.Reques
 	r.writeJSON(w, matrix.KnownPlatforms)
 }
 
+func (r *Router) inboundPromptFieldsHandler(w http.ResponseWriter, req *http.Request) {
+	r.writeJSON(w, inbound.PromptFieldList())
+}
+
 // validateInboundRule refuses a rule that could not run. The instance is
 // checked with its owner, llm-bridge-server: 400 when it says the id is
 // unknown, 502 when it cannot answer — never stored unverified.
@@ -152,7 +157,7 @@ func (r *Router) validateInboundRule(rule db.InboundRule) (int, error) {
 	if strings.TrimSpace(rule.PromptTemplate) == "" {
 		return 400, errors.New("prompt_template is required")
 	}
-	if _, err := inbound.ParsePromptTemplate(rule.PromptTemplate); err != nil {
+	if err := inbound.CheckPromptTemplate(rule.PromptTemplate); err != nil {
 		return 400, fmt.Errorf("prompt_template: %v", err)
 	}
 	if rule.InstanceID == "" {

@@ -66,3 +66,30 @@ func TestPromptTemplateRendersFieldsAndRejectsUnknownOnes(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckPromptTemplateRefusesAFieldTheDispatcherDoesNotRenderWith(t *testing.T) {
+	if err := CheckPromptTemplate("{{.SenderDisplayName}}: {{.Body}} at {{.Timestamp}}"); err != nil {
+		t.Errorf("a template over real fields was refused: %v", err)
+	}
+	if err := CheckPromptTemplate("{{.NoSuchField}}"); err == nil {
+		t.Error("a template naming an unknown field was accepted; it would fail only when a message arrived")
+	}
+	if err := CheckPromptTemplate("{{.Body"); err == nil {
+		t.Error("a template that does not parse was accepted")
+	}
+}
+
+func TestEveryServedPromptFieldRendersInATemplate(t *testing.T) {
+	list := PromptFieldList()
+	if len(list) == 0 {
+		t.Fatal("no prompt fields served")
+	}
+	for _, field := range list {
+		if err := CheckPromptTemplate("{{." + field.Name + "}}"); err != nil {
+			t.Errorf("served field %s does not render: %v", field.Name, err)
+		}
+		if field.Type == "" {
+			t.Errorf("served field %s has no type", field.Name)
+		}
+	}
+}
