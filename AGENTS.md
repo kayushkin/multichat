@@ -1,0 +1,55 @@
+# About multichat
+
+## What it owns
+
+`:8402` (`PORT`), unit `multichat-server.service`, published at `chat.kayushkin.com`. The unified inbox over a Synapse Matrix homeserver (`127.0.0.1:8008`) with four **mautrix** bridges in Docker — **whatsapp, telegram, signal, meta** (Facebook/Instagram) — around 480 unified contacts. The Go API only ever talks to Synapse's client API and speaks no platform protocol of its own. **Not Discord and not matterbridge**: `si` is the Discord side. A React + Vite frontend under `frontend/` is built by `deploy.sh` and served by nginx from the vhost root. `docs/api.md` is the route table; `docs/llm-bridge-integration.md` records the design choice — Option D (the bus for inbound events, direct HTTP for sends, no outbound over the bus) plus Option C (the MCP tool surface for agents).
+
+## Where this prompt lives
+
+These sections are stored in agent-store as a project prompt collection and rendered, with identical text, to `AGENTS.md` and `CLAUDE.md` at the root of this repo, so that whichever file a harness reads it gets the same thing. Edit them on dash `/files`, or edit either rendered file: the 15-minute scan carries the edit back into the sections and out to the other file. The host prompt keeps one row for this repo with only what an agent elsewhere needs.
+
+# How it works
+
+## Sending to a real person
+
+`POST /api/messages/send {user_id, body}` is the one send route (`internal/api/messages.go`). It asks Matrix for the direct-message room already shared with that bridge puppet and **creates one only if none exists**, then returns `room_id`, `event_id` and `created_room`. A missing `user_id` or `body` is a 400 naming the field, a Matrix failure is a 502, and an unconfigured Matrix client is a 503. ⚠️ `POST /api/conversations/new` calls `CreateDM` unconditionally, so it opens a **fresh room on every call** — it is for starting a conversation, never for sending. Two wrappers sit on the send route: `~/bin/multichat-send` (`cmd/multichat-send`) resolves a display name plus `-platform` to a puppet id and treats an ambiguous name as an error rather than guessing, and `~/bin/multichat-mcp` (`cmd/multichat-mcp`) is a stdio MCP server on the official `modelcontextprotocol/go-sdk` offering `list_contacts`, `list_conversations`, `read_messages` and `send_message`.
+
+## The platform vocabulary
+
+`matrix.KnownPlatforms` in `internal/matrix/platform.go` is the single list of platforms — `whatsapp`, `telegram`, `signal`, `meta`, in the order the bridges were added — and `GET /api/inbound-platforms` serves it, so **nothing builds a platform filter from observed values**. `PlatformOfUserID` decides a platform from the puppet prefix a bridge stamps on its ghosts (`@whatsapp_…`, `@telegram_…`) and returns `""` for anything that is not a bridge puppet: the bridge bots themselves, `@admin`, and any plain Matrix user. Adding a bridge means adding it to that slice.
+
+## Inbound: the sync worker and the dispatcher
+
+With `NATS_URL` set the server runs two loops (`internal/inbound/`). **SyncWorker** long-polls Synapse `/sync` on a 30-second timeout, keeps the resume token in `matrix_sync_state`, and publishes every message a person sent as `messages.MessagingInbound` on `messaging.inbound` (JetStream, stream `MESSAGING`), dropping our own sends and our own platform puppets so no consumer ever sees itself; a failed publish stops the token advancing, so the batch is re-read. **Dispatcher** is a durable consumer of that subject named `multichat-inbound-dispatcher` (`inbound.DurableConsumerName`); it applies the `inbound_rules` table and, per match, publishes `messages.BridgeInbound` on `bridge.inbound` to start an autonomous session — the same path scheduler agent jobs take. They are joined by the bus rather than a function call so another service can consume the same subject under its own durable name and a dispatch survives a restart. `inbound_dispatches` is the audit, `UNIQUE (rule_id, event_id)` because JetStream is at-least-once. `NATS_URL` requires both a configured Matrix client and `LLM_BRIDGE_URL`; the server refuses to start with one and not the other. The path is proven end to end with a plain Matrix test user (`@multichat-test:chat.kayushkin.com`, still present and harmless) but **not yet with a message from a real bridged platform** — `prediction_000114` holds that at 85% and is still open.
+
+## Inbound rules and what a write refuses
+
+A rule is `(platform, sender_user_id, body_pattern, direct_messages_only) → start a session on instance_id with prompt_template`; an empty platform, sender or pattern means any. Every field is checked on write (`internal/api/inbound_rules.go`): a missing `name` or `prompt_template` is a 400; `platform` must be one of `matrix.KnownPlatforms`; `sender_user_id` must be a Matrix user id (`@platform_id:server`); `body_pattern` must compile as RE2; and `instance_id` is checked with llm-bridge-server, which owns instance ids — **400 when it says the id is unknown, 502 when it cannot answer, and nothing is stored either way**. The template check is the subtle one: `inbound.CheckPromptTemplate` both parses the template and **renders it against an empty `PromptFields`**, because parsing alone cannot know the field set — so `{{.NoSuchField}}` is a 400 at write time instead of a rule that fails the moment a real person writes in. `ParsePromptTemplate` with `missingkey=error` is the one parser, shared by the API and the dispatcher, so a template the API accepted is one the dispatcher can render. `GET /api/inbound-prompt-fields` serves the field list by reflection over `inbound.PromptFields`, so an editor never hardcodes it. **Zero rules means nothing happens.**
+
+# Access and operations
+
+## Authentication fails open
+
+🔴 `internal/api/router.go` reads `if authToken != "" { …check the bearer token… }`, so an **empty or absent `MULTICHAT_TOKEN` does not lock everyone out — it turns authentication off entirely**. The API is proxied to the internet at `chat.kayushkin.com` and serves contacts, conversations and message history plus AI routes that spend the OpenAI key, so losing that one variable publishes all of it. With the token set, every path except `/auth/login` and `/health` needs `Authorization: Bearer <token>` or a `multichat_token` cookie and answers 401 otherwise. `deploy.sh` will not install a unit whose `MULTICHAT_TOKEN` it cannot prove is present and non-empty, and after every deploy it asserts that an unauthenticated `/api/tags` returns 401, rolling back if it does not — it checks the refusal rather than trusting the config.
+
+## Unit, environment and secrets
+
+The unit template is tracked at `deploy/multichat-server.service` and installed to `~/.config/systemd/user/`. It sets `PORT=8402`, `SYNAPSE_URL=http://localhost:8008`, `TELEGRAM_DB`, `META_DB`, `NATS_URL` and `LLM_BRIDGE_URL`, and pins `MULTICHAT_DB` to an absolute path. **The secrets — `MULTICHAT_TOKEN`, `MATRIX_TOKEN`, `OPENAI_API_KEY` — live in `~/.config/multichat/multichat.env` (mode 600) and never in the tracked template**, which would publish a live Matrix token and a live OpenAI key to a public repo; `deploy.sh` refuses to deploy when that file is missing. The drop-in `multichat-server.service.d/principal-gating.conf` adds `~/.config/principal-gating-tokens.env`. nginx (`deploy/nginx/chat.kayushkin.com.conf`) serves the built frontend at `/`, proxies `/api/` to `127.0.0.1:8402/api/` and `/ws` to `/ws`; the Go router is rooted at `/` and `cmd/server/main.go` mounts it under `/api/` with `http.StripPrefix`.
+
+## How other services reach it
+
+**dash** proxies a deliberate subset at `/api/multichat/*` (`dash/server/api_multichat.go`): `GET`/`POST /inbound-rules`, `GET`/`PATCH`/`DELETE /inbound-rules/{id}`, `GET /inbound-dispatches`, `GET /inbound-platforms`, `GET /inbound-prompt-fields` and `GET /contacts/unified`. Anything else is a 404 decided **before** a token is asked for, so a dash login is not a way to text someone; the token is resolved from auth-store provider `multichat` on each request, so a rotation needs no restart. **`~/bin/multichat-send`** resolves the same token from that provider using `AUTH_STORE_URL` and `AUTH_STORE_TOKEN`, which the scheduler unit gets from the drop-in `scheduler.service.d/multichat-send.conf`; disabled scheduler job 86 `multichat-send example` is the template to copy. **`~/bin/multichat-mcp`** is registered in tool-store as `multichat` (id 15), provisioned with a token from auth-store and opted in per instance on the bridge Tools page; permission-store rule `multichat-send-message-ask` makes `mcp__multichat__send_message` `ask` at global scope, so a human confirms each send. ⚠️ **That holds only in a session whose tool calls reach permission-store**: llm-bridge-server allows a session in `bypass` permission mode before any rule is read (noteboard todo `bfd3f4de-af8e-4e7e-8e52-0671a22cdf81`), so for an unattended session the real guard is that its instance has not opted in to this tool. **kanban-store's** message triggers send through `POST /api/messages/send` — see its row for why delivery is off by default.
+
+# Working in this repo
+
+## Build, test and deploy
+
+Module `github.com/kayushkin/multichat`, with `replace` directives on `../bus` and `../llm-bridge`, so both sibling clones must be present to build. Three binaries: `cmd/server` (the service, installed as `~/bin/multichat-server`), `cmd/multichat-send` and `cmd/multichat-mcp`. `go build ./...` and `go test ./...` need no build tag. The frontend builds with `npm run build` under `frontend/`. Deploy with `./deploy.sh`, which builds both halves, checks the secrets, restarts the unit and asserts the 401 before reporting success. Pushes to `github.com/kayushkin/multichat`.
+
+## The database is pinned absolutely
+
+SQLite at `~/repos/multichat/multichat.db`, pinned by `MULTICHAT_DB`. **SQLite does not fail on a missing file, it creates one**, so when `cmd/server/main.go` opened the bare relative path the database was wherever systemd happened to chdir: get the working directory wrong and multichat comes up with every route answering out of a brand-new empty database, looking perfectly healthy while the real contacts and tags sit untouched on disk. The absolute path removes the ambiguity, and `deploy.sh` refuses to deploy when the file named there does not already exist. The inbound schema (`internal/db/inbound.go`) adds `matrix_sync_state`, `inbound_rules` and `inbound_dispatches` to the older tables in `internal/db/db.go`.
+
+## Generated TypeScript types
+
+`./generate-ts.sh` runs tygo per `tygo.yaml` and renders `internal/db/inbound.go` to `ts/inbound.ts`, published source-only as `@kayushkin/multichat-types`; each output file gets a header naming the commit it was generated from. The Go structs are the source of truth — regenerate after changing a wire type rather than editing the render. **Only the inbound-rule records are rendered**: they are what another UI reads (bridge-ui's Inbound rules page), while multichat's own frontend keeps its own types.
