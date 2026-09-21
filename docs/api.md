@@ -41,6 +41,16 @@ Health check endpoint. No authentication required.
 
 ---
 
+## Settings
+
+### GET /settings
+
+Every environment variable the server reads, as `llm-bridge/servicesettings` describes it: key, variable, kind, value type, the value in force and where it came from (`environment` or `default`), and a description of what changing it changes. A secret shows only whether it is set, never its value. Needs the bearer like every other route. The declarations are `internal/config/settings.go`; bridge-ui's `/service-settings` page draws them.
+
+Nothing is editable, so `PUT /settings/{key}` is not mounted and answers 404.
+
+---
+
 ## Contacts
 
 ### GET /contacts

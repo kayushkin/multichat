@@ -163,7 +163,7 @@ func (r *Router) validateInboundRule(rule db.InboundRule) (int, error) {
 	if rule.InstanceID == "" {
 		return 400, errors.New("instance_id is required (an llm-bridge-server instance id)")
 	}
-	_, err := inbound.LookupInstance(r.httpClient, r.llmBridgeURL, rule.InstanceID)
+	_, err := inbound.LookupInstance(r.httpClient, r.llmBridgeURL, r.llmBridgeServiceToken, rule.InstanceID)
 	var lookupErr *inbound.InstanceLookupError
 	if errors.As(err, &lookupErr) {
 		if lookupErr.Unknown {

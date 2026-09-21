@@ -12,10 +12,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
+	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/client"
+	"github.com/kayushkin/multichat/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -25,11 +26,15 @@ func main() {
 	if *multichatURL == "" {
 		log.Fatal("multichat-mcp: -url is required")
 	}
-	token := os.Getenv("MULTICHAT_TOKEN")
-	if token == "" {
-		log.Fatal("multichat-mcp: MULTICHAT_TOKEN is not set (tool-store provisions it from auth-store provider \"multichat\")")
+	settings, err := config.NewMCPServerSettingsRegistry(servicesettings.ProcessEnvironment())
+	if err != nil {
+		log.Fatalf("multichat-mcp: %v", err)
 	}
-	api := client.New(*multichatURL, token)
+	// The error names MULTICHAT_TOKEN and says tool-store provisions it.
+	if err := settings.CheckRequired(); err != nil {
+		log.Fatalf("multichat-mcp: %v", err)
+	}
+	api := client.New(*multichatURL, settings.String(config.MCPSettingAPIToken))
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "multichat", Version: "1"}, nil)
 

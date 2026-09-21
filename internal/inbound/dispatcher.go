@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"reflect"
 	"regexp"
 	"text/template"
@@ -74,7 +73,10 @@ type Dispatcher struct {
 	Database     *sql.DB
 	Bus          *bus.Client
 	LLMBridgeURL string
-	HTTPClient   *http.Client
+	// LLMBridgeServiceToken is presented on every instance check; without it
+	// llm-bridge-server answers 401.
+	LLMBridgeServiceToken string
+	HTTPClient            *http.Client
 }
 
 // Run subscribes and blocks forever.
@@ -175,7 +177,7 @@ func (d *Dispatcher) startSession(rule db.InboundRule, inbound messages.Messagin
 	}); err != nil {
 		return fmt.Errorf("render prompt_template: %w", err)
 	}
-	instance, err := LookupInstance(d.HTTPClient, d.LLMBridgeURL, rule.InstanceID)
+	instance, err := LookupInstance(d.HTTPClient, d.LLMBridgeURL, d.LLMBridgeServiceToken, rule.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -214,16 +216,14 @@ type InstanceLookupError struct {
 func (e *InstanceLookupError) Error() string { return e.Err.Error() }
 func (e *InstanceLookupError) Unwrap() error { return e.Err }
 
-// LookupInstance asks llm-bridge-server for one instance by id.
 // BridgeServiceTokenHeader is where llm-bridge-server reads an internal
-// service's token, and BridgeServiceTokenEnvironmentVariable is where this
-// service's unit carries it.
-const (
-	BridgeServiceTokenHeader              = "X-LLM-Bridge-Service-Token"
-	BridgeServiceTokenEnvironmentVariable = "LLMBRIDGE_SERVICE_TOKEN"
-)
+// service's token. The token itself is the llm_bridge_service_token setting
+// (LLMBRIDGE_SERVICE_TOKEN), which the caller hands in.
+const BridgeServiceTokenHeader = "X-LLM-Bridge-Service-Token"
 
-func LookupInstance(client *http.Client, llmBridgeURL, instanceID string) (msg.Instance, error) {
+// LookupInstance asks llm-bridge-server for one instance by id, presenting
+// serviceToken when it is not empty.
+func LookupInstance(client *http.Client, llmBridgeURL, serviceToken, instanceID string) (msg.Instance, error) {
 	if llmBridgeURL == "" {
 		return msg.Instance{}, &InstanceLookupError{Err: fmt.Errorf("LLM_BRIDGE_URL is not set; cannot check instance %q", instanceID)}
 	}
@@ -234,8 +234,8 @@ func LookupInstance(client *http.Client, llmBridgeURL, instanceID string) (msg.I
 	// llm-bridge-server gates every route: without this token the check is a
 	// 401, which reads as "that instance does not exist" to whoever is saving
 	// the rule.
-	if token := os.Getenv(BridgeServiceTokenEnvironmentVariable); token != "" {
-		request.Header.Set(BridgeServiceTokenHeader, token)
+	if serviceToken != "" {
+		request.Header.Set(BridgeServiceTokenHeader, serviceToken)
 	}
 	resp, err := client.Do(request)
 	if err != nil {

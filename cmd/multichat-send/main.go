@@ -5,7 +5,8 @@
 //	multichat-send -user-id @telegram_12345:chat.kayushkin.com "same, by id"
 //	echo "body from stdin" | multichat-send -name "…" -platform telegram
 //
-// Settings come from the environment, all required:
+// Settings come from the environment, all required, and are declared in
+// config.SendCommandSettingDefinitions:
 //
 //	MULTICHAT_URL     multichat's base URL (http://localhost:8402)
 //	AUTH_STORE_URL    auth-store, which holds the API token as provider "multichat"
@@ -22,7 +23,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/client"
+	"github.com/kayushkin/multichat/internal/config"
 )
 
 const authStoreProvider = "multichat"
@@ -55,8 +58,15 @@ func main() {
 		fail("pass -user-id or -name/-platform, not both")
 	}
 
-	multichatURL := requireEnv("MULTICHAT_URL")
-	token, err := resolveTokenFromAuthStore(requireEnv("AUTH_STORE_URL"), requireEnv("AUTH_STORE_TOKEN"))
+	settings, err := config.NewSendCommandSettingsRegistry(servicesettings.ProcessEnvironment())
+	if err != nil {
+		fail("%v", err)
+	}
+	if err := settings.CheckRequired(); err != nil {
+		fail("%v", err)
+	}
+	multichatURL := settings.String(config.SendSettingMultichatURL)
+	token, err := resolveTokenFromAuthStore(settings.String(config.SendSettingAuthStoreURL), settings.String(config.SendSettingAuthStoreToken))
 	if err != nil {
 		fail("%v", err)
 	}
@@ -110,14 +120,6 @@ func resolveTokenFromAuthStore(authStoreURL, authStoreToken string) (string, err
 		return "", fmt.Errorf("auth-store: provider %s is %q with empty api_key; expected an api_key credential", authStoreProvider, out.AuthType)
 	}
 	return out.APIKey, nil
-}
-
-func requireEnv(key string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		fail("%s is not set", key)
-	}
-	return value
 }
 
 func fail(format string, args ...any) {

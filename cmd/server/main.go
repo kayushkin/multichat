@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/kayushkin/bus"
+	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/api"
+	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
@@ -18,6 +19,19 @@ import (
 )
 
 func main() {
+	// Every variable this reads is declared in internal/config and served at
+	// GET /api/settings. A misspelled owned variable, a port that is not a
+	// whole number, or NATS_URL without what inbound needs stops the start
+	// here, naming the variable.
+	settings, err := config.NewSettingsRegistry(servicesettings.ProcessEnvironment())
+	if err != nil {
+		log.Fatal(err)
+	}
+	loaded, err := config.Load(settings)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// MULTICHAT_DB pins the database to an absolute path. Left unset it falls back
 	// to the relative "multichat.db" this has always used, so behaviour is unchanged
 	// for anyone running the binary by hand from the repo.
@@ -29,10 +43,7 @@ func main() {
 	// route answering, zero rows. The live DB (contacts, tags, loads) simply stops
 	// being the one that is open. A deploy is exactly when a working directory
 	// changes, which is exactly when you would not notice.
-	dbPath := os.Getenv("MULTICHAT_DB")
-	if dbPath == "" {
-		dbPath = "multichat.db"
-	}
+	dbPath := loaded.DatabasePath
 	database, err := db.Initialize(dbPath)
 	if err != nil {
 		log.Fatal("Failed to initialize database:", err)
@@ -42,20 +53,18 @@ func main() {
 
 	// Matrix client — connects to Synapse
 	var matrixClient *matrix.Client
-	synapse := os.Getenv("SYNAPSE_URL")
-	token := os.Getenv("MATRIX_TOKEN")
-	if synapse != "" && token != "" {
-		matrixClient = matrix.NewClient(synapse, token)
-		log.Printf("Matrix client configured: %s", synapse)
+	if loaded.MatrixConfigured() {
+		matrixClient = matrix.NewClient(loaded.SynapseURL, loaded.MatrixToken)
+		log.Printf("Matrix client configured: %s", loaded.SynapseURL)
 	} else {
 		log.Println("Warning: SYNAPSE_URL or MATRIX_TOKEN not set, Matrix features disabled")
 	}
 
-	tgDBPath := os.Getenv("TELEGRAM_DB")
+	tgDBPath := loaded.TelegramBridgeDatabasePath
 	if tgDBPath != "" {
 		log.Printf("Telegram DB for phone lookups: %s", tgDBPath)
 	}
-	metaDBPath := os.Getenv("META_DB")
+	metaDBPath := loaded.MetaBridgeDatabasePath
 	if metaDBPath != "" {
 		log.Printf("Meta DB for platform lookups: %s", metaDBPath)
 	}
@@ -98,19 +107,13 @@ func main() {
 		log.Printf("  %s", id)
 	}
 
-	llmBridgeURL := os.Getenv("LLM_BRIDGE_URL")
-	router := api.NewRouter(database, matrixClient, tgDBPath, metaDBPath, llmBridgeURL)
+	router := api.NewRouter(database, matrixClient, loaded, settings)
 
 	// Inbound: /sync -> messaging.inbound -> rules -> agent sessions. Gated on
 	// NATS_URL because the bus is the contract; with it set, a bus that cannot
-	// be reached is fatal rather than a silent "inbound disabled".
-	if natsURL := os.Getenv("NATS_URL"); natsURL != "" {
-		if matrixClient == nil {
-			log.Fatal("NATS_URL is set but the Matrix client is not configured; inbound needs both")
-		}
-		if llmBridgeURL == "" {
-			log.Fatal("NATS_URL is set but LLM_BRIDGE_URL is not; inbound rules dispatch to llm-bridge-server instances")
-		}
+	// be reached is fatal rather than a silent "inbound disabled". config.Load
+	// has already refused NATS_URL without the Matrix client or LLM_BRIDGE_URL.
+	if natsURL := loaded.NATSURL; natsURL != "" {
 		busClient, err := bus.Connect(bus.Options{URL: natsURL, Name: "multichat"})
 		if err != nil {
 			log.Fatalf("NATS: %v", err)
@@ -120,18 +123,14 @@ func main() {
 		}
 		log.Printf("NATS connected: %s", natsURL)
 		go (&inbound.SyncWorker{Matrix: matrixClient, Database: database, Bus: busClient}).Run()
-		go (&inbound.Dispatcher{Database: database, Bus: busClient, LLMBridgeURL: strings.TrimRight(llmBridgeURL, "/"), HTTPClient: &http.Client{Timeout: 10 * time.Second}}).Run()
+		go (&inbound.Dispatcher{Database: database, Bus: busClient, LLMBridgeURL: strings.TrimRight(loaded.LLMBridgeServerURL, "/"), LLMBridgeServiceToken: loaded.LLMBridgeServiceToken, HTTPClient: &http.Client{Timeout: 10 * time.Second}}).Run()
 	} else {
 		log.Println("NATS_URL not set: inbound messaging (sync worker, rule dispatcher) is off")
 	}
 
 	http.Handle("/api/", http.StripPrefix("/api", router))
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8402"
-	}
-	addr := ":" + port
+	addr := fmt.Sprintf(":%d", loaded.ListenPort)
 	fmt.Printf("MultiChat server listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)

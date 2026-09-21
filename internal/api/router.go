@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kayushkin/llm-bridge/servicesettings"
+	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
 
@@ -26,19 +27,45 @@ type Router struct {
 	// llmBridgeURL is where inbound rules have their instance_id checked
 	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
 	// written: the write answers 502 naming the missing setting.
-	llmBridgeURL string
-	httpClient   *http.Client
+	llmBridgeURL          string
+	llmBridgeServiceToken string
+	httpClient            *http.Client
+
+	// apiToken is the bearer every route but /auth/login and /health asks
+	// for. Empty turns authentication off: see ServeHTTP.
+	apiToken        string
+	openAIAPIKey    string
+	anthropicAPIKey string
+
+	// settings is what GET /settings describes: every environment variable
+	// the server reads.
+	settings *servicesettings.Registry
 }
 
-func NewRouter(db *sql.DB, matrixClient *matrix.Client, tgDBPath, metaDBPath, llmBridgeURL string) *Router {
+// SettingsPath is where servicesettings.Handler is mounted, under the /api
+// prefix main strips.
+const SettingsPath = "/settings"
+
+// NewRouter panics on a nil settings registry, at boot: the registry is an
+// argument rather than an option so that no caller can build a router without
+// GET /settings.
+func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, settings *servicesettings.Registry) *Router {
+	if settings == nil {
+		panic("multichat: a settings registry is required; GET /settings describes the service from it")
+	}
 	r := &Router{
-		db:           db,
-		matrix:       matrixClient,
-		mux:          http.NewServeMux(),
-		tgDBPath:     tgDBPath,
-		metaDBPath:   metaDBPath,
-		llmBridgeURL: strings.TrimRight(llmBridgeURL, "/"),
-		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		db:                    db,
+		matrix:                matrixClient,
+		mux:                   http.NewServeMux(),
+		tgDBPath:              loaded.TelegramBridgeDatabasePath,
+		metaDBPath:            loaded.MetaBridgeDatabasePath,
+		llmBridgeURL:          strings.TrimRight(loaded.LLMBridgeServerURL, "/"),
+		llmBridgeServiceToken: loaded.LLMBridgeServiceToken,
+		httpClient:            &http.Client{Timeout: 10 * time.Second},
+		apiToken:              loaded.APIToken,
+		openAIAPIKey:          loaded.OpenAIAPIKey,
+		anthropicAPIKey:       loaded.AnthropicAPIKey,
+		settings:              settings,
 	}
 	r.setupRoutes()
 	return r
@@ -54,7 +81,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Token auth — skip for login and health
 	if req.URL.Path != "/auth/login" && req.URL.Path != "/health" {
-		authToken := os.Getenv("MULTICHAT_TOKEN")
+		authToken := r.apiToken
 		if authToken != "" {
 			token := ""
 			if auth := req.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
@@ -102,6 +129,9 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
+	// Behind the same bearer as every other route. Nothing is Editable, so
+	// PUT /settings/{key} is not mounted and answers 404.
+	r.mux.Handle(SettingsPath, servicesettings.Handler(r.settings, SettingsPath))
 }
 
 func (r *Router) healthHandler(w http.ResponseWriter, req *http.Request) {
@@ -642,8 +672,8 @@ func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeJSON(w, map[string]interface{}{"summary": "No messages found.", "topics": []string{}, "sentiment": "neutral"})
 		return
 	}
-	openaiKey := os.Getenv("OPENAI_API_KEY")
-	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
+	openaiKey := r.openAIAPIKey
+	anthropicKey := r.anthropicAPIKey
 	var result map[string]interface{}
 	if openaiKey != "" {
 		result, err = callOpenAI(openaiKey, convo.String(), "Analyze the following conversation. Provide: 1) concise summary (2-3 sentences) 2) key topics as tags 3) sentiment (positive/negative/neutral/urgent). Respond ONLY with JSON: {\"summary\": \"...\", \"topics\": [\"...\"], \"sentiment\": \"...\"}")
@@ -983,7 +1013,7 @@ func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request)
 		r.writeError(w, 405, "Method not allowed")
 		return
 	}
-	openaiKey := os.Getenv("OPENAI_API_KEY")
+	openaiKey := r.openAIAPIKey
 	if openaiKey == "" {
 		r.writeError(w, 500, "No AI API key configured")
 		return
@@ -1258,7 +1288,7 @@ func (r *Router) loginHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 400, "Invalid body")
 		return
 	}
-	authToken := os.Getenv("MULTICHAT_TOKEN")
+	authToken := r.apiToken
 	if authToken == "" || body.Token != authToken {
 		r.writeError(w, 401, "Invalid token")
 		return
@@ -1290,7 +1320,7 @@ func (r *Router) autoTagHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	openaiKey := os.Getenv("OPENAI_API_KEY")
+	openaiKey := r.openAIAPIKey
 	if openaiKey == "" {
 		r.writeError(w, 500, "No AI API key configured")
 		return

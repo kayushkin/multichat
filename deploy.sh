@@ -209,6 +209,23 @@ echo "==> Vetting..."
 "$GO" vet ./...
 echo "    vet clean"
 
+# A misspelled owned variable (MULTICHAT_DB_PATH, MATRIX_TOKENS, ...), a PORT
+# that is not a number, or NATS_URL without the Matrix client or LLM_BRIDGE_URL
+# stops the new binary at boot. Ask before anything is installed: build the
+# registry from the running service's own environment. The test prints a
+# verdict, never a value -- that environment holds the Matrix token and the
+# OpenAI key. It checks the environment the unit runs with NOW, so a deploy
+# that also changes the unit's Environment= lines is checked against the old ones.
+echo "==> Checking the running service's environment against the declared settings..."
+LIVE_PID="$(systemctl --user show -p MainPID --value "$UNIT_NAME")"
+if [ -n "$LIVE_PID" ] && [ "$LIVE_PID" != "0" ]; then
+  "$GO" test -count=1 -run '^TestTheLiveProcessEnvironmentBuildsARegistry$' ./internal/config -args -live-environment-file="/proc/$LIVE_PID/environ" \
+    || { echo "ERROR: the running $UNIT_NAME's environment would stop the new binary at boot -- not installing"; exit 1; }
+  echo "    the new binary starts in the running service's environment"
+else
+  echo "    $UNIT_NAME is not running, so there is no environment to check"
+fi
+
 # --- Backups. Timestamped, never a fixed filename. -----------------------------
 # Verification necessarily runs AFTER the artifacts are installed -- that is the
 # point of it -- so these are the only way back. A FIXED-filename backup is not a

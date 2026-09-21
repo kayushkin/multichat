@@ -222,6 +222,19 @@ CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$BASE/tags
 [ "$CODE" = "409" ] || fail "duplicate tag POST returned $CODE, expected 409"
 echo "    duplicate rejected with 409"
 
+step "GET /api/settings — the port in force is the one this script chose"
+# A registry that is built and never read from would show the default, 8402,
+# and no unit test sees the binary's own main. MULTICHAT_TOKEN is unset here, so
+# the route answers without a bearer, as every other route in this script does.
+SETTINGS=$(curl -fsS --max-time 10 "$BASE/settings") || fail "GET /api/settings failed"
+[ "$(jq -r '.service' <<<"$SETTINGS")" = "multichat" ] || fail "/api/settings describes the wrong service: $(jq -r '.service' <<<"$SETTINGS")"
+LISTEN_PORT=$(jq -c '.settings[] | select(.key=="listen_port") | {value, source}' <<<"$SETTINGS")
+[ "$LISTEN_PORT" = "{\"value\":\"$PORT\",\"source\":\"environment\"}" ] || fail "/api/settings shows listen_port as $LISTEN_PORT, want $PORT from the environment"
+echo "    listen_port: $LISTEN_PORT"
+CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 -X PUT "$BASE/settings/listen_port" -d '{"value":"1"}')
+[ "$CODE" = "404" ] || fail "PUT /api/settings/listen_port returned $CODE, expected 404: nothing is editable"
+echo "    no write mounted (PUT -> 404)"
+
 step "process still alive after serving every route"
 kill -0 "$SERVER_PID" 2>/dev/null || fail "multichat died while serving"
 
