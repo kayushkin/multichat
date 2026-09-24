@@ -16,7 +16,7 @@
 # Safe to run on its own (it touches nothing but nginx), and safe to re-run: a
 # vhost already matching the repo is skipped without a reload.
 #
-# This file is IDENTICAL in every repo that ships a vhost (dash, llmux,
+# This file is IDENTICAL in every repo that ships a vhost (dash,
 # kayushkin.com, argraphments, inber-party, multichat, forge). It is the one
 # place the install and rollback rules live; copy it whole, do not fork it.
 set -euo pipefail

@@ -30,5 +30,5 @@ to serve, and only then leaves the reload in place.
 **This repo has no `deploy.sh`.** Every other repo that ships a vhost calls
 `install.sh` from the end of its deploy script; here there is no deploy script
 to call it from, so run it by hand after changing the vhost. `install.sh` is
-identical in all seven vhost-owning repos (dash, llmux, kayushkin.com,
+identical in all six vhost-owning repos (dash, kayushkin.com,
 argraphments, inber-party, multichat, forge) — copy it whole, do not fork it.
