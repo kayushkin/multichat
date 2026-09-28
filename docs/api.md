@@ -525,6 +525,29 @@ What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user
 
 Every message a bridge brought in since the log started, newest first, with deleted ones kept. Query: `platform` (one of `/inbound-platforms`), `network_id` (on Discord the server id), `room_id`, `sender_user_id`, `q` (substring of the body, any case), `deleted=true` (deleted only), `before` (RFC 3339; the next page is `before=` the last row's `sent_at`), `limit` (1–1000, default 200). Answers `{"messages": [...], "edits": {"<event_id>": [...]}}`. A message has `event_id`, `room_id`, `room_name`, `platform`, `network_id`, `network_name`, `channel_id`, `channel_name`, `channel_external_url`, `sender_user_id`, `sender_display_name`, `message_type`, `body`, `content_json`, `replaces_event_id` (set on an edit), `sent_at`, `logged_at`, and `redacted_at`, `redaction_event_id`, `redacted_by_user_id` once deleted. `edits` holds the edits made to each listed message, oldest first. A bad filter is a 400 naming it.
 
+### GET /discord/status
+
+What the Discord bridge is doing, read-only: it reads the mautrix-discord database at `DISCORD_DB` (opened `?mode=ro`), Synapse's `joined_rooms` for `@admin`, and the message log. It never calls Discord and never reads the Discord token — `logged_in` is a SQL `discord_token IS NOT NULL`.
+
+```json
+{
+  "accounts": [{"matrix_user_id": "@admin:chat.kayushkin.com", "discord_user_id": "920000000000000006",
+                "logged_in": true, "management_room_id": "!…:chat.kayushkin.com"}],
+  "bridged_servers": [{
+    "discord_server_id": "9300000000000000001", "name": "Riverside social group",
+    "bridging_mode": 3, "bridging_mode_name": "everything", "matrix_space_id": "!…:chat.kayushkin.com",
+    "channels": [{
+      "discord_channel_id": "9300000000000000002", "name": "#general-chat", "channel_type": 0,
+      "category_name": "Text Channels", "matrix_room_id": "!…:chat.kayushkin.com", "admin_joined": true,
+      "last_bridged_message_at": "2026-09-28T…Z", "logged_message_count": 12, "deleted_message_count": 1,
+      "last_logged_message_at": "2026-09-28T…Z"}]
+  }],
+  "unbridged_server_count": 132
+}
+```
+
+A server is bridged when its `bridging_mode` is not 0 (mautrix-discord's `GuildBridgingMode`: 1 if-portal-exists, 2 create-on-message, 3 everything). Its `channels` are the message-carrying ones — text (`channel_type` 0) and announcement (5) — ordered by category, then name; categories, voice channels and forums are left out. `matrix_room_id` is empty for a channel the bridge has made no room for. `admin_joined` false means `@admin` is at most invited, so multichat can neither read nor log the channel until it joins. `last_bridged_message_at` is the newest `message.timestamp` the bridge recorded there, null when none. The three log fields count message-log rows with that `channel_id` on platform `discord`, edits excluded. `unbridged_server_count` counts servers a logged-in account is in (`user_portal` type `guild`) whose mode is 0. `DISCORD_DB` unset is a 503 naming it, as is an unconfigured Matrix client; a Synapse failure is a 502.
+
 ### GET /inbound-platforms
 
 The platform vocabulary a rule may name: `["whatsapp","telegram","signal","meta"]`.

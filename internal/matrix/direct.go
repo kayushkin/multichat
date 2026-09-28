@@ -87,17 +87,11 @@ func (c *Client) OtherPeopleInRoom(memberIDs []string) ([]string, error) {
 // without writing m.direct for this account (measured: the account has no
 // m.direct at all).
 func (c *Client) FindDirectMessageRoom(userID string) (string, error) {
-	data, err := c.request("GET", "/_matrix/client/v3/joined_rooms", nil)
+	joinedRoomIDs, err := c.JoinedRoomIDs()
 	if err != nil {
 		return "", err
 	}
-	var resp struct {
-		JoinedRooms []string `json:"joined_rooms"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", fmt.Errorf("joined_rooms: %w", err)
-	}
-	for _, roomID := range resp.JoinedRooms {
+	for _, roomID := range joinedRoomIDs {
 		members, err := c.JoinedMemberIDs(roomID)
 		if err != nil {
 			return "", err
@@ -210,4 +204,20 @@ func (c *Client) RoomBridgeInfo(roomID string) (BridgeInfo, error) {
 	default:
 		return BridgeInfo{}, fmt.Errorf("room %s has %d m.bridge state events", roomID, len(found))
 	}
+}
+
+// JoinedRoomIDs lists the rooms this account has joined. A room it is only
+// invited to is not among them.
+func (c *Client) JoinedRoomIDs() ([]string, error) {
+	data, err := c.request("GET", "/_matrix/client/v3/joined_rooms", nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		JoinedRooms []string `json:"joined_rooms"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("joined_rooms: %w", err)
+	}
+	return resp.JoinedRooms, nil
 }

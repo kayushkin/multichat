@@ -23,6 +23,9 @@ type Router struct {
 	mux        *http.ServeMux
 	tgDBPath   string // path to mautrix-telegram SQLite DB (for phone lookups)
 	metaDBPath string // path to mautrix-meta SQLite DB (for FB vs IG distinction)
+	// discordDBPath is the mautrix-discord SQLite file GET /discord/status
+	// reads; empty makes that route a 503 naming DISCORD_DB.
+	discordDBPath string
 
 	// llmBridgeURL is where inbound rules have their instance_id checked
 	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
@@ -59,6 +62,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		mux:                   http.NewServeMux(),
 		tgDBPath:              loaded.TelegramBridgeDatabasePath,
 		metaDBPath:            loaded.MetaBridgeDatabasePath,
+		discordDBPath:         loaded.DiscordBridgeDatabasePath,
 		llmBridgeURL:          strings.TrimRight(loaded.LLMBridgeServerURL, "/"),
 		llmBridgeServiceToken: loaded.LLMBridgeServiceToken,
 		httpClient:            &http.Client{Timeout: 10 * time.Second},
@@ -130,6 +134,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
+	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.
 	r.mux.Handle(SettingsPath, servicesettings.Handler(r.settings, SettingsPath))
