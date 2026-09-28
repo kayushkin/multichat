@@ -61,3 +61,32 @@ func MCPServerSettingDefinitions() []servicesettings.Definition {
 func NewMCPServerSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New(MCPServerName, nil, MCPServerSettingDefinitions(), environment)
 }
+
+// ReactionBackfillCommandName is multichat-backfill-reactions' name in its
+// settings errors.
+const ReactionBackfillCommandName = "multichat-backfill-reactions"
+
+// Keys of multichat-backfill-reactions' settings.
+const (
+	ReactionBackfillSettingSynapseURL  = "synapse_url"
+	ReactionBackfillSettingMatrixToken = "matrix_token"
+)
+
+// ReactionBackfillCommandSettingDefinitions declares every environment
+// variable multichat-backfill-reactions reads: the same Synapse address and
+// token the server uses, from the server's environment file. The database is
+// its -db flag.
+func ReactionBackfillCommandSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{
+		{Key: ReactionBackfillSettingSynapseURL, EnvironmentVariable: "SYNAPSE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Required: true,
+			Description: "The Synapse homeserver the reactions are read from."},
+		{Key: ReactionBackfillSettingMatrixToken, EnvironmentVariable: "MATRIX_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString, Required: true,
+			Description: "The access token of the Matrix account multichat reads as (@admin)."},
+	}
+}
+
+// NewReactionBackfillCommandSettingsRegistry reads the command's settings
+// from environment. It owns no prefix, so only CheckRequired can refuse.
+func NewReactionBackfillCommandSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New(ReactionBackfillCommandName, nil, ReactionBackfillCommandSettingDefinitions(), environment)
+}

@@ -40,6 +40,10 @@ func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t 
 		event("$admin", "m.reaction", "@admin:x", `{"m.relates_to":{"event_id":"$message","key":"👍","rel_type":"m.annotation"}}`), // not a bridge puppet
 		removedBeforeRead,
 		event("$unreact", "m.room.redaction", "@discord_2:x", `{"redacts":"$laugh"}`),
+		// Stickers as mautrix-discord sends them: an image one, and a Lottie one it could not convert.
+		event("$wave", "m.sticker", "@discord_4:x", `{"body":"Wave","info":{"h":160,"mimetype":"image/apng","size":471047,"w":160},"url":"mxc://x/wave"}`),
+		event("$sup", "m.sticker", "@discord_5:x", `{"body":"Sup","info":{"h":160,"mimetype":"application/json","w":160}}`),
+		event("$adminsticker", "m.sticker", "@admin:x", `{"body":"Mine","url":"mxc://x/mine"}`),
 	}
 	for _, e := range events {
 		if err := worker.logEvent("!general", e); err != nil {
@@ -58,9 +62,21 @@ func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t 
 		t.Errorf("reactions = %+v, want %+v", reactions, want)
 	}
 	messages, err := db.ListLoggedMessages(database, db.MessageLogFilter{Limit: 10})
-	if err != nil || len(messages) != 1 || messages[0].RedactedAt != nil ||
-		messages[0].Format != "org.matrix.custom.html" || messages[0].FormattedBody == "" {
-		t.Fatalf("the message must be logged and not marked deleted by the reaction's removal: %+v %v", messages, err)
+	if err != nil || len(messages) != 3 {
+		t.Fatalf("want the message and two stickers: %+v %v", messages, err)
+	}
+	byEvent := map[string]db.LoggedMessage{}
+	for _, m := range messages {
+		byEvent[m.EventID] = m
+	}
+	if m := byEvent["$message"]; m.RedactedAt != nil || m.Format != "org.matrix.custom.html" || m.FormattedBody == "" {
+		t.Fatalf("the message must be logged and not marked deleted by the reaction's removal: %+v", m)
+	}
+	if m := byEvent["$wave"]; m.MessageType != "m.sticker" || m.Body != "Wave" || m.MediaURL != "mxc://x/wave" || m.MediaMimetype != "image/apng" {
+		t.Errorf("wave sticker = %+v", m)
+	}
+	if m := byEvent["$sup"]; m.MessageType != "m.sticker" || m.MediaURL != "" || m.MediaMimetype != "application/json" {
+		t.Errorf("lottie sticker = %+v", m)
 	}
 
 	if err := worker.logEvent("!general", event("$delete", "m.room.redaction", "@discordbot:x", `{"redacts":"$message"}`)); err != nil {

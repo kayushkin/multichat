@@ -59,14 +59,14 @@ type SyncResponse struct {
 	PrevBatch map[string]string
 }
 
-// syncFilter asks Synapse for messages, reactions and redactions only, with the member
+// syncFilter asks Synapse for messages, stickers, reactions and redactions only, with the member
 // state lazy-loaded so a sync does not carry every membership of every room.
 // The timeline limit is per room per sync; a room that produced more than
 // this many events between two syncs is reported with limited=true and the
 // oldest are dropped, which the worker logs rather than hides.
 const syncTimelineLimit = 50
 
-var syncFilter = url.QueryEscape(`{"room":{"timeline":{"types":["m.room.message","m.reaction","m.room.redaction"],"limit":` + strconv.Itoa(syncTimelineLimit) + `},"state":{"lazy_load_members":true,"types":[]},"ephemeral":{"types":[]},"account_data":{"types":[]}},"presence":{"types":[]},"account_data":{"types":[]}}`)
+var syncFilter = url.QueryEscape(`{"room":{"timeline":{"types":["m.room.message","m.sticker","m.reaction","m.room.redaction"],"limit":` + strconv.Itoa(syncTimelineLimit) + `},"state":{"lazy_load_members":true,"types":[]},"ephemeral":{"types":[]},"account_data":{"types":[]}},"presence":{"types":[]},"account_data":{"types":[]}}`)
 
 // Sync long-polls /sync. With since == "" it is the initial sync, which
 // returns the token to start from and whatever recent timeline Synapse
@@ -134,12 +134,16 @@ func isMatrixNotFound(err error) bool {
 	return err != nil && strings.Contains(err.Error(), ": 404 ")
 }
 
-// RoomEventsBefore pages backward through a room's messages, reactions and redactions
-// from a token, newest first, and returns the token for the next older page
-// ("" when the room has no more).
+// RoomEventsBefore pages backward through a room's messages, stickers,
+// reactions and redactions from a token, newest first, and returns the token
+// for the next older page ("" when the room has no more). An empty from
+// starts at the room's newest event.
 func (c *Client) RoomEventsBefore(roomID, from string, limit int) ([]TimelineEvent, string, error) {
 	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/messages?dir=b&limit=" + strconv.Itoa(limit) +
-		"&filter=" + url.QueryEscape(`{"types":["m.room.message","m.reaction","m.room.redaction"]}`) + "&from=" + url.QueryEscape(from)
+		"&filter=" + url.QueryEscape(`{"types":["m.room.message","m.sticker","m.reaction","m.room.redaction"]}`)
+	if from != "" {
+		path += "&from=" + url.QueryEscape(from)
+	}
 	data, err := c.request("GET", path, nil)
 	if err != nil {
 		return nil, "", err

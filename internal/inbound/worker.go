@@ -124,6 +124,10 @@ func (w *SyncWorker) publishBatch(resp *matrix.SyncResponse) error {
 	}
 	for roomID, events := range resp.Rooms {
 		for _, event := range events {
+			// Only messages go on the bus. Reactions and stickers are logged
+			// but not published: neither carries text a rule could match
+			// (a sticker's body is only its name), and a sticker must not
+			// start a session the way a written message can.
 			if event.Type != "m.room.message" {
 				continue
 			}

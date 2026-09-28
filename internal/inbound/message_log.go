@@ -13,7 +13,7 @@ import (
 // when a sync reported a gap.
 const backfillPageSize = 100
 
-// logBatch writes a sync batch to the message log: every message and
+// logBatch writes a sync batch to the message log: every message, sticker and
 // reaction a bridge puppet sent, and every redaction, in timeline order. A room whose timeline
 // was truncated is first filled backward from the gap, so the log does not
 // lose what the sync skipped.
@@ -90,7 +90,9 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 			return err
 		}
 		return nil
-	case "m.room.message":
+	case "m.room.message", "m.sticker":
+		// A sticker is a message of its own event type, with no msgtype:
+		// body is the sticker's name, url and info.mimetype its image.
 		platform := matrix.PlatformOfUserID(event.Sender)
 		if platform == "" {
 			// Not from a bridge: @admin, a bridge bot, a plain Matrix user.
@@ -140,7 +142,7 @@ func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEv
 		ChannelExternalURL: bridge.ChannelExternalURL,
 		SenderUserID:       event.Sender,
 		SenderDisplayName:  displayName,
-		MessageType:        content.MsgType,
+		MessageType:        messageTypeOf(event.Type, content.MsgType),
 		Body:               content.Body,
 		Format:             content.Format,
 		FormattedBody:      content.FormattedBody,
@@ -159,6 +161,15 @@ func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEv
 		message.RedactedByUserID = redaction.Sender
 	}
 	return db.LogMessage(w.Database, message)
+}
+
+// messageTypeOf is what the log records as a message's type: the msgtype of
+// an m.room.message, and the event type of an m.sticker, which has none.
+func messageTypeOf(eventType, msgType string) string {
+	if eventType == "m.sticker" {
+		return "m.sticker"
+	}
+	return msgType
 }
 
 func (w *SyncWorker) logReaction(roomID, platform string, event matrix.TimelineEvent) error {

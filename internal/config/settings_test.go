@@ -268,8 +268,9 @@ func TestEveryEnvironmentVariableTheCodeReadsIsDeclared(t *testing.T) {
 	}
 	server := declaredFor(SettingDefinitions())
 	commands := map[string]map[string]bool{
-		filepath.Join("cmd", "multichat-send"): declaredFor(SendCommandSettingDefinitions()),
-		filepath.Join("cmd", "multichat-mcp"):  declaredFor(MCPServerSettingDefinitions()),
+		filepath.Join("cmd", "multichat-send"):               declaredFor(SendCommandSettingDefinitions()),
+		filepath.Join("cmd", "multichat-mcp"):                declaredFor(MCPServerSettingDefinitions()),
+		filepath.Join("cmd", "multichat-backfill-reactions"): declaredFor(ReactionBackfillCommandSettingDefinitions()),
 	}
 	const repositoryRoot = "../.."
 
