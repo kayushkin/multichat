@@ -37,7 +37,7 @@ func TestReactionsAreGroupedByKeyAndARemovedOneIsLeftOut(t *testing.T) {
 		t.Errorf("a logged reaction counts as a logged event for gap filling: %v %v", logged, err)
 	}
 
-	got, err := ReactionsTo(database, []string{"$message", "", "$none"})
+	got, err := ReactionsTo(database, []string{"$message", "", "$none"}, OwnSenders{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestArchiveRowsAreKeyedByDiscordIDAndCarryDiscordReactions(t *testing.T) {
 		messages[1].DiscordMessageID != "9400000000000000001" || messages[0].Source != MessageLogSourceMatrix {
 		t.Fatalf("messages = %+v", messages)
 	}
-	reactions, err := MessageLogReactions(database, messages)
+	reactions, err := MessageLogReactions(database, messages, OwnSenders{})
 	if err != nil {
 		t.Fatal(err)
 	}

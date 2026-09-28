@@ -64,7 +64,7 @@ func TestBackfillReactionsLogsWhatCameSinceTheLogBeganOnce(t *testing.T) {
 	if second.ReactionsLogged != 0 || second.ReactionsMarkedOff != 0 || second.ReactionsSeen != 2 {
 		t.Errorf("second run = %+v, want nothing changed", second)
 	}
-	reactions, err := db.ReactionsTo(database, []string{"$target"})
+	reactions, err := db.ReactionsTo(database, []string{"$target"}, db.OwnSenders{})
 	if err != nil {
 		t.Fatal(err)
 	}

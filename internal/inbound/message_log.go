@@ -102,7 +102,17 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 	case "m.reaction":
 		platform := matrix.PlatformOfUserID(event.Sender)
 		if platform == "" {
-			return nil
+			// Our own Matrix account's reactions are logged too, so a page
+			// can show and take back a reaction it posted; a bridge relays
+			// them to the platform as our account. Anyone else who is not a
+			// bridge puppet (a bridge bot, a plain Matrix user) is not.
+			self, err := w.Matrix.WhoAmI()
+			if err != nil {
+				return err
+			}
+			if event.Sender != self {
+				return nil
+			}
 		}
 		return w.logReaction(roomID, platform, event)
 	default:

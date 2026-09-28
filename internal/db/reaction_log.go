@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// reaction_log keeps every reaction a bridge puppet made, keyed by the
+// reaction_log keeps every reaction a bridge puppet or our own Matrix account made, keyed by the
 // reaction's own Matrix event id. Removing a reaction is redacting it, which
 // sets redacted_at like a deleted message. (The older message_reactions table
 // belongs to an earlier design and is not used.)
@@ -81,10 +81,19 @@ func MarkReactionRedacted(database *sql.DB, eventID, redactionEventID, redactedB
 	return affected == 1, nil
 }
 
-// ReactionsTo returns the current (not removed) reactions to the given
-// messages, keyed by message event id, grouped by key in the order each key
-// first appeared. Messages with none are absent.
-func ReactionsTo(database *sql.DB, eventIDs []string) (map[string][]MessageReactionGroup, error) {
+// OwnSenders names our own accounts, so a reaction group can say whether we
+// reacted: MatrixUserID is the account multichat acts as (it can take back
+// its own reactions), PuppetUserIDs our puppets on each platform (reactions
+// made in the platform's own app).
+type OwnSenders struct {
+	MatrixUserID  string
+	PuppetUserIDs map[string]bool
+}
+
+// ReactionsTo returns the current reactions to the given messages, grouped by
+// key in the order they were first made, keyed by the message's event id.
+// Empty ids are ignored.
+func ReactionsTo(database *sql.DB, eventIDs []string, own OwnSenders) (map[string][]MessageReactionGroup, error) {
 	out := map[string][]MessageReactionGroup{}
 	var args []any
 	for _, id := range eventIDs {
@@ -96,15 +105,15 @@ func ReactionsTo(database *sql.DB, eventIDs []string) (map[string][]MessageReact
 		return out, nil
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
-	rows, err := database.Query(`SELECT target_event_id, reaction_key, shortcode, sender_display_name FROM reaction_log
-		WHERE target_event_id IN (`+placeholders+`) AND redacted_at IS NULL ORDER BY sent_at, event_id`, args...)
+	rows, err := database.Query(`SELECT event_id, target_event_id, reaction_key, shortcode, sender_user_id, sender_display_name
+		FROM reaction_log WHERE target_event_id IN (`+placeholders+`) AND redacted_at IS NULL ORDER BY sent_at, event_id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("reactions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var target, key, shortcode, sender string
-		if err := rows.Scan(&target, &key, &shortcode, &sender); err != nil {
+		var reactionEventID, target, key, shortcode, senderUserID, sender string
+		if err := rows.Scan(&reactionEventID, &target, &key, &shortcode, &senderUserID, &sender); err != nil {
 			return nil, fmt.Errorf("scan reaction: %w", err)
 		}
 		groups := out[target]
@@ -124,9 +133,39 @@ func ReactionsTo(database *sql.DB, eventIDs []string) (map[string][]MessageReact
 		}
 		groups[index].Count++
 		groups[index].SenderDisplayNames = append(groups[index].SenderDisplayNames, sender)
+		if senderUserID == own.MatrixUserID && own.MatrixUserID != "" {
+			groups[index].ReactedByMe = true
+			groups[index].MyReactionEventID = reactionEventID
+		}
+		if own.PuppetUserIDs[senderUserID] {
+			groups[index].ReactedByMe = true
+		}
 		out[target] = groups
 	}
 	return out, rows.Err()
+}
+
+// LoggedReactionByEventID returns one reaction from the log, ErrNotFound when
+// it is not there.
+func LoggedReactionByEventID(database *sql.DB, eventID string) (LoggedReaction, error) {
+	var r LoggedReaction
+	var redactedAt sql.NullTime
+	err := database.QueryRow(`SELECT event_id, target_event_id, room_id, platform, sender_user_id, sender_display_name,
+		reaction_key, shortcode, content_json, sent_at, redacted_at, redaction_event_id, redacted_by_user_id
+		FROM reaction_log WHERE event_id = ?`, eventID).Scan(&r.EventID, &r.TargetEventID, &r.RoomID, &r.Platform,
+		&r.SenderUserID, &r.SenderDisplayName, &r.Key, &r.Shortcode, &r.ContentJSON, &r.SentAt, &redactedAt,
+		&r.RedactionEventID, &r.RedactedByUserID)
+	if err == sql.ErrNoRows {
+		return LoggedReaction{}, ErrNotFound
+	}
+	if err != nil {
+		return LoggedReaction{}, fmt.Errorf("reaction %s: %w", eventID, err)
+	}
+	if redactedAt.Valid {
+		t := redactedAt.Time
+		r.RedactedAt = &t
+	}
+	return r, nil
 }
 
 // ArchiveReactionsKey is the key of an archive row in MessageLogPage.Reactions.
@@ -166,12 +205,12 @@ func ArchivedDiscordReactions(discordMessageJSON string) ([]MessageReactionGroup
 // MessageLogReactions returns the reactions for a page of logged messages:
 // from the reaction log for live rows, keyed by event id, and from the
 // archived Discord object for archive rows, keyed by ArchiveReactionsKey.
-func MessageLogReactions(database *sql.DB, messages []LoggedMessage) (map[string][]MessageReactionGroup, error) {
+func MessageLogReactions(database *sql.DB, messages []LoggedMessage, own OwnSenders) (map[string][]MessageReactionGroup, error) {
 	eventIDs := make([]string, 0, len(messages))
 	for _, m := range messages {
 		eventIDs = append(eventIDs, m.EventID)
 	}
-	out, err := ReactionsTo(database, eventIDs)
+	out, err := ReactionsTo(database, eventIDs, own)
 	if err != nil {
 		return nil, err
 	}

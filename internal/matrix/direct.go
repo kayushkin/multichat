@@ -4,40 +4,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sync"
 )
 
-// selfUserID caches the answer to /account/whoami: the Matrix user this
-// client's access token belongs to (@admin:chat.kayushkin.com in production).
-// It never changes for the life of a token, so one call is enough.
-var (
-	selfUserIDOnce sync.Once
-	selfUserID     string
-	selfUserIDErr  error
-)
-
-// WhoAmI returns the Matrix user id behind this client's access token.
+// WhoAmI returns the Matrix user id behind this client's access token
+// (@admin:chat.kayushkin.com in production). It never changes for the life of
+// a token, so the first answer is kept on the client; a failed call is not
+// kept, so a Synapse that was briefly down is asked again next time.
 func (c *Client) WhoAmI() (string, error) {
-	selfUserIDOnce.Do(func() {
-		data, err := c.request("GET", "/_matrix/client/v3/account/whoami", nil)
-		if err != nil {
-			selfUserIDErr = err
-			return
-		}
-		var resp struct {
-			UserID string `json:"user_id"`
-		}
-		if err := json.Unmarshal(data, &resp); err != nil {
-			selfUserIDErr = fmt.Errorf("whoami: %w", err)
-			return
-		}
-		if resp.UserID == "" {
-			selfUserIDErr = fmt.Errorf("whoami: empty user_id in %s", data)
-			return
-		}
-		selfUserID = resp.UserID
-	})
-	return selfUserID, selfUserIDErr
+	c.selfUserIDMutex.Lock()
+	defer c.selfUserIDMutex.Unlock()
+	if c.selfUserID != "" {
+		return c.selfUserID, nil
+	}
+	data, err := c.request("GET", "/_matrix/client/v3/account/whoami", nil)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("whoami: %w", err)
+	}
+	if resp.UserID == "" {
+		return "", fmt.Errorf("whoami: empty user_id in %s", data)
+	}
+	c.selfUserID = resp.UserID
+	return c.selfUserID, nil
 }
 
 // JoinedMemberIDs returns the user ids currently joined to a room.

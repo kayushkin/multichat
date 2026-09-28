@@ -87,7 +87,12 @@ func (r *Router) messageLogHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	reactions, err := db.MessageLogReactions(r.db, messages)
+	own, err := r.ownSenders()
+	if err != nil {
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	reactions, err := db.MessageLogReactions(r.db, messages, own)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return

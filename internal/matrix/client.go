@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +19,10 @@ type Client struct {
 	homeserver  string
 	accessToken string
 	httpClient  *http.Client
+
+	// selfUserID is WhoAmI's answer once it has one.
+	selfUserIDMutex sync.Mutex
+	selfUserID      string
 }
 
 func NewClient(homeserver, accessToken string) *Client {
@@ -617,4 +622,52 @@ func (c *Client) OpenMedia(ctx context.Context, serverName, mediaID string, widt
 		return nil, fmt.Errorf("matrix media %s/%s: %w", serverName, mediaID, err)
 	}
 	return resp, nil
+}
+
+// SendReaction reacts to a message as this account (m.reaction, an
+// m.annotation with the given key: a unicode emoji, or an mxc:// URI for a
+// custom emoji) and returns the reaction's event id. A bridge relays it to the
+// platform as our own account.
+func (c *Client) SendReaction(roomID, targetEventID, key string) (string, error) {
+	payload, err := json.Marshal(map[string]any{
+		"m.relates_to": map[string]string{"rel_type": "m.annotation", "event_id": targetEventID, "key": key},
+	})
+	if err != nil {
+		return "", err
+	}
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/m.reaction/%d", url.PathEscape(roomID), time.Now().UnixNano())
+	data, err := c.request("PUT", path, bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("send reaction: %w", err)
+	}
+	if resp.EventID == "" {
+		return "", fmt.Errorf("send reaction: no event_id in %s", data)
+	}
+	return resp.EventID, nil
+}
+
+// Redact redacts an event this account may redact and returns the
+// redaction's event id. Redacting a reaction takes it back.
+func (c *Client) Redact(roomID, eventID string) (string, error) {
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/redact/%s/%d", url.PathEscape(roomID), url.PathEscape(eventID), time.Now().UnixNano())
+	data, err := c.request("PUT", path, bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("redact: %w", err)
+	}
+	if resp.EventID == "" {
+		return "", fmt.Errorf("redact: no event_id in %s", data)
+	}
+	return resp.EventID, nil
 }

@@ -14,6 +14,10 @@ import (
 
 func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t *testing.T) {
 	synapse := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/_matrix/client/v3/account/whoami" {
+			w.Write([]byte(`{"user_id":"@me:x"}`)) // our own Matrix account
+			return
+		}
 		w.Write([]byte(`{"displayname":"Jade"}`)) // every profile lookup
 	}))
 	defer synapse.Close()
@@ -37,7 +41,8 @@ func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t 
 		event("$message", "m.room.message", "@discord_1:x", `{"body":"hi","msgtype":"m.text","format":"org.matrix.custom.html","formatted_body":"hi <img data-mx-emoticon src=\"mxc://x/Q\" alt=\":bearlaugh:\">"}`),
 		event("$laugh", "m.reaction", "@discord_2:x", `{"m.relates_to":{"event_id":"$message","key":"🤣","rel_type":"m.annotation"}}`),
 		event("$this", "m.reaction", "@discord_3:x", `{"com.beeper.reaction.shortcode":":this:","m.relates_to":{"event_id":"$message","key":"mxc://x/this","rel_type":"m.annotation"}}`),
-		event("$admin", "m.reaction", "@admin:x", `{"m.relates_to":{"event_id":"$message","key":"👍","rel_type":"m.annotation"}}`), // not a bridge puppet
+		event("$admin", "m.reaction", "@admin:x", `{"m.relates_to":{"event_id":"$message","key":"👍","rel_type":"m.annotation"}}`), // neither a bridge puppet nor us
+		event("$mine", "m.reaction", "@me:x", `{"m.relates_to":{"event_id":"$message","key":"🔥","rel_type":"m.annotation"}}`),    // our own account: logged
 		removedBeforeRead,
 		event("$unreact", "m.room.redaction", "@discord_2:x", `{"redacts":"$laugh"}`),
 		// Stickers as mautrix-discord sends them: an image one, and a Lottie one it could not convert.
@@ -51,11 +56,12 @@ func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t 
 		}
 	}
 
-	reactions, err := db.ReactionsTo(database, []string{"$message"})
+	reactions, err := db.ReactionsTo(database, []string{"$message"}, db.OwnSenders{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string][]db.MessageReactionGroup{"$message": {
+		{Key: "🔥", Count: 1, SenderDisplayNames: []string{"Jade"}},
 		{Key: "mxc://x/this", Shortcode: ":this:", Count: 1, SenderDisplayNames: []string{"Jade"}},
 	}}
 	if !reflect.DeepEqual(reactions, want) {

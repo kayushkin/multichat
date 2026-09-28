@@ -207,6 +207,16 @@ List members of a conversation.
 ]
 ```
 
+### POST /conversations/{room_id}/reactions
+
+`{"event_id": "$message", "key": "🔥"}` reacts to a message as our Matrix account (`m.reaction`, an `m.annotation`); the room's bridge relays it to the platform as our own account, so everyone in the room sees it. `key` is a unicode emoji, or the `mxc://` URI of a custom emoji already used in reactions there. Answers `{"event_id": "<the reaction>"}`. A missing field is a 400; Synapse refusing it (a second identical reaction is `M_DUPLICATE_ANNOTATION`) is a 502 carrying its answer. The reaction is logged at once, so the next read shows it.
+
+### DELETE /conversations/{room_id}/reactions/{reaction_event_id}
+
+Takes back a reaction our Matrix account posted, by redacting it. Answers `{"redaction_event_id": …}`. 404 when the reaction is not in the reaction log or not in that room, 409 when it was already taken back, 403 when someone else made it — including our own puppet, from the platform's own app, which multichat cannot redact.
+
+Every reaction group (here, on conversation messages and in `/message-log`) carries `reacted_by_me` (our Matrix account or our puppet reacted with that key) and `my_reaction_event_id` (our Matrix account's reaction, the id this route takes back; "" otherwise).
+
 ### POST /conversations/{room_id}/send
 
 Send a message to a conversation. The message is delivered through the appropriate platform bridge.

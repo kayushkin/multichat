@@ -165,6 +165,8 @@ func TestConversationMessagesCarryFormattingAndReactions(t *testing.T) {
 				{"event_id":"$emoji","sender":"@discord_1:x","origin_server_ts":1,"type":"m.room.message",
 				 "content":{"body":"hi","msgtype":"m.text","format":"org.matrix.custom.html",
 				 "formatted_body":"hi <img data-mx-emoticon src=\"mxc://x/Q\" alt=\":bearlaugh:\">"}}]}`))
+		case r.URL.Path == "/_matrix/client/v3/account/whoami":
+			w.Write([]byte(`{"user_id":"@admin:x"}`))
 		default:
 			w.Write([]byte(`{"displayname":"Someone"}`))
 		}

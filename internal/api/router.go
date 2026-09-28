@@ -483,6 +483,10 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 		r.membersHandler(w, req, roomID)
 	case action == "send":
 		r.sendHandler(w, req, roomID)
+	case action == "reactions":
+		r.postReactionHandler(w, req, roomID)
+	case strings.HasPrefix(action, "reactions/"):
+		r.takeBackReactionHandler(w, req, roomID, strings.TrimPrefix(action, "reactions/"))
 	case action == "upload":
 		r.uploadHandler(w, req, roomID)
 	case action == "loads":
@@ -555,7 +559,12 @@ func (r *Router) messagesHandler(w http.ResponseWriter, req *http.Request, roomI
 	for i, m := range page.Messages {
 		eventIDs[i] = m.EventID
 	}
-	reactions, err := db.ReactionsTo(r.db, eventIDs)
+	own, err := r.ownSenders()
+	if err != nil {
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	reactions, err := db.ReactionsTo(r.db, eventIDs, own)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return

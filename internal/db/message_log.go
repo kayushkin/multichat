@@ -130,6 +130,15 @@ type MessageReactionGroup struct {
 	// SenderDisplayNames lists who reacted, oldest first; empty for archive
 	// rows, where Discord gives only the count.
 	SenderDisplayNames []string `json:"sender_display_names"`
+	// ReactedByMe is true when our own account reacted with this key, from
+	// multichat (as the Matrix account) or from the platform's own app (as
+	// our puppet).
+	ReactedByMe bool `json:"reacted_by_me"`
+	// MyReactionEventID is our Matrix account's reaction with this key, which
+	// DELETE /conversations/{room_id}/reactions/{event_id} takes back; "" when
+	// there is none. A reaction made in the platform's own app belongs to our
+	// puppet, which multichat cannot redact, so it has no id here.
+	MyReactionEventID string `json:"my_reaction_event_id"`
 }
 
 // MessageLogPage is what GET /message-log answers: messages newest first;
