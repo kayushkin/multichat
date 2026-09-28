@@ -182,6 +182,11 @@ type Message struct {
 	MediaURL       string `json:"media_url"`
 	MediaMimetype  string `json:"media_mimetype"`
 	ReplyToEventID string `json:"reply_to_event_id"`
+	// ReplacesEventID is set on an edit: the message it edits. An edit's
+	// body, format, formatted body and media are the edited message's new
+	// content (m.new_content), not the "* …" fallback Matrix puts at the top
+	// level for clients that do not understand edits.
+	ReplacesEventID string `json:"replaces_event_id"`
 }
 
 // SelfUserIDs are Matrix user IDs that represent the multichat owner
@@ -416,15 +421,21 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 		if msgData, err := c.request("GET", msgPath, nil); err == nil {
 			var msgResp struct {
 				Chunk []struct {
-					OriginServerTS int64 `json:"origin_server_ts"`
-					Content        struct {
-						Body string `json:"body"`
-					} `json:"content"`
+					OriginServerTS int64           `json:"origin_server_ts"`
+					Content        json.RawMessage `json:"content"`
 				} `json:"chunk"`
 			}
 			if json.Unmarshal(msgData, &msgResp) == nil && len(msgResp.Chunk) > 0 {
 				conv.LastActivity = msgResp.Chunk[0].OriginServerTS
-				conv.LastMessage = lastMessagePreview(msgResp.Chunk[0].Content.Body)
+				content, err := ParseMessageContent(msgResp.Chunk[0].Content)
+				if err != nil {
+					return nil, fmt.Errorf("last message of %s: %w", roomID, err)
+				}
+				if content.NewContent != nil {
+					// An edit: preview the edited text, not the "* …" fallback.
+					content = *content.NewContent
+				}
+				conv.LastMessage = lastMessagePreview(content.Body)
 			}
 		}
 
@@ -482,6 +493,10 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 		if err != nil {
 			return nil, fmt.Errorf("event %s: %w", evt.EventID, err)
 		}
+		replacesEventID := content.ReplacesEventID
+		if content.NewContent != nil {
+			content = *content.NewContent
+		}
 		if content.Body == "" {
 			continue
 		}
@@ -497,18 +512,19 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 			}
 		}
 		messages = append(messages, Message{
-			EventID:        evt.EventID,
-			Sender:         evt.Sender,
-			SenderName:     senderName,
-			Body:           content.Body,
-			MsgType:        content.MsgType,
-			Timestamp:      evt.OriginServerTS,
-			IsMe:           SelfUserIDs[evt.Sender],
-			Format:         content.Format,
-			FormattedBody:  content.FormattedBody,
-			MediaURL:       content.MediaURL,
-			MediaMimetype:  content.MediaMimetype,
-			ReplyToEventID: content.ReplyToEventID,
+			EventID:         evt.EventID,
+			Sender:          evt.Sender,
+			SenderName:      senderName,
+			Body:            content.Body,
+			MsgType:         content.MsgType,
+			Timestamp:       evt.OriginServerTS,
+			IsMe:            SelfUserIDs[evt.Sender],
+			Format:          content.Format,
+			FormattedBody:   content.FormattedBody,
+			MediaURL:        content.MediaURL,
+			MediaMimetype:   content.MediaMimetype,
+			ReplyToEventID:  content.ReplyToEventID,
+			ReplacesEventID: replacesEventID,
 		})
 	}
 

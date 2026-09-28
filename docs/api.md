@@ -186,7 +186,7 @@ Fetch messages for a conversation with pagination.
 }
 ```
 
-Use the `end` token as the `from` parameter to load older messages. `format`, `formatted_body` (the Matrix HTML, "" when absent), `media_url` (the `mxc://` URI of an image, file or video), `media_mimetype` (`info.mimetype`) and `reply_to_event_id` (`m.relates_to.m.in_reply_to.event_id`) are read from the event content. On Discord a custom emoji is only in `formatted_body`, as `<img data-mx-emoticon src="mxc://…" alt=":name:">`; the plain `body` leaves it out. `reactions` is each message's current reactions from the reaction log, grouped by key — so only reactions made since the log began (`message_log_started_at`) — and `[]` when none.
+Use the `end` token as the `from` parameter to load older messages. `format`, `formatted_body` (the Matrix HTML, "" when absent), `media_url` (the `mxc://` URI of an image, file or video), `media_mimetype` (`info.mimetype`) and `reply_to_event_id` (`m.relates_to.m.in_reply_to.event_id`) are read from the event content. An edit is listed as its own event with `replaces_event_id` naming the message it edits; its `body`, `format`, `formatted_body` and media are the edited content (`m.new_content`), never the `* …` fallback, so a client folds it into the original. The conversation list's `last_message` previews the edited text the same way. On Discord a custom emoji is only in `formatted_body`, as `<img data-mx-emoticon src="mxc://…" alt=":name:">`; the plain `body` leaves it out. `reactions` is each message's current reactions from the reaction log, grouped by key — so only reactions made since the log began (`message_log_started_at`) — and `[]` when none.
 
 ### GET /media/{server_name}/{media_id}
 
