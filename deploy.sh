@@ -6,8 +6,8 @@ set -euo pipefail
 # It lives in healthcheck/scripts/deploy-gate.sh. Do not inline or copy it.
 ( cd "$(dirname "$0")" && "$HOME/bin/deploy-gate" check )
 
-# Builds multichat (frontend + backend), installs the binary, the frontend and the
-# systemd user unit, restarts the service, and refuses to report success unless the
+# Builds multichat, installs the binaries and the systemd user unit, restarts the
+# service, and refuses to report success unless the
 # thing actually answers -- with authentication ON and its real database open.
 #
 # WHY THIS EXISTS: until now multichat had no deploy path at all. The binary was
@@ -22,12 +22,15 @@ set -euo pipefail
 # `systemctl --user` and nothing here needs sudo. (In the SYSTEM manager this unit is
 # LoadState=not-found, which reads exactly like a service that does not exist.)
 #
-# THE THREE ARTIFACTS, and where each actually goes:
-#   1. the Go binary  -> ~/bin/multichat-server        (ExecStart)
-#   2. the frontend   -> ~/multichat-frontend          (nginx's root, NOT in the repo)
-#   3. the unit       -> ~/.config/systemd/user/...    (installed from deploy/)
-# Miss #2 and you ship a backend nobody can see; the site keeps serving the last
-# hand-copied bundle, so nothing looks broken.
+# THE ARTIFACTS, and where each actually goes:
+#   1. the Go binaries -> ~/bin/multichat-server, multichat-send, multichat-mcp
+#   2. the unit        -> ~/.config/systemd/user/...    (installed from deploy/)
+#
+# multichat HAS NO WEB SITE OF ITS OWN. Its web UI is bridge-ui's Messages pages in
+# dash, which reach this API through dash's proxy. chat.kayushkin.com, the old site
+# (a React app plus /api and /ws on the internet), was switched off on 2026-09-28;
+# the step "Retiring the old public site" below removes its nginx site wherever it
+# is still installed, and does nothing once it is gone.
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 UNIT_NAME="multichat-server.service"
@@ -45,7 +48,7 @@ cd "$REPO_DIR"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR}/bus}"
 
-# go, node and npm exist ONLY under mise on this host (there is no /usr/bin/node at
+# go exists ONLY under mise on this host (there is no /usr/bin/node at
 # all), and a stripped environment -- systemd, the scheduler -- carries HOME but no
 # PATH. Resolve the real binaries rather than trusting the caller's PATH, and fail
 # loudly naming the tool if we cannot. Prefer `mise which` over the shims: a shim
@@ -59,9 +62,6 @@ resolve_tool() {
   printf '%s\n' "$path"
 }
 GO="$(resolve_tool go)"
-NPM="$(resolve_tool npm)"
-NODE="$(resolve_tool node)"
-export PATH="$(dirname "$NODE"):$PATH"   # vite/tsc shell out to node
 
 [ -f "$REPO_UNIT" ] || { echo "ERROR: no unit template at $REPO_UNIT"; exit 1; }
 
@@ -77,19 +77,12 @@ ENV_FILE="$(unit_field EnvironmentFile)"
 PORT="$(env_field PORT)"
 DB_PATH="$(env_field MULTICHAT_DB)"
 
-# nginx serves the frontend from its own root, which is NOT inside this repo. Read
-# that path out of the vhost rather than hardcoding a second copy of it here -- the
-# vhost is the thing that actually decides, so it is the thing to ask.
-VHOST="$REPO_DIR/deploy/nginx/chat.kayushkin.com.conf"
-FRONTEND_ROOT="$(grep -E '^\s*root\s' "$VHOST" | head -1 | awk '{print $2}' | tr -d ';')"
-
 echo "==> Unit declares:"
 echo "    ExecStart        = $BINARY_PATH"
 echo "    WorkingDirectory = $WORK_DIR"
 echo "    EnvironmentFile  = $ENV_FILE"
 echo "    PORT             = $PORT"
 echo "    MULTICHAT_DB     = $DB_PATH"
-echo "    frontend root    = $FRONTEND_ROOT   (from the vhost)"
 
 # --- Secrets ------------------------------------------------------------------
 # The three secrets used to sit inline in the live unit. They cannot be committed
@@ -103,10 +96,9 @@ if [ ! -f "$ENV_FILE" ]; then
   mkdir -p "$(dirname "$ENV_FILE")"
   # The umask is set INSIDE a subshell, so it cannot leak. Setting `umask 077` in the
   # main shell here -- which is the obvious way to write this -- silently poisons
-  # every file the rest of the script creates: the frontend then builds and installs
-  # mode 700/600, nginx runs as www-data, cannot read a byte of it, and the site
-  # serves 403 while this script prints "smoke test OK". That is not hypothetical, it
-  # is what the first run of this script did to chat.kayushkin.com.
+  # every file the rest of the script creates. When multichat still had a web site,
+  # the first run of this script did exactly that: nginx (www-data) could not read the
+  # frontend it installed, and the site served 403 while this printed "smoke test OK".
   (
     umask 077
     {
@@ -123,15 +115,17 @@ fi
 
 # Refuse to deploy behind a secret we cannot prove. An EMPTY value is the dangerous
 # case, not a missing file: `if authToken != ""` (api/router.go:49) means an empty
-# MULTICHAT_TOKEN does not lock the door, it REMOVES it -- and this API is on the
-# public internet at chat.kayushkin.com serving contacts, conversations and message
-# history. A deploy that quietly wrote an empty token would publish all of it and
-# print "smoke test OK". So: check, and say which one is missing.
+# MULTICHAT_TOKEN does not lock the door, it REMOVES it -- and this API serves
+# contacts, conversations and message history, sends messages as the operator, and
+# spends the OpenAI key. It is no longer on the internet directly, but dash forwards
+# part of it there and every local process can reach :8402. A deploy that quietly
+# wrote an empty token would open all of it and print "smoke test OK". So: check,
+# and say which one is missing.
 echo "==> Checking secrets in $ENV_FILE..."
 [ -f "$ENV_FILE" ] || { echo "ERROR: EnvironmentFile $ENV_FILE does not exist -- systemd cannot load it and the service will crash-loop"; exit 1; }
 for key in $REQUIRED_SECRETS; do
   value="$(grep -E "^$key=" "$ENV_FILE" | head -1 | cut -d= -f2- || true)"
-  [ -n "$value" ] || { echo "ERROR: $key is missing or EMPTY in $ENV_FILE. Refusing to deploy: an empty MULTICHAT_TOKEN disables authentication on a public API."; exit 1; }
+  [ -n "$value" ] || { echo "ERROR: $key is missing or EMPTY in $ENV_FILE. Refusing to deploy: an empty MULTICHAT_TOKEN disables authentication."; exit 1; }
   echo "    $key present (${#value} chars)"
 done
 
@@ -140,41 +134,12 @@ echo "==> Preflight..."
 # and with Restart= set that becomes a silent crash loop -- three services on this
 # box ran up 1.8 MILLION failed starts that way. Check it where we can name it.
 [ -d "$WORK_DIR" ] || { echo "ERROR: WorkingDirectory $WORK_DIR does not exist -- systemd cannot chdir and will crash-loop"; exit 1; }
-[ -d "$FRONTEND_ROOT" ] || { echo "ERROR: nginx frontend root $FRONTEND_ROOT does not exist"; exit 1; }
 # The live database must already be there. This deploy must never be the thing that
 # creates it: an empty DB is not an error to SQLite, it is a fresh start, and the
 # service would come up green with every contact and tag gone.
 [ -f "$DB_PATH" ] || { echo "ERROR: database $DB_PATH does not exist. Refusing to deploy -- multichat would silently create an empty one and come up looking healthy."; exit 1; }
 ROWS_BEFORE="$(sqlite3 "$DB_PATH" 'SELECT COUNT(*) FROM tags;' 2>/dev/null || echo 0)"
-echo "    WorkingDirectory, frontend root and database all exist ($ROWS_BEFORE tags before deploy)"
-
-# Baseline what the public vhost serves BEFORE touching anything, so the check after
-# the deploy can assert NO REGRESSION rather than an absolute. An absolute "must be
-# 200" is a check that cries wolf on a host that was already broken for reasons this
-# deploy did not cause; a baseline turns it into "it served before, so it must serve
-# after", which is the thing we actually promise. Derive the hostname from the vhost's
-# own server_name -- the filename is not the hostname and guessing is how you end up
-# probing the default server and recording a green for a host you never tested.
-SITE_HOST="$(grep -E '^\s*server_name\s' "$VHOST" | head -1 | awk '{print $2}' | tr -d ';')"
-SITE_BEFORE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/" || true)"
-echo "    baseline: $SITE_HOST currently serves HTTP $SITE_BEFORE"
-
-echo "==> Building frontend..."
-# ALWAYS `npm ci`, never "only if node_modules is missing". A present node_modules is
-# not a correct one -- the sibling inber-party deploy hit exactly that: a four-month
-# stale tree missing a dependency that had been in the lockfile the whole time, which
-# fails the build looking like broken source rather than a stale sandbox.
-FRONTEND_STAGING="$REPO_DIR/frontend/.dist-staging"
-rm -rf "$FRONTEND_STAGING"
-(
-  cd frontend
-  "$NPM" ci
-  "$NPM" run build -- --outDir "$FRONTEND_STAGING" --emptyOutDir
-)
-[ -f "$FRONTEND_STAGING/index.html" ] || { echo "ERROR: frontend build produced no index.html"; exit 1; }
-ASSET_COUNT="$(find "$FRONTEND_STAGING/assets" -type f 2>/dev/null | wc -l)"
-[ "$ASSET_COUNT" -gt 0 ] || { echo "ERROR: frontend build produced no assets"; exit 1; }
-echo "    frontend built: index.html + $ASSET_COUNT assets"
+echo "    WorkingDirectory and database exist ($ROWS_BEFORE tags before deploy)"
 
 echo "==> Building $BINARY_NAME..."
 # Build into a temp dir, NOT into the repo root. `go build -o multichat-server` writes
@@ -256,7 +221,6 @@ fi
 mkdir -p "$BACKUP_DIR"
 BACKUP_BIN="$BACKUP_DIR/$BINARY_NAME.$STAMP"
 BACKUP_UNIT="$BACKUP_DIR/$UNIT_NAME.$STAMP"
-BACKUP_FE="$BACKUP_DIR/frontend.$STAMP"
 BACKUP_DB="$BACKUP_DIR/multichat.db.$STAMP"
 # Written as if/then and not `[ -f x ] && cp ...`: in the one-liner form a FAILING cp
 # is not the final command of the && list, so `set -e` exempts it and the backup
@@ -264,7 +228,6 @@ BACKUP_DB="$BACKUP_DIR/multichat.db.$STAMP"
 # the worst possible moment to learn a backup is missing.
 if [ -f "$BINARY_PATH" ]; then cp -p "$BINARY_PATH" "$BACKUP_BIN"; echo "==> Backed up binary   -> $BACKUP_BIN"; fi
 if [ -f "$LIVE_UNIT" ]; then cp -p "$LIVE_UNIT" "$BACKUP_UNIT"; echo "==> Backed up unit     -> $BACKUP_UNIT"; fi
-if [ -d "$FRONTEND_ROOT" ]; then cp -a "$FRONTEND_ROOT" "$BACKUP_FE"; echo "==> Backed up frontend -> $BACKUP_FE"; fi
 # Back the DB up through SQLite's own backup API, not `cp`: a plain copy of a live
 # SQLite file can catch it mid-write and produce a corrupt snapshot.
 sqlite3 "$DB_PATH" ".backup '$BACKUP_DB'"
@@ -274,10 +237,9 @@ rollback() {
   echo "!!! Rolling back..."
   if [ -f "$BACKUP_BIN" ]; then cp -p "$BACKUP_BIN" "$BINARY_PATH.rb"; mv "$BINARY_PATH.rb" "$BINARY_PATH"; echo "    restored binary"; fi
   if [ -f "$BACKUP_UNIT" ]; then cp -p "$BACKUP_UNIT" "$LIVE_UNIT"; echo "    restored unit"; fi
-  if [ -d "$BACKUP_FE" ]; then rm -rf "$FRONTEND_ROOT"; cp -a "$BACKUP_FE" "$FRONTEND_ROOT"; echo "    restored frontend"; fi
   systemctl --user daemon-reload
   systemctl --user restart "$UNIT_NAME" || true
-  echo "!!! Rolled back to the previous binary/unit/frontend. Deploy FAILED."
+  echo "!!! Rolled back to the previous binary and unit. Deploy FAILED."
   echo "!!! The database was NOT touched by the rollback; its pre-deploy snapshot is at $BACKUP_DB"
 }
 
@@ -290,26 +252,6 @@ else
   cp "$REPO_UNIT" "$LIVE_UNIT"
 fi
 systemctl --user daemon-reload
-
-echo "==> Installing frontend -> $FRONTEND_ROOT..."
-# REPLACE the directory rather than copying into it. vite emits content-hashed
-# filenames, so copying over the top only ever ADDS: the live root had accumulated
-# ten stale index-*.js/css bundles from previous hand-copies, none of them reachable,
-# all of them served if anything ever asked. Swap the whole directory instead.
-rm -rf "$FRONTEND_ROOT.old.$STAMP"
-mv "$FRONTEND_ROOT" "$FRONTEND_ROOT.old.$STAMP"
-mv "$FRONTEND_STAGING" "$FRONTEND_ROOT"
-rm -rf "$FRONTEND_ROOT.old.$STAMP"
-
-# Set the modes EXPLICITLY instead of inheriting whatever umask the caller happened
-# to have. nginx serves these as www-data, so they must be world-readable; a deploy
-# run from a shell (or a cron job) with a restrictive umask would otherwise install a
-# site nginx cannot read and 403 the whole domain, with every other check still green.
-# The deploy must not depend on the ambient umask to produce a servable site.
-chmod 755 "$FRONTEND_ROOT"
-find "$FRONTEND_ROOT" -type d -exec chmod 755 {} +
-find "$FRONTEND_ROOT" -type f -exec chmod 644 {} +
-echo "    frontend installed (replaced, not merged; 755/644)"
 
 echo "==> Installing companion binaries -> $(dirname "$BINARY_PATH")..."
 for companion in multichat-send multichat-mcp; do
@@ -363,7 +305,7 @@ fail() { echo "ERROR: $1"; journalctl --user -u "$UNIT_NAME" -n 30 --no-pager ||
 # actually matters: with an empty token the auth branch is skipped entirely and every
 # route below opens to the internet. An unauthenticated request MUST be refused.
 UNAUTH_CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:$PORT/api/tags")"
-[ "$UNAUTH_CODE" = "401" ] || fail "an UNAUTHENTICATED request to /api/tags returned HTTP $UNAUTH_CODE, not 401 -- authentication is OFF on a service exposed at chat.kayushkin.com. Rolling back."
+[ "$UNAUTH_CODE" = "401" ] || fail "an UNAUTHENTICATED request to /api/tags returned HTTP $UNAUTH_CODE, not 401 -- authentication is OFF. Rolling back."
 echo "    auth is ON (unauthenticated /api/tags -> 401)"
 
 # 2. THE REAL DATABASE IS OPEN. The failure this guards is not a crash: point the
@@ -377,25 +319,6 @@ TAGS_COUNT="$(printf '%s' "$TAGS" | jq 'if type=="array" then length else (.tags
 [ "$TAGS_COUNT" -ge "$ROWS_BEFORE" ] || fail "/api/tags returned $TAGS_COUNT tags but there were $ROWS_BEFORE before the deploy -- the service is answering out of a DIFFERENT (probably empty) database. Rolling back."
 echo "    real database is open ($TAGS_COUNT tags, $ROWS_BEFORE before the deploy)"
 
-# 3. NGINX CAN ACTUALLY SERVE THE FRONTEND. Ask the vhost, over TLS, the way a
-# browser does -- do not check that index.html exists on disk. "The file is there" is
-# a proxy for the property we care about and it is the proxy that fooled the first run
-# of this script: the files were all present and perfectly correct, mode 600, and
-# nginx (www-data) could not read one of them, so the site served 403 while a
-# `[ -f index.html ]` check passed happily. Assert the thing itself, from the other
-# side. --resolve so this cannot depend on DNS.
-if [ "$SITE_BEFORE" = "200" ]; then
-  SITE_AFTER="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/" || true)"
-  [ "$SITE_AFTER" = "200" ] || fail "$SITE_HOST served 200 before this deploy and serves HTTP $SITE_AFTER now -- nginx cannot serve the frontend that was just installed (check permissions: it runs as www-data). Rolling back."
-  echo "    $SITE_HOST still serves 200 (was 200 before the deploy)"
-else
-  # Do not assert an absolute 200 on a host that was not serving one to begin with --
-  # that fails the deploy for a pre-existing condition it did not cause. Report the
-  # no-regression comparison honestly instead.
-  SITE_AFTER="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --resolve "$SITE_HOST:443:127.0.0.1" "https://$SITE_HOST/" || true)"
-  echo "    $SITE_HOST: $SITE_BEFORE before -> $SITE_AFTER after (was not serving 200 before this deploy; not asserting one)"
-fi
-
 # is-active is the last word: a unit that is up now but scheduled to restart is not a
 # successful deploy.
 systemctl --user is-active --quiet "$UNIT_NAME" || fail "$UNIT_NAME is not active"
@@ -404,10 +327,46 @@ RESTARTS="$(systemctl --user show "$UNIT_NAME" -p NRestarts --value)"
 echo "    $UNIT_NAME active, NRestarts=$RESTARTS"
 echo "    smoke test OK"
 
-# The vhost carries the /api/ and WebSocket-upgrade rules the app needs to function.
-# It is part of the deploy, not something to hand-edit in /etc/nginx.
-echo "==> Installing nginx vhost..."
-./deploy/nginx/install.sh
+# --- Retiring the old public site ----------------------------------------------
+# chat.kayushkin.com served the old web app and put /api and /ws on the internet.
+# It was switched off on 2026-09-28, when multichat's pages moved into dash. Remove
+# its nginx site wherever it is still installed -- backed up first, config tested
+# before the reload, the files put back if the test fails -- and remove the built
+# app nginx served from. Once both are gone this step only says so.
+RETIRED_SITE="chat.kayushkin.com"
+RETIRED_FRONTEND_ROOT="$HOME/multichat-frontend"
+echo "==> Retiring the old public site $RETIRED_SITE..."
+if [ -e "/etc/nginx/sites-enabled/$RETIRED_SITE" ] || [ -e "/etc/nginx/sites-available/$RETIRED_SITE" ]; then
+  SITE_BACKUP="$BACKUP_DIR/nginx-$RETIRED_SITE.$STAMP"
+  mkdir -p "$SITE_BACKUP"
+  if [ -e "/etc/nginx/sites-available/$RETIRED_SITE" ]; then sudo cat "/etc/nginx/sites-available/$RETIRED_SITE" > "$SITE_BACKUP/available"; fi
+  sudo rm -f "/etc/nginx/sites-enabled/$RETIRED_SITE" "/etc/nginx/sites-available/$RETIRED_SITE"
+  if ! sudo nginx -t 2>/dev/null; then
+    echo "ERROR: nginx -t fails without $RETIRED_SITE -- putting it back and not reloading"
+    sudo nginx -t || true
+    if [ -f "$SITE_BACKUP/available" ]; then
+      sudo install -m644 "$SITE_BACKUP/available" "/etc/nginx/sites-available/$RETIRED_SITE"
+      sudo ln -sf "/etc/nginx/sites-available/$RETIRED_SITE" "/etc/nginx/sites-enabled/$RETIRED_SITE"
+    fi
+    exit 1
+  fi
+  sudo systemctl reload nginx
+  echo "    removed the nginx site (backup: $SITE_BACKUP) and reloaded nginx"
+else
+  echo "    no nginx site for $RETIRED_SITE is installed"
+fi
+if [ -d "$RETIRED_FRONTEND_ROOT" ]; then
+  mv "$RETIRED_FRONTEND_ROOT" "$BACKUP_DIR/multichat-frontend.$STAMP"
+  echo "    moved the old app out of $RETIRED_FRONTEND_ROOT (to $BACKUP_DIR/multichat-frontend.$STAMP)"
+fi
+# The property is that no nginx site claims the name any more; ask the config
+# nginx actually loads rather than a URL (with the site gone, nginx answers the name
+# from its default site, which may well have an /api/health of its own).
+if sudo nginx -T 2>/dev/null | grep -Eq "^[[:space:]]*server_name[^;]*[[:space:]]$RETIRED_SITE[[:space:];]"; then
+  echo "ERROR: an nginx site still claims $RETIRED_SITE"
+  exit 1
+fi
+echo "    no nginx site claims $RETIRED_SITE"
 
 echo "==> Done. Deployed $(git rev-parse --short HEAD)."
 

@@ -27,12 +27,6 @@ multichat.db
 /.openclaw/frontend/node_modules/
 /.openclaw/server
 
-# deploy.sh builds the frontend into this folder BEFORE it runs `go build`, and only
-# swaps it into place afterwards. Unignored, git counts it as an untracked file at
-# build time, so Go stamps every deployed binary vcs.modified=true even when HEAD is
-# clean -- and a clean deploy becomes indistinguishable from one built off a dirty
-# tree. Anchored so it cannot match a same-named folder elsewhere.
-/frontend/.dist-staging/
 
 # The sabotage engine creates this on import
 scripts/__pycache__/
