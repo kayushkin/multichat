@@ -14,6 +14,7 @@ import (
 
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/config"
+	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
 
@@ -135,6 +136,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
+	r.mux.HandleFunc("/media/", r.mediaHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.
 	r.mux.Handle(SettingsPath, servicesettings.Handler(r.settings, SettingsPath))
@@ -549,7 +551,42 @@ func (r *Router) messagesHandler(w http.ResponseWriter, req *http.Request, roomI
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, page)
+	eventIDs := make([]string, len(page.Messages))
+	for i, m := range page.Messages {
+		eventIDs[i] = m.EventID
+	}
+	reactions, err := db.ReactionsTo(r.db, eventIDs)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	out := conversationMessagePage{End: page.End, HasMore: page.HasMore}
+	if page.Messages != nil {
+		out.Messages = make([]conversationMessage, len(page.Messages))
+		for i, m := range page.Messages {
+			groups := reactions[m.EventID]
+			if groups == nil {
+				groups = []db.MessageReactionGroup{}
+			}
+			out.Messages[i] = conversationMessage{Message: m, Reactions: groups}
+		}
+	}
+	r.writeJSON(w, out)
+}
+
+// conversationMessage is one message of GET /conversations/{room_id}/messages:
+// the Matrix event and its current reactions from the reaction log (only
+// those logged since the log began).
+type conversationMessage struct {
+	matrix.Message
+	Reactions []db.MessageReactionGroup `json:"reactions"`
+}
+
+// conversationMessagePage is matrix.MessagePage with each message's reactions.
+type conversationMessagePage struct {
+	Messages []conversationMessage `json:"messages"`
+	End      string                `json:"end,omitempty"`
+	HasMore  bool                  `json:"has_more"`
 }
 
 func (r *Router) writeJSON(w http.ResponseWriter, data interface{}) {

@@ -2,12 +2,14 @@ package matrix
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -163,7 +165,8 @@ type Conversation struct {
 	LastMessage  string   `json:"last_message,omitempty"`
 }
 
-// Message is a Matrix room event
+// Message is a Matrix room event. GetMessagePage fills the formatting,
+// media and reply fields from the event content; GetMessages leaves them "".
 type Message struct {
 	EventID    string `json:"event_id"`
 	Sender     string `json:"sender"`
@@ -172,6 +175,13 @@ type Message struct {
 	MsgType    string `json:"msg_type"`
 	Timestamp  int64  `json:"timestamp"`
 	IsMe       bool   `json:"is_me,omitempty"`
+	// Format is "org.matrix.custom.html" when FormattedBody is Matrix HTML,
+	// else "".
+	Format         string `json:"format"`
+	FormattedBody  string `json:"formatted_body"`
+	MediaURL       string `json:"media_url"`
+	MediaMimetype  string `json:"media_mimetype"`
+	ReplyToEventID string `json:"reply_to_event_id"`
 }
 
 // SelfUserIDs are Matrix user IDs that represent the multichat owner
@@ -453,13 +463,10 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 
 	var resp struct {
 		Chunk []struct {
-			EventID        string `json:"event_id"`
-			Sender         string `json:"sender"`
-			OriginServerTS int64  `json:"origin_server_ts"`
-			Content        struct {
-				Body    string `json:"body"`
-				MsgType string `json:"msgtype"`
-			} `json:"content"`
+			EventID        string          `json:"event_id"`
+			Sender         string          `json:"sender"`
+			OriginServerTS int64           `json:"origin_server_ts"`
+			Content        json.RawMessage `json:"content"`
 		} `json:"chunk"`
 		End string `json:"end"`
 	}
@@ -471,7 +478,11 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 	var messages []Message
 	for i := len(resp.Chunk) - 1; i >= 0; i-- {
 		evt := resp.Chunk[i]
-		if evt.Content.Body == "" {
+		content, err := ParseMessageContent(evt.Content)
+		if err != nil {
+			return nil, fmt.Errorf("event %s: %w", evt.EventID, err)
+		}
+		if content.Body == "" {
 			continue
 		}
 		senderName := names[evt.Sender]
@@ -486,13 +497,18 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 			}
 		}
 		messages = append(messages, Message{
-			EventID:    evt.EventID,
-			Sender:     evt.Sender,
-			SenderName: senderName,
-			Body:       evt.Content.Body,
-			MsgType:    evt.Content.MsgType,
-			Timestamp:  evt.OriginServerTS,
-			IsMe:       SelfUserIDs[evt.Sender],
+			EventID:        evt.EventID,
+			Sender:         evt.Sender,
+			SenderName:     senderName,
+			Body:           content.Body,
+			MsgType:        content.MsgType,
+			Timestamp:      evt.OriginServerTS,
+			IsMe:           SelfUserIDs[evt.Sender],
+			Format:         content.Format,
+			FormattedBody:  content.FormattedBody,
+			MediaURL:       content.MediaURL,
+			MediaMimetype:  content.MediaMimetype,
+			ReplyToEventID: content.ReplyToEventID,
 		})
 	}
 
@@ -562,4 +578,27 @@ func (c *Client) GetMessages(roomID string, limit int) ([]Message, error) {
 		})
 	}
 	return messages, nil
+}
+
+// OpenMedia asks Synapse's authenticated media API for a file — the whole
+// file, or with width and height both above zero a thumbnail scaled to fit
+// them — and returns the response unread, whatever its status. The caller
+// streams the body and must close it. serverName and mediaID are the two
+// parts of an mxc://serverName/mediaID URI.
+func (c *Client) OpenMedia(ctx context.Context, serverName, mediaID string, width, height int) (*http.Response, error) {
+	path := "/_matrix/client/v1/media/download/" + url.PathEscape(serverName) + "/" + url.PathEscape(mediaID)
+	if width > 0 && height > 0 {
+		path = "/_matrix/client/v1/media/thumbnail/" + url.PathEscape(serverName) + "/" + url.PathEscape(mediaID) +
+			"?width=" + strconv.Itoa(width) + "&height=" + strconv.Itoa(height) + "&method=scale"
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", c.homeserver+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("matrix media %s/%s: %w", serverName, mediaID, err)
+	}
+	return resp, nil
 }

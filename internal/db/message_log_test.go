@@ -48,14 +48,21 @@ func TestADeletedMessageKeepsItsTextAndEdits(t *testing.T) {
 		t.Fatalf("edits = %+v", edits)
 	}
 
-	all, err := ListLoggedMessages(database, MessageLogFilter{Limit: 10})
+	messages, err := ListLoggedMessages(database, MessageLogFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 3 || all[0].EventID != "$kept" {
-		t.Fatalf("newest first, three rows: %+v", all)
+	if len(messages) != 2 || messages[0].EventID != "$kept" || messages[1].EventID != "$original" {
+		t.Fatalf("newest first, two messages and no edit: %+v", messages)
 	}
-	older, err := ListLoggedMessages(database, MessageLogFilter{Before: all[0].SentAt, Query: "SAID", Limit: 10})
+	all, err := ListLoggedMessages(database, MessageLogFilter{Limit: 10, IncludeEdits: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 || all[0].EventID != "$kept" || all[1].EventID != "$edit" {
+		t.Fatalf("with include_edits, newest first, three rows: %+v", all)
+	}
+	older, err := ListLoggedMessages(database, MessageLogFilter{Before: all[0].SentAt, Query: "SAID", IncludeEdits: true, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,8 @@
 // Two loops run in the server process:
 //
 //   - SyncWorker long-polls Synapse /sync, writes every bridged message and
-//     every redaction to the message log (message_log.go), and publishes every message a
+//     reaction and every redaction to the message log (message_log.go), and
+//     publishes every message (never a reaction) a
 //     person sent as messages.MessagingInbound on messaging.inbound
 //     (JetStream, stream MESSAGING). Our own sends and our own platform
 //     puppets are dropped here, so no consumer ever sees itself.

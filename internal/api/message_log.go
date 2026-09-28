@@ -15,11 +15,12 @@ import (
 const maxMessageLogLimit = 1000
 
 // messageLogHandler serves GET /message-log: logged messages newest first,
-// each deleted one with the edits made to it before it went.
+// the edits made to each, and their current reactions.
 //
 //	platform, network_id, room_id, sender_user_id  exact matches
 //	q        substring of the body, any case
 //	deleted  "true" for deleted messages only
+//	include_edits  "true" to list edits as messages too (they are always in edits)
 //	before   RFC 3339 time; messages sent strictly before it (the next page)
 //	limit    1–1000, default 200
 func (r *Router) messageLogHandler(w http.ResponseWriter, req *http.Request) {
@@ -46,6 +47,14 @@ func (r *Router) messageLogHandler(w http.ResponseWriter, req *http.Request) {
 		filter.DeletedOnly = true
 	default:
 		r.writeError(w, 400, "deleted must be true or false")
+		return
+	}
+	switch query.Get("include_edits") {
+	case "", "false":
+	case "true":
+		filter.IncludeEdits = true
+	default:
+		r.writeError(w, 400, "include_edits must be true or false")
 		return
 	}
 	if before := query.Get("before"); before != "" {
@@ -78,5 +87,10 @@ func (r *Router) messageLogHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, db.MessageLogPage{Messages: messages, Edits: edits})
+	reactions, err := db.MessageLogReactions(r.db, messages)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, db.MessageLogPage{Messages: messages, Edits: edits, Reactions: reactions})
 }

@@ -19,6 +19,7 @@ type MessageLogFilter struct {
 	SenderUserID string
 	Query        string // substring of the body
 	DeletedOnly  bool
+	IncludeEdits bool      // list edits as rows of their own too
 	Before       time.Time // sent strictly before; zero means now
 	Limit        int
 }
@@ -32,7 +33,9 @@ type ChannelLogCounts struct {
 
 // MessageLogCountsByChannel counts logged messages on one platform, keyed by
 // the platform's channel id (from the room's m.bridge state). Edits are not
-// counted: they are rows of their own, but not messages anyone sent.
+// counted: they are rows of their own, but not messages anyone sent. Archive
+// rows are counted, as GET /message-log lists them. The count is what
+// GET /message-log without include_edits lists for the channel.
 func MessageLogCountsByChannel(database *sql.DB, platform string) (map[string]ChannelLogCounts, error) {
 	rows, err := database.Query(`SELECT channel_id, count(*), count(redacted_at), max(sent_at) FROM message_log
 		WHERE platform = ? AND replaces_event_id = '' AND channel_id != '' GROUP BY channel_id`, platform)

@@ -1,7 +1,6 @@
 package inbound
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -14,8 +13,8 @@ import (
 // when a sync reported a gap.
 const backfillPageSize = 100
 
-// logBatch writes a sync batch to the message log: every message a bridge
-// puppet sent, and every redaction, in timeline order. A room whose timeline
+// logBatch writes a sync batch to the message log: every message and
+// reaction a bridge puppet sent, and every redaction, in timeline order. A room whose timeline
 // was truncated is first filled backward from the gap, so the log does not
 // lose what the sync skipped.
 func (w *SyncWorker) logBatch(resp *matrix.SyncResponse) error {
@@ -73,16 +72,22 @@ func (w *SyncWorker) fillGap(roomID, from string) error {
 func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 	switch event.Type {
 	case "m.room.redaction":
+		// A redaction hits a message or a reaction; mark whichever it is.
 		target, err := event.RedactedEventID()
 		if err != nil {
 			return err
 		}
-		marked, err := db.MarkMessageRedacted(w.Database, target, event.EventID, event.Sender, time.UnixMilli(event.OriginServerTS))
+		redactedAt := time.UnixMilli(event.OriginServerTS)
+		marked, err := db.MarkMessageRedacted(w.Database, target, event.EventID, event.Sender, redactedAt)
 		if err != nil {
 			return err
 		}
 		if marked {
 			log.Printf("message log: %s was deleted in %s", target, roomID)
+			return nil
+		}
+		if _, err := db.MarkReactionRedacted(w.Database, target, event.EventID, event.Sender, redactedAt); err != nil {
+			return err
 		}
 		return nil
 	case "m.room.message":
@@ -92,28 +97,25 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 			return nil
 		}
 		return w.logMessage(roomID, platform, event)
+	case "m.reaction":
+		platform := matrix.PlatformOfUserID(event.Sender)
+		if platform == "" {
+			return nil
+		}
+		return w.logReaction(roomID, platform, event)
 	default:
 		return nil
 	}
 }
 
 func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEvent) error {
-	var content struct {
-		MsgType    string `json:"msgtype"`
-		Body       string `json:"body"`
-		NewContent *struct {
-			Body string `json:"body"`
-		} `json:"m.new_content"`
-		RelatesTo struct {
-			RelType string `json:"rel_type"`
-			EventID string `json:"event_id"`
-		} `json:"m.relates_to"`
+	parsed, err := matrix.ParseMessageContent(event.Content)
+	if err != nil {
+		return err
 	}
-	if len(event.Content) > 0 {
-		if err := json.Unmarshal(event.Content, &content); err != nil {
-			return fmt.Errorf("content: %w", err)
-		}
-	}
+	// An edit's top level is a "* new text" fallback; log the edited
+	// message itself from m.new_content.
+	content := db.LoggedContentOf(parsed)
 	facts, err := w.factsOf(roomID)
 	if err != nil {
 		return err
@@ -140,16 +142,14 @@ func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEv
 		SenderDisplayName:  displayName,
 		MessageType:        content.MsgType,
 		Body:               content.Body,
+		Format:             content.Format,
+		FormattedBody:      content.FormattedBody,
+		MediaURL:           content.MediaURL,
+		MediaMimetype:      content.MediaMimetype,
+		ReplyToEventID:     content.ReplyToEventID,
 		ContentJSON:        string(event.Content),
+		ReplacesEventID:    content.ReplacesEventID,
 		SentAt:             time.UnixMilli(event.OriginServerTS),
-	}
-	if content.RelatesTo.RelType == "m.replace" {
-		message.ReplacesEventID = content.RelatesTo.EventID
-		if content.NewContent != nil {
-			// The top-level body of an edit is a fallback ("* new text");
-			// the edited text itself is in m.new_content.
-			message.Body = content.NewContent.Body
-		}
 	}
 	if redaction := event.Unsigned.RedactedBecause; redaction != nil {
 		// Deleted before this worker read it: the content is already gone.
@@ -159,6 +159,36 @@ func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEv
 		message.RedactedByUserID = redaction.Sender
 	}
 	return db.LogMessage(w.Database, message)
+}
+
+func (w *SyncWorker) logReaction(roomID, platform string, event matrix.TimelineEvent) error {
+	if event.Unsigned.RedactedBecause != nil {
+		// Removed before this worker read it: Synapse has stripped which
+		// message it was on and which emoji it was, so there is nothing to
+		// show.
+		log.Printf("message log: reaction %s in %s was removed before it was read", event.EventID, roomID)
+		return nil
+	}
+	content, err := matrix.ParseReactionContent(event.Content)
+	if err != nil {
+		return err
+	}
+	displayName, err := w.Matrix.DisplayNameOf(event.Sender)
+	if err != nil {
+		return err
+	}
+	return db.LogReaction(w.Database, db.LoggedReaction{
+		EventID:           event.EventID,
+		TargetEventID:     content.TargetEventID,
+		RoomID:            roomID,
+		Platform:          platform,
+		SenderUserID:      event.Sender,
+		SenderDisplayName: displayName,
+		Key:               content.Key,
+		Shortcode:         content.Shortcode,
+		ContentJSON:       string(event.Content),
+		SentAt:            time.UnixMilli(event.OriginServerTS),
+	})
 }
 
 func (w *SyncWorker) bridgeOf(roomID string) (matrix.BridgeInfo, error) {
