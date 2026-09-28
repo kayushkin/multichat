@@ -170,8 +170,15 @@ Fetch messages for a conversation with pagination.
       "sender": "@telegram_12345:chat.example.com",
       "sender_name": "John Doe",
       "body": "Hello!",
+      "msg_type": "m.text",
       "timestamp": 1711835400000,
-      "is_self": false
+      "is_me": false,
+      "format": "org.matrix.custom.html",
+      "formatted_body": "Hello! <img data-mx-emoticon src=\"mxc://chat.kayushkin.com/Q…\" alt=\":bearlaugh:\" title=\":bearlaugh:\" height=\"32\"/>",
+      "media_url": "",
+      "media_mimetype": "",
+      "reply_to_event_id": "$earlier",
+      "reactions": [{"key": "mxc://chat.kayushkin.com/adm…", "shortcode": ":this:", "count": 1, "sender_display_names": ["Jade"]}]
     }
   ],
   "end": "t1234-5678",
@@ -179,7 +186,11 @@ Fetch messages for a conversation with pagination.
 }
 ```
 
-Use the `end` token as the `from` parameter to load older messages.
+Use the `end` token as the `from` parameter to load older messages. `format`, `formatted_body` (the Matrix HTML, "" when absent), `media_url` (the `mxc://` URI of an image, file or video), `media_mimetype` (`info.mimetype`) and `reply_to_event_id` (`m.relates_to.m.in_reply_to.event_id`) are read from the event content. On Discord a custom emoji is only in `formatted_body`, as `<img data-mx-emoticon src="mxc://…" alt=":name:">`; the plain `body` leaves it out. `reactions` is each message's current reactions from the reaction log, grouped by key — so only reactions made since the log began (`message_log_started_at`) — and `[]` when none.
+
+### GET /media/{server_name}/{media_id}
+
+The file behind `mxc://{server_name}/{media_id}` — a custom emoji, an image, an attachment — fetched from Synapse's authenticated media API (`/_matrix/client/v1/media/download/…`; Synapse 1.161 refuses the old unauthenticated one) with multichat's Matrix token, and streamed through. With `width` and `height` both given it is `/thumbnail/…?width&height&method=scale`. Synapse's status, `Content-Type`, `Content-Length`, cache headers (`Cache-Control`, `Expires`, `ETag`, `Last-Modified`) and its `Content-Disposition`, `Content-Security-Policy` and `X-Content-Type-Options` pass through unchanged; a 200 without a `Cache-Control` gets `private, max-age=86400`. A path that is not exactly two segments, or only one of `width` and `height`, is a 400.
 
 ### GET /conversations/{room_id}/members
 
@@ -523,7 +534,13 @@ What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user
 
 ### GET /message-log
 
-Every message a bridge brought in since the log started, newest first, with deleted ones kept. Query: `platform` (one of `/inbound-platforms`), `network_id` (on Discord the server id), `room_id`, `sender_user_id`, `q` (substring of the body, any case), `deleted=true` (deleted only), `before` (RFC 3339; the next page is `before=` the last row's `sent_at`), `limit` (1–1000, default 200). Answers `{"messages": [...], "edits": {"<event_id>": [...]}}`. A message has `event_id`, `room_id`, `room_name`, `platform`, `network_id`, `network_name`, `channel_id`, `channel_name`, `channel_external_url`, `sender_user_id`, `sender_display_name`, `message_type`, `body`, `content_json`, `replaces_event_id` (set on an edit), `sent_at`, `logged_at`, and `redacted_at`, `redaction_event_id`, `redacted_by_user_id` once deleted. `edits` holds the edits made to each listed message, oldest first. A bad filter is a 400 naming it.
+Every message a bridge brought in since the log started, newest first, with deleted ones kept, plus any Discord history imported from before it. Query: `platform` (one of `/inbound-platforms`), `network_id` (on Discord the server id), `room_id`, `sender_user_id`, `q` (substring of the body, any case), `deleted=true` (deleted only), `include_edits=true` (list edits as rows too; by default they are only in `edits`), `before` (RFC 3339; the next page is `before=` the last row's `sent_at`), `limit` (1–1000, default 200). Answers `{"messages": [...], "edits": {"<event_id>": [...]}, "reactions": {"<key>": [...]}}`.
+
+A message has `id` (the log's own row id — the stable key of a row), `event_id` ("" on an archive row), `source` (`matrix` for a row logged live, `discord-archive` for an imported one), `discord_message_id` (archive rows only), `room_id`, `room_name`, `platform`, `network_id`, `network_name`, `channel_id`, `channel_name`, `channel_external_url`, `sender_user_id`, `sender_display_name`, `message_type`, `body`, `format` (`org.matrix.custom.html` when `formatted_body` is Matrix HTML, `discord-markdown` on archive rows, whose `body` is raw Discord markdown with `<:name:id>` custom emoji, else ""), `formatted_body`, `media_url`, `media_mimetype`, `reply_to_event_id`, `content_json` (the event content, or on an archive row the whole Discord message object), `replaces_event_id` (set on an edit), `sent_at`, `logged_at`, and `redacted_at`, `redaction_event_id`, `redacted_by_user_id` once deleted. An edit's `body` and formatting come from its `m.new_content`.
+
+`edits` holds the edits made to each listed message, oldest first. `reactions` holds the current reactions to each listed message that has any, as `[{key, shortcode, count, sender_display_names}]` grouped by key: keyed by `event_id` from the reaction log (a unicode emoji, or an `mxc://` URI with its `:name:` shortcode), or by `discord:<discord_message_id>` for an archive row, from the archived object's `reactions` (a custom emoji is `discord-emoji:<id>`; `sender_display_names` is empty because Discord gives only the count). A bad filter is a 400 naming it.
+
+`cmd/multichat-import-discord-archive -db … -discord-db … -archive file.jsonl` adds a Discord history fetch (one raw Discord API message object per line) as archive rows: only messages sent before `message_log_started_at`, so nothing overlaps the live log, and a second run inserts nothing. The room, server and channel come from the bridge database's `portal` and `guild` rows for the message's `channel_id`; the sender is the bridge puppet `@discord_<author.id>:<homeserver>`, named `author.global_name`, else `author.username`. `channel_external_url` and `message_type` are "" on archive rows.
 
 ### GET /discord/status
 
@@ -546,7 +563,7 @@ What the Discord bridge is doing, read-only: it reads the mautrix-discord databa
 }
 ```
 
-A server is bridged when its `bridging_mode` is not 0 (mautrix-discord's `GuildBridgingMode`: 1 if-portal-exists, 2 create-on-message, 3 everything). Its `channels` are the message-carrying ones — text (`channel_type` 0) and announcement (5) — ordered by category, then name; categories, voice channels and forums are left out. `matrix_room_id` is empty for a channel the bridge has made no room for. `admin_joined` false means `@admin` is at most invited, so multichat can neither read nor log the channel until it joins. `last_bridged_message_at` is the newest `message.timestamp` the bridge recorded there, null when none. The three log fields count message-log rows with that `channel_id` on platform `discord`, edits excluded. `unbridged_server_count` counts servers a logged-in account is in (`user_portal` type `guild`) whose mode is 0. `DISCORD_DB` unset is a 503 naming it, as is an unconfigured Matrix client; a Synapse failure is a 502.
+A server is bridged when its `bridging_mode` is not 0 (mautrix-discord's `GuildBridgingMode`: 1 if-portal-exists, 2 create-on-message, 3 everything). Its `channels` are the message-carrying ones — text (`channel_type` 0) and announcement (5) — ordered by category, then name; categories, voice channels and forums are left out. `matrix_room_id` is empty for a channel the bridge has made no room for. `admin_joined` false means `@admin` is at most invited, so multichat can neither read nor log the channel until it joins. `last_bridged_message_at` is the newest `message.timestamp` the bridge recorded there, null when none. The three log fields count message-log rows with that `channel_id` on platform `discord`, edits excluded and archive rows included — the same rows `GET /message-log` lists for the channel. `unbridged_server_count` counts servers a logged-in account is in (`user_portal` type `guild`) whose mode is 0. `DISCORD_DB` unset is a 503 naming it, as is an unconfigured Matrix client; a Synapse failure is a 502.
 
 ### GET /inbound-platforms
 
@@ -558,7 +575,7 @@ The fields a `prompt_template` may reference, read off the struct the dispatcher
 
 ### TypeScript types
 
-`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) and `internal/db/message_log.go` (`LoggedMessage`, `MessageLogPage`) to `ts/db.ts`, and `internal/discordbridge/status.go` (`DiscordBridgeStatus` and its parts) to `ts/discord_status.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`, entry `ts/index.ts`). bridge-ui's Inbound rules and Discord pages import them; multichat's own frontend does not.
+`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) and `internal/db/message_log.go` (`LoggedMessage`, `MessageReactionGroup`, `MessageLogPage`, and the source and format constants) to `ts/db.ts`, and `internal/discordbridge/status.go` (`DiscordBridgeStatus` and its parts) to `ts/discord_status.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`, entry `ts/index.ts`). bridge-ui's Inbound rules and Discord pages import them; multichat's own frontend does not.
 
 ⚠️ A session started this way runs with nobody at the keyboard. The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so such a session **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
 
