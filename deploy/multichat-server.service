@@ -20,6 +20,7 @@ Environment=MULTICHAT_DB=%h/repos/multichat/multichat.db
 Environment=SYNAPSE_URL=http://localhost:8008
 Environment=TELEGRAM_DB=%h/multichat/telegram-data/mautrix-telegram.db
 Environment=META_DB=%h/multichat/meta-data/mautrix-meta.db
+Environment=DISCORD_DB=%h/multichat/discord-data/mautrix-discord.db
 
 # Inbound messaging. With NATS_URL set the server long-polls Synapse /sync,
 # publishes every message a person sends us as messaging.inbound (JetStream)

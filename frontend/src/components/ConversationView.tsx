@@ -45,6 +45,8 @@ const platformLabel = (p: string) => {
     case 'signal': return 'Signal'
     case 'facebook': case 'messenger': return 'Messenger'
     case 'instagram': return 'Instagram'
+    case 'discord': return 'Discord'
+    case 'slack': return 'Slack'
     default: return p || 'Unknown'
   }
 }
@@ -429,7 +431,7 @@ function ConversationView({ conversationId, conversation, tags, allContactTags, 
           <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">Tag contacts in this conversation</p>
           {Object.entries(memberTags).map(([userId, uTags]) => {
             const member = members.find(m => m.user_id === userId)
-            const name = member?.display_name || userId.split(':')[0].replace('@', '').replace(/^(telegram_|whatsapp_|meta_|signal_)/, '')
+            const name = member?.display_name || userId.split(':')[0].replace('@', '').replace(/^(telegram_|whatsapp_|meta_|signal_|discord_|slack_)/, '')
             return (
               <div key={userId} className="flex items-center gap-2 flex-wrap py-1">
                 <span className="text-xs text-gray-300 font-medium min-w-[120px] truncate">{name}</span>

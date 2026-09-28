@@ -214,22 +214,11 @@ func (c *Client) ListContacts() ([]Contact, error) {
 		localpart := strings.Split(u.Name, ":")[0]
 		var platform, platformID string
 
-		switch {
-		case strings.HasPrefix(localpart, "@telegram_") && !strings.HasPrefix(localpart, "@telegrambot"):
-			platform = "telegram"
-			platformID = strings.TrimPrefix(localpart, "@telegram_")
-		case strings.HasPrefix(localpart, "@whatsapp_") && !strings.HasPrefix(localpart, "@whatsappbot"):
-			platform = "whatsapp"
-			platformID = strings.TrimPrefix(localpart, "@whatsapp_")
-		case strings.HasPrefix(localpart, "@signal_") && !strings.HasPrefix(localpart, "@signalbot"):
-			platform = "signal"
-			platformID = strings.TrimPrefix(localpart, "@signal_")
-		case strings.HasPrefix(localpart, "@meta_") && !strings.HasPrefix(localpart, "@metabot"):
-			platform = "meta"
-			platformID = strings.TrimPrefix(localpart, "@meta_")
-		default:
+		platform = PlatformOfUserID(u.Name)
+		if platform == "" {
 			continue
 		}
+		platformID = strings.TrimPrefix(localpart, "@"+platform+"_")
 
 		name := stripBridgeSuffix(u.DisplayName)
 		// Clean up phone-only names
@@ -287,17 +276,7 @@ func (c *Client) GetRoomMembers(roomID string) ([]RoomMember, error) {
 			name = m.StateKey
 		}
 
-		var platform string
-		switch {
-		case strings.Contains(local, "telegram_"):
-			platform = "telegram"
-		case strings.Contains(local, "whatsapp_"):
-			platform = "whatsapp"
-		case strings.Contains(local, "signal_"):
-			platform = "signal"
-		case strings.Contains(local, "meta_"):
-			platform = "meta"
-		}
+		platform := PlatformOfUserID(m.StateKey)
 
 		members = append(members, RoomMember{
 			UserID:      m.StateKey,
@@ -359,14 +338,8 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			// Detect platform from member user IDs
 			for _, m := range memberResp.Chunk {
 				switch {
-				case strings.Contains(m.StateKey, "telegram_"):
-					conv.Platform = "telegram"
-				case strings.Contains(m.StateKey, "whatsapp_"):
-					conv.Platform = "whatsapp"
-				case strings.Contains(m.StateKey, "signal_"):
-					conv.Platform = "signal"
-				case strings.Contains(m.StateKey, "meta_"):
-					conv.Platform = "meta"
+				case PlatformOfUserID(m.StateKey) != "":
+					conv.Platform = PlatformOfUserID(m.StateKey)
 				case strings.Contains(m.StateKey, "facebook_"):
 					conv.Platform = "facebook"
 				case strings.Contains(m.StateKey, "instagram_"):

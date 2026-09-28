@@ -102,6 +102,26 @@ func main() {
 			metaDB.Close()
 		}
 	}
+	// Discord — our own Discord user id from the bridge DB
+	if discordDBPath := loaded.DiscordBridgeDatabasePath; discordDBPath != "" {
+		discordDB, err := sql.Open("sqlite3", discordDBPath+"?mode=ro")
+		if err != nil {
+			log.Fatalf("open DISCORD_DB %s: %v", discordDBPath, err)
+		}
+		rows, err := discordDB.Query(`SELECT dcid FROM "user" WHERE dcid IS NOT NULL AND dcid != ''`)
+		if err != nil {
+			log.Fatalf("read own Discord ids from DISCORD_DB %s: %v", discordDBPath, err)
+		}
+		for rows.Next() {
+			var discordUserID string
+			if err := rows.Scan(&discordUserID); err != nil {
+				log.Fatalf("read own Discord ids from DISCORD_DB %s: %v", discordDBPath, err)
+			}
+			matrix.SelfUserIDs[fmt.Sprintf("@discord_%s:%s", discordUserID, serverName)] = true
+		}
+		rows.Close()
+		discordDB.Close()
+	}
 	log.Printf("Self user IDs: %d identities", len(matrix.SelfUserIDs))
 	for id := range matrix.SelfUserIDs {
 		log.Printf("  %s", id)

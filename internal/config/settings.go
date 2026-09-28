@@ -37,6 +37,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"MATRIX_TOKEN",
 	"TELEGRAM_DB",
 	"META_DB",
+	"DISCORD_DB",
 }
 
 // Keys of the server's settings, as GET /api/settings names them.
@@ -48,6 +49,7 @@ const (
 	SettingMatrixToken                = "matrix_token"
 	SettingTelegramBridgeDatabasePath = "telegram_bridge_database_path"
 	SettingMetaBridgeDatabasePath     = "meta_bridge_database_path"
+	SettingDiscordBridgeDatabasePath  = "discord_bridge_database_path"
 	SettingNATSURL                    = "nats_url"
 	SettingLLMBridgeServerURL         = "llm_bridge_server_url"
 	SettingLLMBridgeServiceToken      = "llm_bridge_service_token"
@@ -86,6 +88,8 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The mautrix-telegram bridge's SQLite file, opened read-only for phone-number lookups and to find our own Telegram puppet. Unset leaves both out."},
 		{Key: SettingMetaBridgeDatabasePath, EnvironmentVariable: "META_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
+		{Key: SettingDiscordBridgeDatabasePath, EnvironmentVariable: "DISCORD_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The mautrix-discord bridge's SQLite file, opened read-only to find our own Discord puppet, so our own Discord messages are not taken for someone else's. Unset leaves it out."},
 		{Key: SettingNATSURL, EnvironmentVariable: "NATS_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "Where NATS answers. Set, it turns inbound on: the sync worker publishes messaging.inbound and the dispatcher applies the inbound rules. It needs the Matrix client and LLM_BRIDGE_URL beside it, and the service refuses to start without them. Unset, inbound is off."},
 		{Key: SettingLLMBridgeServerURL, EnvironmentVariable: "LLM_BRIDGE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -120,6 +124,7 @@ type Config struct {
 
 	TelegramBridgeDatabasePath string
 	MetaBridgeDatabasePath     string
+	DiscordBridgeDatabasePath  string
 
 	// NATSURL is empty when inbound is off. When it is set, the Matrix client
 	// is configured and LLMBridgeServerURL is set too.
@@ -149,6 +154,7 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		MatrixToken:                registry.String(SettingMatrixToken),
 		TelegramBridgeDatabasePath: registry.String(SettingTelegramBridgeDatabasePath),
 		MetaBridgeDatabasePath:     registry.String(SettingMetaBridgeDatabasePath),
+		DiscordBridgeDatabasePath:  registry.String(SettingDiscordBridgeDatabasePath),
 		NATSURL:                    registry.String(SettingNATSURL),
 		LLMBridgeServerURL:         registry.String(SettingLLMBridgeServerURL),
 		LLMBridgeServiceToken:      registry.String(SettingLLMBridgeServiceToken),

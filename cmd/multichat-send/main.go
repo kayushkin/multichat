@@ -32,7 +32,7 @@ const authStoreProvider = "multichat"
 
 func main() {
 	name := flag.String("name", "", "contact display name (exact, case-insensitive); needs -platform")
-	platform := flag.String("platform", "", "whatsapp | telegram | signal | meta")
+	platform := flag.String("platform", "", "whatsapp | telegram | signal | meta | discord | slack")
 	userID := flag.String("user-id", "", "bridge puppet id, instead of -name/-platform")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: multichat-send (-name NAME -platform PLATFORM | -user-id ID) [message]\n\nmessage is the remaining arguments, or stdin when none are given.\n\n")

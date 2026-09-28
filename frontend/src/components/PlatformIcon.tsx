@@ -36,6 +36,20 @@ export default function PlatformIcon({ platform, size = 20, className = '' }: Pr
           <path d="M12 6C8.69 6 6 8.45 6 11.5c0 1.73.86 3.27 2.2 4.28V18l2.17-1.19c.58.16 1.19.25 1.83.25 3.31 0 6-2.45 6-5.5S15.31 6 12 6zm.6 7.4l-1.53-1.63L8.01 13.4l3.36-3.57 1.53 1.63 3.06-1.63-3.36 3.57z" fill="#fff" />
         </svg>
       )
+    case 'discord':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={className}>
+          <circle cx="12" cy="12" r="12" fill="#5865F2" />
+          <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fill="#fff" fontFamily="sans-serif">D</text>
+        </svg>
+      )
+    case 'slack':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" className={className}>
+          <circle cx="12" cy="12" r="12" fill="#4A154B" />
+          <text x="12" y="16.5" textAnchor="middle" fontSize="13" fontWeight="700" fill="#fff" fontFamily="sans-serif">S</text>
+        </svg>
+      )
     case 'imessage':
       return (
         <svg width={s} height={s} viewBox="0 0 24 24" className={className}>

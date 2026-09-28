@@ -6,7 +6,7 @@ import "strings"
 // the order the mautrix bridges were added. It is the served vocabulary for
 // anything that filters by platform (inbound rules, the MCP contact search),
 // so nothing builds a filter from observed values.
-var KnownPlatforms = []string{"whatsapp", "telegram", "signal", "meta"}
+var KnownPlatforms = []string{"whatsapp", "telegram", "signal", "meta", "discord", "slack"}
 
 // PlatformOfUserID reports which bridge a Matrix user id belongs to, from the
 // puppet prefix the bridge stamps on its ghosts (@whatsapp_…, @telegram_…).

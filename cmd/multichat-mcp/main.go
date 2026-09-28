@@ -40,7 +40,7 @@ func main() {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_contacts",
-		Description: "People reachable through multichat, each with their identities per platform (whatsapp, telegram, signal, meta). Filter by a case-insensitive substring of the display name and/or a platform. The user_id of an identity is what send_message takes.",
+		Description: "People reachable through multichat, each with their identities per platform (whatsapp, telegram, signal, meta, discord, slack). Filter by a case-insensitive substring of the display name and/or a platform. The user_id of an identity is what send_message takes.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in listContactsInput) (*mcp.CallToolResult, listContactsOutput, error) {
 		contacts, err := api.UnifiedContacts()
@@ -128,7 +128,7 @@ func main() {
 
 type listContactsInput struct {
 	Query    string `json:"query,omitempty" jsonschema:"case-insensitive substring of the display name"`
-	Platform string `json:"platform,omitempty" jsonschema:"whatsapp | telegram | signal | meta"`
+	Platform string `json:"platform,omitempty" jsonschema:"whatsapp | telegram | signal | meta | discord | slack"`
 }
 
 type listContactsOutput struct {

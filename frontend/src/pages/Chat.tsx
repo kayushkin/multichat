@@ -104,6 +104,8 @@ function Chat() {
       case 'signal': return 'Signal'
       case 'facebook': case 'messenger': return 'Messenger'
       case 'instagram': return 'Instagram'
+      case 'discord': return 'Discord'
+      case 'slack': return 'Slack'
       default: return p || 'Unknown'
     }
   }

@@ -51,6 +51,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		MatrixToken:                "a-matrix-token",
 		TelegramBridgeDatabasePath: "/srv/telegram.db",
 		MetaBridgeDatabasePath:     "/srv/meta.db",
+		DiscordBridgeDatabasePath:  "/srv/discord.db",
 		NATSURL:                    "nats://nats.example:1",
 		LLMBridgeServerURL:         "http://bridge.example:1",
 		LLMBridgeServiceToken:      "a-bridge-service-token",
@@ -65,6 +66,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"MATRIX_TOKEN":            "a-matrix-token",
 		"TELEGRAM_DB":             "/srv/telegram.db",
 		"META_DB":                 "/srv/meta.db",
+		"DISCORD_DB":              "/srv/discord.db",
 		"NATS_URL":                "nats://nats.example:1",
 		"LLM_BRIDGE_URL":          "http://bridge.example:1",
 		"LLMBRIDGE_SERVICE_TOKEN": "a-bridge-service-token",
@@ -86,7 +88,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 12; got != want {
+	if got, want := len(SettingDefinitions()), 13; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }
@@ -139,7 +141,7 @@ func TestInboundWithoutWhatItNeedsIsRefused(t *testing.T) {
 // MULTICHAT_URL is how other services find this one, and is not the server's to
 // refuse; a misspelling of a declared name is.
 func TestTheRegistryRefusesAMisspellingAndNotAVariableMeantForSomethingElse(t *testing.T) {
-	for _, misspelled := range []string{"MULTICHAT_DB_PATH", "MULTICHAT_TOKENS", "SYNAPSE_URLS", "MATRIX_TOKEN_FILE", "TELEGRAM_DB_PATH", "META_DB_PATH"} {
+	for _, misspelled := range []string{"MULTICHAT_DB_PATH", "MULTICHAT_TOKENS", "SYNAPSE_URLS", "MATRIX_TOKEN_FILE", "TELEGRAM_DB_PATH", "META_DB_PATH", "DISCORD_DB_PATH"} {
 		_, err := NewSettingsRegistry(servicesettings.MapEnvironment(map[string]string{misspelled: "x"}))
 		if err == nil || !strings.Contains(err.Error(), misspelled+" is set and multichat declares no such setting") {
 			t.Errorf("NewSettingsRegistry with %s = %v, want a refusal naming it", misspelled, err)
