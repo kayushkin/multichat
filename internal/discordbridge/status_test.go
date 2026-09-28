@@ -216,7 +216,7 @@ func TestAnnotateMarksJoinedRoomsAndLogCounts(t *testing.T) {
 	status.Annotate([]string{"!general:x", "!news:x"}, map[string]db.ChannelLogCounts{
 		"1001": {LoggedMessageCount: 5, DeletedMessageCount: 2, LastLoggedMessageAt: &last},
 	})
-	byName := map[string]Channel{}
+	byName := map[string]DiscordBridgedChannel{}
 	for _, channel := range status.BridgedServers[0].Channels {
 		byName[channel.Name] = channel
 	}

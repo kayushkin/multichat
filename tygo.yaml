@@ -10,6 +10,7 @@ packages:
     output_path: "ts/db.ts"
     type_mappings:
       "time.Time": "string"
+    optional_type: "null"
     include_files:
       - "inbound.go"
       - "message_log.go"
@@ -17,5 +18,6 @@ packages:
     output_path: "ts/discord_status.ts"
     type_mappings:
       "time.Time": "string"
+    optional_type: "null"
     include_files:
       - "status.go"

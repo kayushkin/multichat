@@ -42,18 +42,18 @@ var bridgingModeNames = map[int]string{
 	3: "everything",
 }
 
-// Account is one Matrix user logged in (or once logged in) to the bridge.
+// DiscordBridgeAccount is one Matrix user logged in (or once logged in) to the bridge.
 // The Discord token is never read: LoggedIn comes from a SQL IS NOT NULL
 // test, so its value never leaves the bridge database.
-type Account struct {
+type DiscordBridgeAccount struct {
 	MatrixUserID     string `json:"matrix_user_id"`
 	DiscordUserID    string `json:"discord_user_id"`
 	LoggedIn         bool   `json:"logged_in"`
 	ManagementRoomID string `json:"management_room_id"`
 }
 
-// Channel is one message-carrying channel of a bridged server.
-type Channel struct {
+// DiscordBridgedChannel is one message-carrying channel of a bridged server.
+type DiscordBridgedChannel struct {
 	DiscordChannelID string `json:"discord_channel_id"`
 	Name             string `json:"name"`
 	ChannelType      int    `json:"channel_type"`
@@ -73,20 +73,20 @@ type Channel struct {
 	LastLoggedMessageAt *time.Time `json:"last_logged_message_at"`
 }
 
-// Server is one Discord server the bridge bridges.
-type Server struct {
-	DiscordServerID  string    `json:"discord_server_id"`
-	Name             string    `json:"name"`
-	BridgingMode     int       `json:"bridging_mode"`
-	BridgingModeName string    `json:"bridging_mode_name"`
-	MatrixSpaceID    string    `json:"matrix_space_id"`
-	Channels         []Channel `json:"channels"`
+// DiscordBridgedServer is one Discord server the bridge bridges.
+type DiscordBridgedServer struct {
+	DiscordServerID  string                  `json:"discord_server_id"`
+	Name             string                  `json:"name"`
+	BridgingMode     int                     `json:"bridging_mode"`
+	BridgingModeName string                  `json:"bridging_mode_name"`
+	MatrixSpaceID    string                  `json:"matrix_space_id"`
+	Channels         []DiscordBridgedChannel `json:"channels"`
 }
 
-// Status is what GET /discord/status answers.
-type Status struct {
-	Accounts       []Account `json:"accounts"`
-	BridgedServers []Server  `json:"bridged_servers"`
+// DiscordBridgeStatus is what GET /discord/status answers.
+type DiscordBridgeStatus struct {
+	Accounts       []DiscordBridgeAccount `json:"accounts"`
+	BridgedServers []DiscordBridgedServer `json:"bridged_servers"`
 	// UnbridgedServerCount counts servers a logged-in account is a member of
 	// that the bridge does not bridge.
 	UnbridgedServerCount int `json:"unbridged_server_count"`
@@ -95,52 +95,52 @@ type Status struct {
 // ReadStatus reads accounts, bridged servers and their channels from the
 // bridge database. AdminJoined and the message-log fields are left zero:
 // the bridge database does not know them, and Annotate fills them in.
-func ReadStatus(bridge *sql.DB) (Status, error) {
-	status := Status{Accounts: []Account{}, BridgedServers: []Server{}}
+func ReadStatus(bridge *sql.DB) (DiscordBridgeStatus, error) {
+	status := DiscordBridgeStatus{Accounts: []DiscordBridgeAccount{}, BridgedServers: []DiscordBridgedServer{}}
 
 	accountRows, err := bridge.Query(`SELECT mxid, COALESCE(dcid, ''), discord_token IS NOT NULL,
 		COALESCE(management_room, '') FROM "user" ORDER BY mxid`)
 	if err != nil {
-		return Status{}, fmt.Errorf("read bridge accounts: %w", err)
+		return DiscordBridgeStatus{}, fmt.Errorf("read bridge accounts: %w", err)
 	}
 	for accountRows.Next() {
-		var account Account
+		var account DiscordBridgeAccount
 		if err := accountRows.Scan(&account.MatrixUserID, &account.DiscordUserID, &account.LoggedIn,
 			&account.ManagementRoomID); err != nil {
 			accountRows.Close()
-			return Status{}, fmt.Errorf("scan bridge account: %w", err)
+			return DiscordBridgeStatus{}, fmt.Errorf("scan bridge account: %w", err)
 		}
 		status.Accounts = append(status.Accounts, account)
 	}
 	accountRows.Close()
 	if err := accountRows.Err(); err != nil {
-		return Status{}, fmt.Errorf("read bridge accounts: %w", err)
+		return DiscordBridgeStatus{}, fmt.Errorf("read bridge accounts: %w", err)
 	}
 
 	serverRows, err := bridge.Query(`SELECT dcid, name, bridging_mode, COALESCE(mxid, '') FROM guild
 		WHERE bridging_mode != 0 ORDER BY name, dcid`)
 	if err != nil {
-		return Status{}, fmt.Errorf("read bridged servers: %w", err)
+		return DiscordBridgeStatus{}, fmt.Errorf("read bridged servers: %w", err)
 	}
 	for serverRows.Next() {
-		server := Server{Channels: []Channel{}}
+		server := DiscordBridgedServer{Channels: []DiscordBridgedChannel{}}
 		if err := serverRows.Scan(&server.DiscordServerID, &server.Name, &server.BridgingMode,
 			&server.MatrixSpaceID); err != nil {
 			serverRows.Close()
-			return Status{}, fmt.Errorf("scan bridged server: %w", err)
+			return DiscordBridgeStatus{}, fmt.Errorf("scan bridged server: %w", err)
 		}
 		server.BridgingModeName = bridgingModeNames[server.BridgingMode]
 		status.BridgedServers = append(status.BridgedServers, server)
 	}
 	serverRows.Close()
 	if err := serverRows.Err(); err != nil {
-		return Status{}, fmt.Errorf("read bridged servers: %w", err)
+		return DiscordBridgeStatus{}, fmt.Errorf("read bridged servers: %w", err)
 	}
 
 	for i := range status.BridgedServers {
 		channels, err := readChannels(bridge, status.BridgedServers[i].DiscordServerID)
 		if err != nil {
-			return Status{}, err
+			return DiscordBridgeStatus{}, err
 		}
 		status.BridgedServers[i].Channels = channels
 	}
@@ -151,12 +151,12 @@ func ReadStatus(bridge *sql.DB) (Status, error) {
 		JOIN "user" u ON u.mxid = up.user_mxid AND u.discord_token IS NOT NULL
 		JOIN guild g ON g.dcid = up.discord_id
 		WHERE up.type = 'guild' AND g.bridging_mode = 0`).Scan(&status.UnbridgedServerCount); err != nil {
-		return Status{}, fmt.Errorf("count unbridged servers: %w", err)
+		return DiscordBridgeStatus{}, fmt.Errorf("count unbridged servers: %w", err)
 	}
 	return status, nil
 }
 
-func readChannels(bridge *sql.DB, serverID string) ([]Channel, error) {
+func readChannels(bridge *sql.DB, serverID string) ([]DiscordBridgedChannel, error) {
 	placeholders := ""
 	args := []any{serverID}
 	for i, channelType := range messageChannelTypes {
@@ -176,9 +176,9 @@ func readChannels(bridge *sql.DB, serverID string) ([]Channel, error) {
 		return nil, fmt.Errorf("read channels of server %s: %w", serverID, err)
 	}
 	defer rows.Close()
-	channels := []Channel{}
+	channels := []DiscordBridgedChannel{}
 	for rows.Next() {
-		var channel Channel
+		var channel DiscordBridgedChannel
 		var lastMilliseconds sql.NullInt64
 		if err := rows.Scan(&channel.DiscordChannelID, &channel.Name, &channel.ChannelType, &channel.CategoryName,
 			&channel.MatrixRoomID, &lastMilliseconds); err != nil {
@@ -196,7 +196,7 @@ func readChannels(bridge *sql.DB, serverID string) ([]Channel, error) {
 // Annotate fills in what the bridge database cannot know: whether @admin has
 // joined each channel's room, and the message-log counts keyed by Discord
 // channel id.
-func (status *Status) Annotate(joinedRoomIDs []string, countsByChannelID map[string]db.ChannelLogCounts) {
+func (status *DiscordBridgeStatus) Annotate(joinedRoomIDs []string, countsByChannelID map[string]db.ChannelLogCounts) {
 	for i := range status.BridgedServers {
 		for j := range status.BridgedServers[i].Channels {
 			channel := &status.BridgedServers[i].Channels[j]
