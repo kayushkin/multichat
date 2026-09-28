@@ -75,6 +75,13 @@ type LoggedMessage struct {
 	RedactedByUserID   string     `json:"redacted_by_user_id"`
 }
 
+// MessageLogPage is what GET /message-log answers: messages newest first,
+// and the edits made to each, oldest first, keyed by the event id they edit.
+type MessageLogPage struct {
+	Messages []LoggedMessage            `json:"messages"`
+	Edits    map[string][]LoggedMessage `json:"edits"`
+}
+
 // LogMessage stores a message. Logging the same event twice (a re-read sync
 // batch) keeps the first row.
 func LogMessage(database *sql.DB, m LoggedMessage) error {
@@ -122,6 +129,8 @@ func MessageLogHasEvent(database *sql.DB, eventID string) (bool, error) {
 }
 
 // MessageLogFilter narrows a message log listing. Empty fields match anything.
+//
+//tygo:ignore
 type MessageLogFilter struct {
 	Platform     string
 	NetworkID    string
@@ -249,6 +258,8 @@ func MessageLogStartedAt(database *sql.DB) (time.Time, error) {
 }
 
 // ChannelLogCounts is what the message log holds for one channel.
+//
+//tygo:ignore
 type ChannelLogCounts struct {
 	LoggedMessageCount  int
 	DeletedMessageCount int

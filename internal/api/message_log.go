@@ -78,5 +78,5 @@ func (r *Router) messageLogHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, map[string]any{"messages": messages, "edits": edits})
+	r.writeJSON(w, db.MessageLogPage{Messages: messages, Edits: edits})
 }
