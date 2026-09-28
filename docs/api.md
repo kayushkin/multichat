@@ -558,7 +558,7 @@ The fields a `prompt_template` may reference, read off the struct the dispatcher
 
 ### TypeScript types
 
-`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) to `ts/inbound.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`). bridge-ui's Inbound rules page imports them; multichat's own frontend does not.
+`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) and `internal/db/message_log.go` (`LoggedMessage`, `MessageLogPage`) to `ts/db.ts`, and `internal/discordbridge/status.go` (`DiscordBridgeStatus` and its parts) to `ts/discord_status.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`, entry `ts/index.ts`). bridge-ui's Inbound rules and Discord pages import them; multichat's own frontend does not.
 
 ⚠️ A session started this way runs with nobody at the keyboard. The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so such a session **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
 
