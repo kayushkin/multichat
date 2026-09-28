@@ -151,3 +151,63 @@ func (c *Client) DisplayNameOf(userID string) (string, error) {
 	}
 	return stripBridgeSuffix(resp.DisplayName), nil
 }
+
+// BridgeInfo is what a bridge states about the platform room behind a Matrix
+// room, from the room's m.bridge state event (MSC2346). On Discord the
+// network is the server and the channel is the channel.
+type BridgeInfo struct {
+	NetworkID          string
+	NetworkName        string
+	ChannelID          string
+	ChannelName        string
+	ChannelExternalURL string
+}
+
+// RoomBridgeInfo reads a room's m.bridge state event. A room with none (a
+// plain Matrix room, or a bridge that does not set one) gives an empty
+// BridgeInfo; a room with more than one is an error, since there is then no
+// single answer.
+func (c *Client) RoomBridgeInfo(roomID string) (BridgeInfo, error) {
+	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state", nil)
+	if err != nil {
+		return BridgeInfo{}, err
+	}
+	var events []struct {
+		Type    string `json:"type"`
+		Content struct {
+			Network struct {
+				ID          string `json:"id"`
+				DisplayName string `json:"displayname"`
+			} `json:"network"`
+			Channel struct {
+				ID          string `json:"id"`
+				DisplayName string `json:"displayname"`
+				ExternalURL string `json:"external_url"`
+			} `json:"channel"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(data, &events); err != nil {
+		return BridgeInfo{}, fmt.Errorf("state of %s: %w", roomID, err)
+	}
+	var found []BridgeInfo
+	for _, event := range events {
+		if event.Type != "m.bridge" {
+			continue
+		}
+		found = append(found, BridgeInfo{
+			NetworkID:          event.Content.Network.ID,
+			NetworkName:        event.Content.Network.DisplayName,
+			ChannelID:          event.Content.Channel.ID,
+			ChannelName:        event.Content.Channel.DisplayName,
+			ChannelExternalURL: event.Content.Channel.ExternalURL,
+		})
+	}
+	switch len(found) {
+	case 0:
+		return BridgeInfo{}, nil
+	case 1:
+		return found[0], nil
+	default:
+		return BridgeInfo{}, fmt.Errorf("room %s has %d m.bridge state events", roomID, len(found))
+	}
+}

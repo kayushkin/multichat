@@ -15,6 +15,32 @@ type TimelineEvent struct {
 	Sender         string          `json:"sender"`
 	OriginServerTS int64           `json:"origin_server_ts"`
 	Content        json.RawMessage `json:"content"`
+	// Redacts is the event an m.room.redaction removes, in room versions
+	// before 11. From version 11 it moved into content; RedactedEventID
+	// reads both.
+	Redacts string `json:"redacts"`
+	// Unsigned.RedactedBecause is set when the event was already redacted by
+	// the time it was read; its content is then empty.
+	Unsigned struct {
+		RedactedBecause *TimelineEvent `json:"redacted_because"`
+	} `json:"unsigned"`
+}
+
+// RedactedEventID returns the event an m.room.redaction removes.
+func (e TimelineEvent) RedactedEventID() (string, error) {
+	if e.Redacts != "" {
+		return e.Redacts, nil
+	}
+	var content struct {
+		Redacts string `json:"redacts"`
+	}
+	if err := json.Unmarshal(e.Content, &content); err != nil {
+		return "", fmt.Errorf("redaction %s: %w", e.EventID, err)
+	}
+	if content.Redacts == "" {
+		return "", fmt.Errorf("redaction %s names no event", e.EventID)
+	}
+	return content.Redacts, nil
 }
 
 // MessageContent is the content of an m.room.message event.
@@ -28,16 +54,19 @@ type MessageContent struct {
 type SyncResponse struct {
 	NextBatch string
 	Rooms     map[string][]TimelineEvent
+	// PrevBatch holds, for each room whose timeline was truncated, the token
+	// that pages backward from the oldest event delivered into the gap.
+	PrevBatch map[string]string
 }
 
-// syncFilter asks Synapse for m.room.message events only, with the member
+// syncFilter asks Synapse for messages and redactions only, with the member
 // state lazy-loaded so a sync does not carry every membership of every room.
 // The timeline limit is per room per sync; a room that produced more than
 // this many messages between two syncs is reported with limited=true and the
 // oldest are dropped, which the worker logs rather than hides.
 const syncTimelineLimit = 50
 
-var syncFilter = url.QueryEscape(`{"room":{"timeline":{"types":["m.room.message"],"limit":` + strconv.Itoa(syncTimelineLimit) + `},"state":{"lazy_load_members":true,"types":[]},"ephemeral":{"types":[]},"account_data":{"types":[]}},"presence":{"types":[]},"account_data":{"types":[]}}`)
+var syncFilter = url.QueryEscape(`{"room":{"timeline":{"types":["m.room.message","m.room.redaction"],"limit":` + strconv.Itoa(syncTimelineLimit) + `},"state":{"lazy_load_members":true,"types":[]},"ephemeral":{"types":[]},"account_data":{"types":[]}},"presence":{"types":[]},"account_data":{"types":[]}}`)
 
 // Sync long-polls /sync. With since == "" it is the initial sync, which
 // returns the token to start from and whatever recent timeline Synapse
@@ -59,8 +88,9 @@ func (c *Client) Sync(since string, timeoutMilliseconds int) (*SyncResponse, err
 		Rooms     struct {
 			Join map[string]struct {
 				Timeline struct {
-					Events  []TimelineEvent `json:"events"`
-					Limited bool            `json:"limited"`
+					Events    []TimelineEvent `json:"events"`
+					Limited   bool            `json:"limited"`
+					PrevBatch string          `json:"prev_batch"`
 				} `json:"timeline"`
 			} `json:"join"`
 		} `json:"rooms"`
@@ -71,7 +101,7 @@ func (c *Client) Sync(since string, timeoutMilliseconds int) (*SyncResponse, err
 	if raw.NextBatch == "" {
 		return nil, fmt.Errorf("sync: empty next_batch")
 	}
-	out := &SyncResponse{NextBatch: raw.NextBatch, Rooms: map[string][]TimelineEvent{}}
+	out := &SyncResponse{NextBatch: raw.NextBatch, Rooms: map[string][]TimelineEvent{}, PrevBatch: map[string]string{}}
 	var limited []string
 	for roomID, room := range raw.Rooms.Join {
 		if len(room.Timeline.Events) == 0 {
@@ -80,6 +110,7 @@ func (c *Client) Sync(since string, timeoutMilliseconds int) (*SyncResponse, err
 		out.Rooms[roomID] = room.Timeline.Events
 		if room.Timeline.Limited && since != "" {
 			limited = append(limited, roomID)
+			out.PrevBatch[roomID] = room.Timeline.PrevBatch
 		}
 	}
 	if len(limited) > 0 {
@@ -101,4 +132,24 @@ func (e *TimelineGapError) Error() string {
 
 func isMatrixNotFound(err error) bool {
 	return err != nil && strings.Contains(err.Error(), ": 404 ")
+}
+
+// RoomEventsBefore pages backward through a room's messages and redactions
+// from a token, newest first, and returns the token for the next older page
+// ("" when the room has no more).
+func (c *Client) RoomEventsBefore(roomID, from string, limit int) ([]TimelineEvent, string, error) {
+	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/messages?dir=b&limit=" + strconv.Itoa(limit) +
+		"&filter=" + url.QueryEscape(`{"types":["m.room.message","m.room.redaction"]}`) + "&from=" + url.QueryEscape(from)
+	data, err := c.request("GET", path, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	var page struct {
+		Chunk []TimelineEvent `json:"chunk"`
+		End   string          `json:"end"`
+	}
+	if err := json.Unmarshal(data, &page); err != nil {
+		return nil, "", fmt.Errorf("messages of %s: %w", roomID, err)
+	}
+	return page.Chunk, page.End, nil
 }

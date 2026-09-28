@@ -521,6 +521,10 @@ PATCH merges the fields sent onto the stored row and re-validates the whole rule
 
 What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user_id`, `bus_session_id` (the id llm-bridge-adapter maps to a bridge session), and `error` when the session could not be started (instance disabled, bus down). One row per rule per message — the `(rule_id, event_id)` pair is unique, which is how a JetStream redelivery is absorbed.
 
+### GET /message-log
+
+Every message a bridge brought in since the log started, newest first, with deleted ones kept. Query: `platform` (one of `/inbound-platforms`), `network_id` (on Discord the server id), `room_id`, `sender_user_id`, `q` (substring of the body, any case), `deleted=true` (deleted only), `before` (RFC 3339; the next page is `before=` the last row's `sent_at`), `limit` (1–1000, default 200). Answers `{"messages": [...], "edits": {"<event_id>": [...]}}`. A message has `event_id`, `room_id`, `room_name`, `platform`, `network_id`, `network_name`, `channel_id`, `channel_name`, `channel_external_url`, `sender_user_id`, `sender_display_name`, `message_type`, `body`, `content_json`, `replaces_event_id` (set on an edit), `sent_at`, `logged_at`, and `redacted_at`, `redaction_event_id`, `redacted_by_user_id` once deleted. `edits` holds the edits made to each listed message, oldest first. A bad filter is a 400 naming it.
+
 ### GET /inbound-platforms
 
 The platform vocabulary a rule may name: `["whatsapp","telegram","signal","meta"]`.

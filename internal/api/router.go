@@ -129,6 +129,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
+	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.
 	r.mux.Handle(SettingsPath, servicesettings.Handler(r.settings, SettingsPath))

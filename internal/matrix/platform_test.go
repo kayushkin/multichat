@@ -20,3 +20,17 @@ func TestPlatformOfUserIDReadsEveryBridgePuppetPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactedEventIDReadsBothRoomVersions(t *testing.T) {
+	old := TimelineEvent{EventID: "$r", Redacts: "$target", Content: []byte(`{}`)}
+	if got, err := old.RedactedEventID(); err != nil || got != "$target" {
+		t.Fatalf("top-level redacts: %q %v", got, err)
+	}
+	v11 := TimelineEvent{EventID: "$r", Content: []byte(`{"redacts":"$target"}`)}
+	if got, err := v11.RedactedEventID(); err != nil || got != "$target" {
+		t.Fatalf("content redacts: %q %v", got, err)
+	}
+	if _, err := (TimelineEvent{EventID: "$r", Content: []byte(`{}`)}).RedactedEventID(); err == nil {
+		t.Fatal("a redaction naming no event must be an error")
+	}
+}

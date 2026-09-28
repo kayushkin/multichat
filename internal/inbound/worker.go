@@ -3,7 +3,8 @@
 //
 // Two loops run in the server process:
 //
-//   - SyncWorker long-polls Synapse /sync and publishes every message a
+//   - SyncWorker long-polls Synapse /sync, writes every bridged message and
+//     every redaction to the message log (message_log.go), and publishes every message a
 //     person sent as messages.MessagingInbound on messaging.inbound
 //     (JetStream, stream MESSAGING). Our own sends and our own platform
 //     puppets are dropped here, so no consumer ever sees itself.
@@ -44,6 +45,10 @@ type SyncWorker struct {
 	// rooms caches what does not change between messages: the room's name,
 	// platform and whether it is a direct message.
 	rooms map[string]roomFacts
+	// bridges caches each room's m.bridge state for the message log.
+	bridges map[string]matrix.BridgeInfo
+	// messageLogStartedAt bounds how far back a gap is filled.
+	messageLogStartedAt time.Time
 }
 
 type roomFacts struct {
@@ -55,6 +60,12 @@ type roomFacts struct {
 // failed publish stops the token from advancing so the batch is re-read.
 func (w *SyncWorker) Run() {
 	w.rooms = map[string]roomFacts{}
+	w.bridges = map[string]matrix.BridgeInfo{}
+	startedAt, err := db.MessageLogStartedAt(w.Database)
+	if err != nil {
+		log.Fatalf("inbound sync: %v", err)
+	}
+	w.messageLogStartedAt = startedAt
 	since, err := db.SyncNextBatch(w.Database)
 	if err != nil {
 		log.Fatalf("inbound sync: %v", err)
@@ -83,6 +94,11 @@ func (w *SyncWorker) Run() {
 		}
 		if err != nil {
 			log.Printf("inbound sync: %v (retrying in 5s)", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		if err := w.logBatch(resp); err != nil {
+			log.Printf("message log: %v (not advancing past %s)", err, since)
 			time.Sleep(5 * time.Second)
 			continue
 		}
