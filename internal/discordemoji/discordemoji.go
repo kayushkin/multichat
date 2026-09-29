@@ -322,7 +322,9 @@ func BridgeSeenEmoji(bridgeDatabase *sql.DB) ([]db.DiscordCustomEmoji, error) {
 			order = append(order, id)
 		}
 		byID[id] = db.DiscordCustomEmoji{
-			DiscordEmojiID: id, Name: name,
+			// The bridge files some names as ":name:" (from a reaction's
+			// shortcode); the catalog's names carry no colons.
+			DiscordEmojiID: id, Name: strings.Trim(name, ":"),
 			// Discord serves an animated emoji as .gif, or as .webp?animated=true.
 			Animated:    strings.Contains(url, ".gif") || strings.Contains(url, "animated=true"),
 			FetchedAt:   time.UnixMilli(timestamp).UTC(),

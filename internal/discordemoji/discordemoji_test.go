@@ -241,13 +241,13 @@ func TestBridgeSeenEmoji(t *testing.T) {
 	bridge.Exec(`INSERT INTO discord_file (url, encrypted, mxc, id, emoji_name, size, mime_type, timestamp) VALUES
 		('https://cdn.discordapp.com/emojis/1.gif', false, 'mxc://x/old', '1', 'dance', 1, 'image/gif', 1),
 		('https://cdn.discordapp.com/emojis/1.webp?animated=true', false, 'mxc://x/new', '1', 'dance', 1, 'image/webp', 2),
-		('https://cdn.discordapp.com/emojis/2.png', false, 'mxc://x/two', '2', 'wave', 1, 'image/png', 3),
+		('https://cdn.discordapp.com/emojis/2.png', false, 'mxc://x/two', '2', ':wave:', 1, 'image/png', 3),
 		('https://cdn.discordapp.com/attachments/3/photo.png', false, 'mxc://x/photo', '', '', 1, 'image/png', 4)`)
 	seen, err := BridgeSeenEmoji(bridge)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(seen) != 2 || seen[0].BridgeMXC != "mxc://x/new" || !seen[0].Animated || seen[1].Animated || seen[1].ReactionKey != "discord-emoji:2" {
+	if len(seen) != 2 || seen[0].BridgeMXC != "mxc://x/new" || !seen[0].Animated || seen[1].Animated || seen[1].ReactionKey != "discord-emoji:2" || seen[1].Name != "wave" {
 		t.Fatalf("seen = %+v", seen)
 	}
 }
