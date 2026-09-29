@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/discordemoji"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
@@ -64,17 +65,22 @@ func (r *Router) postReactionHandler(w http.ResponseWriter, req *http.Request, r
 	}
 	shortcode := ""
 	if discordEmojiID, custom := strings.CutPrefix(body.Key, db.DiscordEmojiReactionKeyPrefix); custom {
+		if r.discordDBPath == "" {
+			r.writeError(w, 503, "DISCORD_DB is not set, so the Discord bridge cannot relay custom emoji "+body.Key)
+			return
+		}
 		emoji, err := db.DiscordCustomEmojiByID(r.db, discordEmojiID)
 		if errors.Is(err, db.ErrNotFound) {
-			r.writeError(w, 400, "key "+body.Key+" is not in the custom emoji catalog; POST /emoji/discord/refresh fetches it")
-			return
+			// Not a bridged server's: it may be one the bridge has seen,
+			// which it already knows and needs no teaching.
+			emoji, err = r.seenDiscordEmoji(discordEmojiID)
+			if errors.Is(err, db.ErrNotFound) {
+				r.writeError(w, 400, "key "+body.Key+" is neither in the custom emoji catalog nor an emoji the bridge has seen; POST /emoji/discord/refresh fetches the catalog")
+				return
+			}
 		}
 		if err != nil {
 			r.writeError(w, 500, err.Error())
-			return
-		}
-		if r.discordDBPath == "" {
-			r.writeError(w, 503, "DISCORD_DB is not set, so the Discord bridge cannot be taught emoji "+emoji.Name)
 			return
 		}
 		bridge, err := discordemoji.OpenBridgeDatabaseForWriting(r.discordDBPath)
@@ -181,4 +187,24 @@ func (r *Router) takeBackReactionHandler(w http.ResponseWriter, req *http.Reques
 		return
 	}
 	r.writeJSON(w, map[string]string{"redaction_event_id": redactionEventID})
+}
+
+// seenDiscordEmoji returns an emoji the bridge has relayed from Discord, or
+// db.ErrNotFound.
+func (r *Router) seenDiscordEmoji(discordEmojiID string) (db.DiscordCustomEmoji, error) {
+	bridge, err := discordbridge.Open(r.discordDBPath)
+	if err != nil {
+		return db.DiscordCustomEmoji{}, err
+	}
+	defer bridge.Close()
+	seen, err := discordemoji.BridgeSeenEmoji(bridge)
+	if err != nil {
+		return db.DiscordCustomEmoji{}, err
+	}
+	for _, emoji := range seen {
+		if emoji.DiscordEmojiID == discordEmojiID {
+			return emoji, nil
+		}
+	}
+	return db.DiscordCustomEmoji{}, db.ErrNotFound
 }

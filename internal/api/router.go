@@ -33,6 +33,7 @@ type Router struct {
 	// discordEmojiTeacher adds one to the bridge before we react with it.
 	discordEmojiRefresher discordemoji.Refresher
 	discordEmojiTeacher   discordemoji.Teacher
+	discordNitroChecker   discordemoji.NitroChecker
 
 	// llmBridgeURL is where inbound rules have their instance_id checked
 	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
@@ -85,6 +86,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		BotCredentialID:   loaded.DiscordEmojiBotCredentialID,
 		DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL,
 	}
+	r.discordNitroChecker = discordemoji.NitroChecker{HTTPClient: r.httpClient, DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL}
 	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
 	r.setupRoutes()
 	return r
@@ -156,6 +158,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/emoji/discord/refresh", r.refreshDiscordEmojiHandler)
 	r.mux.HandleFunc("/emoji/favorites", r.emojiFavoritesHandler)
 	r.mux.HandleFunc("/emoji/settings", r.emojiSettingsHandler)
+	r.mux.HandleFunc("/emoji/discord/nitro-check", r.discordNitroCheckHandler)
 	r.mux.HandleFunc("/media/", r.mediaHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.

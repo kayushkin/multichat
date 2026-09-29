@@ -3,6 +3,7 @@ package discordemoji
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"image"
 	"image/png"
 	"net/http"
@@ -184,5 +185,69 @@ func TestTeachUsesTheBridgesOwnMXC(t *testing.T) {
 	mxc, err := Teacher{Uploader: uploader}.Teach(bridge, db.DiscordCustomEmoji{DiscordEmojiID: "3", Name: "parrot"})
 	if err != nil || mxc != "mxc://chat.example/bridges" || len(uploader.uploads) != 0 {
 		t.Fatalf("teach = %q, %v, uploads %v", mxc, err, uploader.uploads)
+	}
+}
+
+const bridgeUserSchema = `CREATE TABLE "user" (mxid TEXT PRIMARY KEY, dcid TEXT UNIQUE, discord_token TEXT, management_room TEXT,
+	space_room TEXT, dm_space_room TEXT, read_state_version INTEGER NOT NULL DEFAULT 0, heartbeat_session jsonb);`
+
+// The check sends the login bare, reads premium_type, and never puts the
+// login in an error.
+func TestNitroCheck(t *testing.T) {
+	var sentAuthorization string
+	status := 200
+	answer := `{"id":"42","premium_type":2}`
+	discord := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/@me" {
+			http.NotFound(w, r)
+			return
+		}
+		sentAuthorization = r.Header.Get("Authorization")
+		w.WriteHeader(status)
+		w.Write([]byte(answer))
+	}))
+	defer discord.Close()
+	bridge := openBridge(t)
+	checker := NitroChecker{HTTPClient: discord.Client(), DiscordAPIBaseURL: discord.URL}
+	if _, err := bridge.Exec(bridgeUserSchema); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := checker.Check(bridge); !errors.Is(err, ErrNoDiscordLogin) {
+		t.Fatalf("no login: %v", err)
+	}
+	bridge.Exec(`INSERT INTO "user" (mxid, dcid, discord_token) VALUES ('@admin:x', '42', 'the-secret-login')`)
+
+	id, premium, err := checker.Check(bridge)
+	if err != nil || id != "42" || premium != 2 || sentAuthorization != "the-secret-login" {
+		t.Fatalf("check = %s %d %v, sent %q", id, premium, err, sentAuthorization)
+	}
+
+	status, answer = 401, `{"message": "401: Unauthorized", "code": 0}`
+	_, _, err = checker.Check(bridge)
+	if err == nil || strings.Contains(err.Error(), "the-secret-login") || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("refused check: %v", err)
+	}
+
+	status, answer = 200, `{"id":"99","premium_type":0}`
+	if _, _, err := checker.Check(bridge); err == nil || !strings.Contains(err.Error(), "99") {
+		t.Fatalf("another account's answer: %v", err)
+	}
+}
+
+// Each emoji the bridge has seen is listed once, animated when Discord
+// serves it animated.
+func TestBridgeSeenEmoji(t *testing.T) {
+	bridge := openBridge(t)
+	bridge.Exec(`INSERT INTO discord_file (url, encrypted, mxc, id, emoji_name, size, mime_type, timestamp) VALUES
+		('https://cdn.discordapp.com/emojis/1.gif', false, 'mxc://x/old', '1', 'dance', 1, 'image/gif', 1),
+		('https://cdn.discordapp.com/emojis/1.webp?animated=true', false, 'mxc://x/new', '1', 'dance', 1, 'image/webp', 2),
+		('https://cdn.discordapp.com/emojis/2.png', false, 'mxc://x/two', '2', 'wave', 1, 'image/png', 3),
+		('https://cdn.discordapp.com/attachments/3/photo.png', false, 'mxc://x/photo', '', '', 1, 'image/png', 4)`)
+	seen, err := BridgeSeenEmoji(bridge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen[0].BridgeMXC != "mxc://x/new" || !seen[0].Animated || seen[1].Animated || seen[1].ReactionKey != "discord-emoji:2" {
+		t.Fatalf("seen = %+v", seen)
 	}
 }

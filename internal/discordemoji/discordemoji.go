@@ -299,3 +299,116 @@ func (t Teacher) Teach(bridgeDatabase *sql.DB, emoji db.DiscordCustomEmoji) (str
 func imageConfig(data []byte) (image.Config, string, error) {
 	return image.DecodeConfig(bytes.NewReader(data))
 }
+
+// BridgeSeenEmoji returns every custom emoji the bridge has relayed from
+// Discord, once per emoji id (the newest row when the bridge filed one under
+// two addresses). The bridge records no server for them.
+func BridgeSeenEmoji(bridgeDatabase *sql.DB) ([]db.DiscordCustomEmoji, error) {
+	rows, err := bridgeDatabase.Query(`SELECT id, emoji_name, mxc, url, timestamp FROM discord_file
+		WHERE id IS NOT NULL AND id != '' AND emoji_name IS NOT NULL AND emoji_name != '' AND encrypted = 0 ORDER BY timestamp`)
+	if err != nil {
+		return nil, fmt.Errorf("bridge emoji: %w", err)
+	}
+	defer rows.Close()
+	byID := map[string]db.DiscordCustomEmoji{}
+	var order []string
+	for rows.Next() {
+		var id, name, mxc, url string
+		var timestamp int64
+		if err := rows.Scan(&id, &name, &mxc, &url, &timestamp); err != nil {
+			return nil, fmt.Errorf("scan bridge emoji: %w", err)
+		}
+		if _, seen := byID[id]; !seen {
+			order = append(order, id)
+		}
+		byID[id] = db.DiscordCustomEmoji{
+			DiscordEmojiID: id, Name: name,
+			// Discord serves an animated emoji as .gif, or as .webp?animated=true.
+			Animated:    strings.Contains(url, ".gif") || strings.Contains(url, "animated=true"),
+			FetchedAt:   time.UnixMilli(timestamp).UTC(),
+			ReactionKey: db.DiscordEmojiReactionKeyPrefix + id,
+			BridgeMXC:   mxc,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]db.DiscordCustomEmoji, 0, len(order))
+	for _, id := range order {
+		out = append(out, byID[id])
+	}
+	return out, nil
+}
+
+// NitroChecker asks Discord whether the bridge's account has Nitro.
+type NitroChecker struct {
+	HTTPClient *http.Client
+	// DiscordAPIBaseURL is DiscordAPIBaseURL outside tests.
+	DiscordAPIBaseURL string
+}
+
+// ErrNoDiscordLogin is returned when the bridge holds no logged-in account.
+var ErrNoDiscordLogin = errors.New("the Discord bridge has no logged-in account")
+
+// Check reads the account's Discord login from the bridge's user table and
+// makes one call, GET /users/@me, the call Discord's own app makes when it
+// opens. The login is held only for that call: it is never logged, stored or
+// put in an error. It returns the account's Discord user id and Discord's
+// premium_type.
+func (c NitroChecker) Check(bridgeDatabase *sql.DB) (string, int, error) {
+	rows, err := bridgeDatabase.Query(`SELECT dcid, discord_token FROM "user" WHERE discord_token IS NOT NULL AND discord_token != '' AND dcid IS NOT NULL AND dcid != ''`)
+	if err != nil {
+		return "", 0, fmt.Errorf("read the bridge's Discord account: %w", err)
+	}
+	type login struct{ discordUserID, token string }
+	var logins []login
+	for rows.Next() {
+		var l login
+		if err := rows.Scan(&l.discordUserID, &l.token); err != nil {
+			rows.Close()
+			return "", 0, fmt.Errorf("read the bridge's Discord account: %w", err)
+		}
+		logins = append(logins, l)
+	}
+	rows.Close()
+	if len(logins) == 0 {
+		return "", 0, ErrNoDiscordLogin
+	}
+	if len(logins) > 1 {
+		return "", 0, fmt.Errorf("the Discord bridge holds %d logged-in accounts; multichat expects one", len(logins))
+	}
+	account := logins[0]
+	req, err := http.NewRequest("GET", strings.TrimRight(c.DiscordAPIBaseURL, "/")+"/users/@me", nil)
+	if err != nil {
+		return "", 0, err
+	}
+	// A user login goes bare, without the "Bot " a bot token takes.
+	req.Header.Set("Authorization", account.token)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		// The request error names the URL, never the header.
+		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", 0, fmt.Errorf("discord: GET /users/@me: %d %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var me struct {
+		ID          string `json:"id"`
+		PremiumType *int   `json:"premium_type"`
+	}
+	if err := json.Unmarshal(data, &me); err != nil {
+		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
+	}
+	if me.ID != account.discordUserID {
+		return "", 0, fmt.Errorf("discord: GET /users/@me answered for user %s, but the bridge's account is %s", me.ID, account.discordUserID)
+	}
+	if me.PremiumType == nil {
+		return "", 0, fmt.Errorf("discord: GET /users/@me for %s carried no premium_type", me.ID)
+	}
+	return me.ID, *me.PremiumType, nil
+}

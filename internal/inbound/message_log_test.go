@@ -42,7 +42,7 @@ func TestTheLogWriterKeepsMessagesAndReactionsAndMarksWhicheverARedactionHits(t 
 		event("$laugh", "m.reaction", "@discord_2:x", `{"m.relates_to":{"event_id":"$message","key":"🤣","rel_type":"m.annotation"}}`),
 		event("$this", "m.reaction", "@discord_3:x", `{"com.beeper.reaction.shortcode":":this:","m.relates_to":{"event_id":"$message","key":"mxc://x/this","rel_type":"m.annotation"}}`),
 		event("$admin", "m.reaction", "@admin:x", `{"m.relates_to":{"event_id":"$message","key":"👍","rel_type":"m.annotation"}}`), // neither a bridge puppet nor us
-		event("$mine", "m.reaction", "@me:x", `{"m.relates_to":{"event_id":"$message","key":"🔥","rel_type":"m.annotation"}}`),    // our own account: logged
+		event("$mine", "m.reaction", "@me:x", `{"m.relates_to":{"event_id":"$message","key":"🔥","rel_type":"m.annotation"}}`),     // our own account: logged
 		removedBeforeRead,
 		event("$unreact", "m.room.redaction", "@discord_2:x", `{"redacts":"$laugh"}`),
 		// Stickers as mautrix-discord sends them: an image one, and a Lottie one it could not convert.

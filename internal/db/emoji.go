@@ -52,14 +52,36 @@ CREATE TABLE IF NOT EXISTS emoji_favorites (
 CREATE TABLE IF NOT EXISTS emoji_settings (
 	id                            INTEGER PRIMARY KEY CHECK (id = 1),
 	skin_tone                     TEXT NOT NULL DEFAULT '',
-	quick_reaction_count          INTEGER NOT NULL DEFAULT 5,
-	offer_other_servers_emoji     INTEGER NOT NULL DEFAULT 0
+	quick_reaction_count          INTEGER NOT NULL DEFAULT 5
+);
+
+-- Every check of whether the Discord account has Nitro (GET /users/@me with
+-- the bridge's login), kept so a day's check is made once. premium_type is
+-- Discord's (0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro Basic), NULL when the
+-- check failed; error says why.
+CREATE TABLE IF NOT EXISTS discord_nitro_checks (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	checked_at       DATETIME NOT NULL,
+	discord_user_id  TEXT NOT NULL DEFAULT '',
+	premium_type     INTEGER,
+	error            TEXT NOT NULL DEFAULT ''
 );
 `
 
 func createEmojiSchema(database *sql.DB) error {
 	if _, err := database.Exec(emojiSchema); err != nil {
 		return fmt.Errorf("emoji schema: %w", err)
+	}
+	// Until 2026-09-29 a switch decided whether a Discord room was offered
+	// other servers' emoji; the daily Nitro check decides it now.
+	var hasSwitch int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('emoji_settings') WHERE name = 'offer_other_servers_emoji'`).Scan(&hasSwitch); err != nil {
+		return fmt.Errorf("emoji schema: %w", err)
+	}
+	if hasSwitch > 0 {
+		if _, err := database.Exec(`ALTER TABLE emoji_settings DROP COLUMN offer_other_servers_emoji`); err != nil {
+			return fmt.Errorf("emoji schema: drop offer_other_servers_emoji: %w", err)
+		}
 	}
 	return nil
 }
@@ -102,21 +124,40 @@ type EmojiSettings struct {
 	// QuickReactionCount is how many favourites the quick-react bar under a
 	// message shows, 0 to MaxQuickReactionCount.
 	QuickReactionCount int `json:"quick_reaction_count"`
-	// OfferOtherServersEmoji offers a Discord room the custom emoji of every
-	// bridged server, not only its own. Discord refuses another server's
-	// emoji to an account without Nitro.
-	OfferOtherServersEmoji bool `json:"offer_other_servers_emoji"`
+}
+
+// DiscordNitroCheck is one check of whether the bridge's Discord account has
+// Nitro. With Nitro a Discord room is offered every server's custom emoji;
+// without it Discord refuses an emoji outside its own server.
+type DiscordNitroCheck struct {
+	CheckedAt     time.Time `json:"checked_at"`
+	DiscordUserID string    `json:"discord_user_id"`
+	// PremiumType is Discord's: 0 none, 1 Nitro Classic, 2 Nitro, 3 Nitro
+	// Basic. Every paid one allows custom emoji anywhere.
+	PremiumType int  `json:"premium_type"`
+	HasNitro    bool `json:"has_nitro"`
 }
 
 // MaxQuickReactionCount bounds EmojiSettings.QuickReactionCount.
 const MaxQuickReactionCount = 12
 
 // EmojiCatalog is everything a picker needs: every bridged server's custom
-// emoji, when each server was last refreshed, and the operator's favourites
-// and settings.
+// emoji, the emoji the bridge has seen from other servers, when each server
+// was last refreshed, whether the account has Nitro, and the operator's
+// favourites and settings.
 type EmojiCatalog struct {
-	DiscordCustomEmoji []DiscordCustomEmoji        `json:"discord_custom_emoji"`
-	DiscordRefreshes   []DiscordServerEmojiRefresh `json:"discord_refreshes"`
+	DiscordCustomEmoji []DiscordCustomEmoji `json:"discord_custom_emoji"`
+	// DiscordSeenEmoji are custom emoji the bridge has relayed from Discord
+	// (someone used them in a bridged channel) that belong to no bridged
+	// server. The bridge records no server for them, so the server fields
+	// are empty; each already has its BridgeMXC.
+	DiscordSeenEmoji []DiscordCustomEmoji        `json:"discord_seen_emoji"`
+	DiscordRefreshes []DiscordServerEmojiRefresh `json:"discord_refreshes"`
+	// DiscordNitro is the latest check that answered, null before the first.
+	DiscordNitro *DiscordNitroCheck `json:"discord_nitro"`
+	// DiscordNitroError is why the latest check failed, when it failed after
+	// the one in DiscordNitro; "" otherwise.
+	DiscordNitroError string `json:"discord_nitro_error"`
 	// FavoriteKeys are unicode emoji and "discord-emoji:<id>" keys, in order.
 	FavoriteKeys []string      `json:"favorite_keys"`
 	Settings     EmojiSettings `json:"settings"`
@@ -226,8 +267,9 @@ var ErrInvalidEmojiKey = errors.New("invalid emoji key")
 
 // ReplaceEmojiFavorites stores keys as the favourites, in that order. Each is
 // a unicode emoji (short text, no spaces) or "discord-emoji:<id>" of an emoji
-// in the catalog; a repeated key is refused rather than dropped.
-func ReplaceEmojiFavorites(database *sql.DB, keys []string) error {
+// in the catalog or in seenDiscordEmojiIDs (the emoji the bridge has seen); a
+// repeated key is refused rather than dropped.
+func ReplaceEmojiFavorites(database *sql.DB, keys []string, seenDiscordEmojiIDs map[string]bool) error {
 	seen := map[string]bool{}
 	for _, key := range keys {
 		if seen[key] {
@@ -235,6 +277,9 @@ func ReplaceEmojiFavorites(database *sql.DB, keys []string) error {
 		}
 		seen[key] = true
 		if id, custom := strings.CutPrefix(key, DiscordEmojiReactionKeyPrefix); custom {
+			if seenDiscordEmojiIDs[id] {
+				continue
+			}
 			if _, err := DiscordCustomEmojiByID(database, id); errors.Is(err, ErrNotFound) {
 				return fmt.Errorf("%w: %q is not in the custom emoji catalog", ErrInvalidEmojiKey, key)
 			} else if err != nil {
@@ -263,13 +308,13 @@ func ReplaceEmojiFavorites(database *sql.DB, keys []string) error {
 }
 
 // DefaultEmojiSettings are the settings before the operator changes any.
-var DefaultEmojiSettings = EmojiSettings{SkinTone: "", QuickReactionCount: 5, OfferOtherServersEmoji: false}
+var DefaultEmojiSettings = EmojiSettings{SkinTone: "", QuickReactionCount: 5}
 
 // ReadEmojiSettings returns the settings, DefaultEmojiSettings until they are first saved.
 func ReadEmojiSettings(database *sql.DB) (EmojiSettings, error) {
 	var s EmojiSettings
-	err := database.QueryRow(`SELECT skin_tone, quick_reaction_count, offer_other_servers_emoji FROM emoji_settings WHERE id = 1`).
-		Scan(&s.SkinTone, &s.QuickReactionCount, &s.OfferOtherServersEmoji)
+	err := database.QueryRow(`SELECT skin_tone, quick_reaction_count FROM emoji_settings WHERE id = 1`).
+		Scan(&s.SkinTone, &s.QuickReactionCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DefaultEmojiSettings, nil
 	}
@@ -294,11 +339,59 @@ func SaveEmojiSettings(database *sql.DB, s EmojiSettings) error {
 	if s.QuickReactionCount < 0 || s.QuickReactionCount > MaxQuickReactionCount {
 		return fmt.Errorf("%w: quick_reaction_count %d is not between 0 and %d", ErrInvalidEmojiSettings, s.QuickReactionCount, MaxQuickReactionCount)
 	}
-	_, err := database.Exec(`INSERT INTO emoji_settings (id, skin_tone, quick_reaction_count, offer_other_servers_emoji) VALUES (1, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET skin_tone = excluded.skin_tone, quick_reaction_count = excluded.quick_reaction_count,
-		offer_other_servers_emoji = excluded.offer_other_servers_emoji`, s.SkinTone, s.QuickReactionCount, s.OfferOtherServersEmoji)
+	_, err := database.Exec(`INSERT INTO emoji_settings (id, skin_tone, quick_reaction_count) VALUES (1, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET skin_tone = excluded.skin_tone, quick_reaction_count = excluded.quick_reaction_count`,
+		s.SkinTone, s.QuickReactionCount)
 	if err != nil {
 		return fmt.Errorf("save emoji settings: %w", err)
 	}
 	return nil
+}
+
+// RecordDiscordNitroCheck stores a check: premiumType is nil when it failed,
+// with checkError saying why.
+func RecordDiscordNitroCheck(database *sql.DB, checkedAt time.Time, discordUserID string, premiumType *int, checkError string) error {
+	_, err := database.Exec(`INSERT INTO discord_nitro_checks (checked_at, discord_user_id, premium_type, error) VALUES (?, ?, ?, ?)`,
+		checkedAt.UTC(), discordUserID, premiumType, checkError)
+	if err != nil {
+		return fmt.Errorf("record Nitro check: %w", err)
+	}
+	return nil
+}
+
+// LastDiscordNitroCheckAt is when the latest check was made, answered or
+// not; zero before the first.
+func LastDiscordNitroCheckAt(database *sql.DB) (time.Time, error) {
+	var checkedAt time.Time
+	err := database.QueryRow(`SELECT checked_at FROM discord_nitro_checks ORDER BY id DESC LIMIT 1`).Scan(&checkedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("last Nitro check: %w", err)
+	}
+	return checkedAt, nil
+}
+
+// DiscordNitroStatus returns the latest check that answered (nil before the
+// first) and, when a later check failed, why.
+func DiscordNitroStatus(database *sql.DB) (*DiscordNitroCheck, string, error) {
+	var answered *DiscordNitroCheck
+	var answeredID int64
+	var check DiscordNitroCheck
+	err := database.QueryRow(`SELECT id, checked_at, discord_user_id, premium_type FROM discord_nitro_checks
+		WHERE premium_type IS NOT NULL ORDER BY id DESC LIMIT 1`).Scan(&answeredID, &check.CheckedAt, &check.DiscordUserID, &check.PremiumType)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, "", fmt.Errorf("Nitro status: %w", err)
+	}
+	if err == nil {
+		check.HasNitro = check.PremiumType > 0
+		answered = &check
+	}
+	var lastError string
+	err = database.QueryRow(`SELECT error FROM discord_nitro_checks WHERE premium_type IS NULL AND id > ? ORDER BY id DESC LIMIT 1`, answeredID).Scan(&lastError)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, "", fmt.Errorf("Nitro status: %w", err)
+	}
+	return answered, lastError, nil
 }
