@@ -182,6 +182,10 @@ type Conversation struct {
 	Platform          string `json:"platform,omitempty"`
 	LastActivity      int64  `json:"last_activity"`
 	LastMessage       string `json:"last_message,omitempty"`
+	// DirectMessagePartnerUserID is the other person in a one-to-one direct
+	// message room, and "" in any other room: a group, a server channel, or a
+	// DM whose bridge does not say it is one (Telegram).
+	DirectMessagePartnerUserID string `json:"direct_message_partner_user_id,omitempty"`
 }
 
 // ConversationMember is one person in a room: their Matrix user id and the
@@ -345,8 +349,10 @@ func (c *Client) GetRoomMembers(roomID string) ([]RoomMember, error) {
 // MetaPlatformMap maps room IDs to facebook/instagram platform
 type MetaPlatformMap map[string]string
 
-// ListConversations returns rooms the user has joined
-func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversation, error) {
+// ListConversations returns rooms the user has joined. directMessageRoomIDs
+// names DM rooms whose bridge does not mark them in m.bridge (Discord); the
+// mautrix-go bridges mark theirs with com.beeper.room_type "dm".
+func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, directMessageRoomIDs map[string]bool) ([]Conversation, error) {
 	data, err := c.request("GET", "/_matrix/client/v3/joined_rooms", nil)
 	if err != nil {
 		return nil, err
@@ -436,6 +442,20 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 		}
 		if conv.Platform == "" {
 			continue
+		}
+
+		if len(conv.Members) == 1 {
+			isDirectMessage := directMessageRoomIDs[roomID]
+			if !isDirectMessage {
+				roomType, err := c.bridgeRoomType(roomID)
+				if err != nil {
+					return nil, fmt.Errorf("m.bridge state of %s: %w", roomID, err)
+				}
+				isDirectMessage = roomType == "dm"
+			}
+			if isDirectMessage {
+				conv.DirectMessagePartnerUserID = conv.Members[0].UserID
+			}
 		}
 
 		// Resolve meta → facebook/instagram
@@ -696,4 +716,28 @@ func (c *Client) Redact(roomID, eventID string) (string, error) {
 		return "", fmt.Errorf("redact: no event_id in %s", data)
 	}
 	return resp.EventID, nil
+}
+
+// bridgeRoomType is com.beeper.room_type from the room's m.bridge state ("dm"
+// for a direct message on the mautrix-go bridges), or "" when the room has no
+// m.bridge state or the bridge does not set it.
+func (c *Client) bridgeRoomType(roomID string) (string, error) {
+	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/state/m.bridge"
+	status, data, err := c.requestWithStatus("GET", path, nil)
+	if err != nil {
+		return "", err
+	}
+	if status == http.StatusNotFound {
+		return "", nil
+	}
+	if status >= 400 {
+		return "", fmt.Errorf("matrix GET %s: %d %s", path, status, string(data))
+	}
+	var bridge struct {
+		RoomType string `json:"com.beeper.room_type"`
+	}
+	if err := json.Unmarshal(data, &bridge); err != nil {
+		return "", err
+	}
+	return bridge.RoomType, nil
 }

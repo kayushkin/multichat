@@ -15,6 +15,7 @@ import (
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/discordemoji"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
@@ -453,7 +454,22 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 		}
 	}
 
-	convos, err := r.matrix.ListConversations(metaPlatforms)
+	var discordDirectMessageRoomIDs map[string]bool
+	if r.discordDBPath != "" {
+		bridge, err := discordbridge.Open(r.discordDBPath)
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+		discordDirectMessageRoomIDs, err = discordbridge.DirectMessageRoomIDs(bridge)
+		bridge.Close()
+		if err != nil {
+			r.writeError(w, 500, "read Discord DM rooms from DISCORD_DB: "+err.Error())
+			return
+		}
+	}
+
+	convos, err := r.matrix.ListConversations(metaPlatforms, discordDirectMessageRoomIDs)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return
@@ -679,7 +695,7 @@ func (r *Router) loadMetaPlatforms() matrix.MetaPlatformMap {
 // --- New features: stats, search, alerts, AI summary, unified contacts, escalation ---
 
 func (r *Router) statsHandler(w http.ResponseWriter, req *http.Request) {
-	convos, err := r.matrix.ListConversations(r.loadMetaPlatforms())
+	convos, err := r.matrix.ListConversations(r.loadMetaPlatforms(), nil)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return
@@ -873,7 +889,7 @@ func (r *Router) searchHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 400, "q parameter required")
 		return
 	}
-	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
+	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms(), nil)
 	type Result struct {
 		RoomID   string `json:"room_id"`
 		RoomName string `json:"room_name"`
@@ -1022,7 +1038,7 @@ func (r *Router) alertsHandler(w http.ResponseWriter, req *http.Request) {
 		rows.Close()
 	}
 	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour).UnixMilli()
-	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
+	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms(), nil)
 	type Alert struct {
 		RoomID   string `json:"room_id"`
 		RoomName string `json:"room_name"`
@@ -1089,7 +1105,7 @@ func (r *Router) escalationScanHandler(w http.ResponseWriter, req *http.Request)
 		r.writeError(w, 500, "No AI API key configured")
 		return
 	}
-	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms())
+	convos, _ := r.matrix.ListConversations(r.loadMetaPlatforms(), nil)
 	limit := 10
 	if len(convos) < limit {
 		limit = len(convos)

@@ -132,12 +132,12 @@ List all conversations with metadata.
     "platform": "telegram",
     "last_message": "Thanks for the update",
     "last_activity": 1711835400000,
-    "is_direct": true
+    "direct_message_partner_user_id": "@discord_12345:chat.example.com"
   }
 ]
 ```
 
-Sorted by last activity (most recent first).
+Sorted by last activity (most recent first). `direct_message_partner_user_id` is the other person in a one-to-one DM and absent in any other room. The mautrix-go bridges (WhatsApp, Signal, Meta, Slack) mark a DM with `com.beeper.room_type: "dm"` in its `m.bridge` state; mautrix-discord does not, so a Discord DM is one whose portal has type 1 in `DISCORD_DB`. The Python Telegram bridge marks neither, so Telegram DMs have no partner id.
 
 ### POST /conversations/new
 
