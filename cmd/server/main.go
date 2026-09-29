@@ -85,6 +85,28 @@ func main() {
 	}
 	// WhatsApp — phone number is the ID
 	matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_15550100001:%s", serverName)] = true
+	// WhatsApp now names people by LID, us included; the bridge's whatsmeow
+	// device row holds ours as "<lid>:<device>@lid".
+	if whatsAppDBPath := loaded.WhatsAppBridgeDatabasePath; whatsAppDBPath != "" {
+		whatsAppDB, err := sql.Open("sqlite3", "file:"+whatsAppDBPath+"?mode=ro")
+		if err != nil {
+			log.Fatalf("open WHATSAPP_DB %s: %v", whatsAppDBPath, err)
+		}
+		rows, err := whatsAppDB.Query(`SELECT lid FROM whatsmeow_device WHERE lid IS NOT NULL AND lid != ''`)
+		if err != nil {
+			log.Fatalf("read own WhatsApp LID from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
+		}
+		for rows.Next() {
+			var deviceLID string
+			if err := rows.Scan(&deviceLID); err != nil {
+				log.Fatalf("read own WhatsApp LID from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
+			}
+			lid, _, _ := strings.Cut(strings.TrimSuffix(deviceLID, "@lid"), ":")
+			matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_lid-%s:%s", lid, serverName)] = true
+		}
+		rows.Close()
+		whatsAppDB.Close()
+	}
 	// Signal
 	matrix.SelfUserIDs[fmt.Sprintf("@signal_15550100001:%s", serverName)] = true
 	// Meta — login IDs from bridge DB

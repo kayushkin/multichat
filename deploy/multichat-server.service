@@ -21,6 +21,7 @@ Environment=SYNAPSE_URL=http://localhost:8008
 Environment=TELEGRAM_DB=%h/multichat/telegram-data/mautrix-telegram.db
 Environment=META_DB=%h/multichat/meta-data/mautrix-meta.db
 Environment=DISCORD_DB=%h/multichat/discord-data/mautrix-discord.db
+Environment=WHATSAPP_DB=%h/multichat/whatsapp-data/mautrix-whatsapp.db
 
 # Custom Discord emoji. POST /emoji/discord/refresh lists each bridged server's
 # emoji with a Discord bot token it resolves from auth-store by credential id:

@@ -38,6 +38,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"TELEGRAM_DB",
 	"META_DB",
 	"DISCORD_DB",
+	"WHATSAPP_DB",
 	"DISCORD_EMOJI_BOT_CREDENTIAL_ID",
 }
 
@@ -51,6 +52,7 @@ const (
 	SettingTelegramBridgeDatabasePath = "telegram_bridge_database_path"
 	SettingMetaBridgeDatabasePath     = "meta_bridge_database_path"
 	SettingDiscordBridgeDatabasePath  = "discord_bridge_database_path"
+	SettingWhatsAppBridgeDatabasePath = "whatsapp_bridge_database_path"
 	SettingDiscordEmojiBotCredential  = "discord_emoji_bot_credential_id"
 	SettingAuthStoreURL               = "auth_store_url"
 	SettingAuthStoreToken             = "auth_store_token"
@@ -94,6 +96,8 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
 		{Key: SettingDiscordBridgeDatabasePath, EnvironmentVariable: "DISCORD_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-discord bridge's SQLite file. Read to find our own Discord puppet, so our own Discord messages are not taken for someone else's, to answer GET /discord/status and to list the bridged servers whose emoji GET /emoji offers. Written in one place: reacting with a custom emoji the bridge has not seen adds it to the bridge's discord_file table, so the service needs write access to the file. Unset leaves the puppet out and makes /discord/status and the emoji routes a 503."},
+		{Key: SettingWhatsAppBridgeDatabasePath, EnvironmentVariable: "WHATSAPP_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The mautrix-whatsapp bridge's SQLite file, opened read-only at start to find our own WhatsApp LID puppet (@whatsapp_lid-…), which sits in every WhatsApp room beside the other people. Unset leaves it out, so every WhatsApp room counts us as one of its members and no WhatsApp DM names its partner."},
 		{Key: SettingDiscordEmojiBotCredential, EnvironmentVariable: "DISCORD_EMOJI_BOT_CREDENTIAL_ID", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The auth-store credential id whose api_key is a Discord bot token. POST /emoji/discord/refresh lists each bridged server's custom emoji with it, so the bot must be a member of every bridged server. Unset makes that refresh a 503."},
 		{Key: SettingAuthStoreURL, EnvironmentVariable: "AUTH_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -135,6 +139,7 @@ type Config struct {
 	TelegramBridgeDatabasePath string
 	MetaBridgeDatabasePath     string
 	DiscordBridgeDatabasePath  string
+	WhatsAppBridgeDatabasePath string
 
 	// DiscordEmojiBotCredentialID, AuthStoreURL and AuthStoreToken let the
 	// emoji refresh fetch the Discord bot token from auth-store.
@@ -171,6 +176,7 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		TelegramBridgeDatabasePath:  registry.String(SettingTelegramBridgeDatabasePath),
 		MetaBridgeDatabasePath:      registry.String(SettingMetaBridgeDatabasePath),
 		DiscordBridgeDatabasePath:   registry.String(SettingDiscordBridgeDatabasePath),
+		WhatsAppBridgeDatabasePath:  registry.String(SettingWhatsAppBridgeDatabasePath),
 		DiscordEmojiBotCredentialID: registry.String(SettingDiscordEmojiBotCredential),
 		AuthStoreURL:                registry.String(SettingAuthStoreURL),
 		AuthStoreToken:              registry.String(SettingAuthStoreToken),
