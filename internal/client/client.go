@@ -86,13 +86,20 @@ func (c *Client) UnifiedContacts() ([]UnifiedContact, error) {
 }
 
 type Conversation struct {
-	RoomID       string   `json:"room_id"`
-	Name         string   `json:"name"`
-	MemberCount  int      `json:"member_count"`
-	MemberIDs    []string `json:"member_ids,omitempty"`
-	Platform     string   `json:"platform,omitempty"`
-	LastActivity int64    `json:"last_activity"`
-	LastMessage  string   `json:"last_message,omitempty"`
+	RoomID      string               `json:"room_id"`
+	Name        string               `json:"name"`
+	MemberCount int                  `json:"member_count"`
+	Members     []ConversationMember `json:"members,omitempty"`
+	// NamedAfterMembers is true when Name is the members' display names.
+	NamedAfterMembers bool   `json:"named_after_members,omitempty"`
+	Platform          string `json:"platform,omitempty"`
+	LastActivity      int64  `json:"last_activity"`
+	LastMessage       string `json:"last_message,omitempty"`
+}
+
+type ConversationMember struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 func (c *Client) Conversations() ([]Conversation, error) {

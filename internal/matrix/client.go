@@ -169,15 +169,27 @@ type Contact struct {
 
 // Conversation is a Matrix room (portal)
 type Conversation struct {
-	RoomID       string   `json:"room_id"`
-	Name         string   `json:"name"`
-	Topic        string   `json:"topic,omitempty"`
-	AvatarURL    string   `json:"avatar_url,omitempty"`
-	MemberCount  int      `json:"member_count"`
-	MemberIDs    []string `json:"member_ids,omitempty"`
-	Platform     string   `json:"platform,omitempty"`
-	LastActivity int64    `json:"last_activity"`
-	LastMessage  string   `json:"last_message,omitempty"`
+	RoomID      string `json:"room_id"`
+	Name        string `json:"name"`
+	Topic       string `json:"topic,omitempty"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	MemberCount int    `json:"member_count"`
+	// Members is every joined member but us and the bridge bots.
+	Members []ConversationMember `json:"members,omitempty"`
+	// NamedAfterMembers is true when the room has no name of its own and Name
+	// is its members' display names joined with ", ".
+	NamedAfterMembers bool   `json:"named_after_members,omitempty"`
+	Platform          string `json:"platform,omitempty"`
+	LastActivity      int64  `json:"last_activity"`
+	LastMessage       string `json:"last_message,omitempty"`
+}
+
+// ConversationMember is one person in a room: their Matrix user id and the
+// display name their member event carries in that room, with the bridge's
+// suffix taken off. DisplayName is "" when the event has none.
+type ConversationMember struct {
+	UserID      string `json:"user_id"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // Message is a Matrix room event. GetMessagePage fills the formatting,
@@ -214,13 +226,13 @@ type TelegramPhoneProvider interface {
 }
 
 // stripBridgeSuffix removes bridge-appended platform labels from display names
-// roomNameFromMembers joins the display names of memberIDs, in order, with
+// roomNameFromMembers joins the display names of members, in order, with
 // ", ". A member with no display name is left out.
-func roomNameFromMembers(memberIDs []string, displayNames map[string]string) string {
+func roomNameFromMembers(members []ConversationMember) string {
 	var names []string
-	for _, id := range memberIDs {
-		if name := stripBridgeSuffix(displayNames[id]); name != "" {
-			names = append(names, name)
+	for _, member := range members {
+		if member.DisplayName != "" {
+			names = append(names, member.DisplayName)
 		}
 	}
 	return strings.Join(names, ", ")
@@ -370,19 +382,15 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 				} `json:"chunk"`
 			}
 			json.Unmarshal(memberData, &memberResp)
-			displayNames := map[string]string{}
-			for _, m := range memberResp.Chunk {
-				displayNames[m.StateKey] = m.Content.DisplayName
-			}
 			// Collect non-bot, non-self member IDs
 			for _, m := range memberResp.Chunk {
 				local := strings.Split(m.StateKey, ":")[0]
 				if !strings.HasSuffix(local, "bot") && m.StateKey != "@admin:chat.kayushkin.com" && !SelfUserIDs[m.StateKey] {
-					conv.MemberIDs = append(conv.MemberIDs, m.StateKey)
+					conv.Members = append(conv.Members, ConversationMember{UserID: m.StateKey, DisplayName: stripBridgeSuffix(m.Content.DisplayName)})
 				}
 			}
 			// Real member count = other people + you
-			conv.MemberCount = len(conv.MemberIDs) + 1
+			conv.MemberCount = len(conv.Members) + 1
 
 			// Detect platform from member user IDs
 			for _, m := range memberResp.Chunk {
@@ -409,10 +417,11 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			}
 
 			// With no room name, name the room after the other people in it, as
-			// Messenger does. MemberIDs already leaves out bridge bots and our own
+			// Messenger does. Members already leaves out bridge bots and our own
 			// puppets, which a bridged chat carries alongside the real members.
 			if conv.Name == "" {
-				conv.Name = roomNameFromMembers(conv.MemberIDs, displayNames)
+				conv.Name = roomNameFromMembers(conv.Members)
+				conv.NamedAfterMembers = conv.Name != ""
 			}
 		}
 
