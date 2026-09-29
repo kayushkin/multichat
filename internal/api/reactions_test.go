@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -97,5 +98,88 @@ func TestPostAndTakeBackAReaction(t *testing.T) {
 	}
 	if rec := call(http.MethodDelete, base+"/"+url.PathEscape("$my-reaction"), ""); rec.Code != 409 {
 		t.Fatalf("taking back twice: %d %s", rec.Code, rec.Body)
+	}
+}
+
+// A "discord-emoji:<id>" key teaches the bridge the emoji, reacts with the
+// mxc:// URI the bridge now knows it by, and answers that key.
+func TestReactingWithACatalogEmojiTeachesTheBridge(t *testing.T) {
+	var sentKey string
+	synapse := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/_matrix/client/v3/account/whoami":
+			w.Write([]byte(`{"user_id":"@admin:chat.example"}`))
+		case strings.HasPrefix(r.URL.Path, "/_matrix/client/v3/profile/"):
+			w.Write([]byte(`{"displayname":"Admin"}`))
+		case r.URL.Path == "/_matrix/media/v3/upload":
+			w.Write([]byte(`{"content_uri":"mxc://chat.example/parrot"}`))
+		case r.URL.Path == "/emojis/7.png":
+			w.Header().Set("Content-Type", "image/png")
+			w.Write([]byte("png bytes"))
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/send/m.reaction/"):
+			var body map[string]map[string]string
+			json.NewDecoder(r.Body).Decode(&body)
+			sentKey = body["m.relates_to"]["key"]
+			w.Write([]byte(`{"event_id":"$my-reaction"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer synapse.Close()
+	router := routerForSettingsTests(t)
+	database, err := db.Initialize(filepath.Join(t.TempDir(), "multichat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	router.db = database
+	router.matrix = matrix.NewClient(synapse.URL, secretValues["MATRIX_TOKEN"])
+	router.discordEmojiTeacher.CDNBaseURL = synapse.URL
+	router.discordDBPath = filepath.Join(t.TempDir(), "mautrix-discord.db")
+	bridge, err := sql.Open("sqlite3", router.discordDBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bridge.Close()
+	if _, err := bridge.Exec(`CREATE TABLE discord_file (url TEXT, encrypted BOOLEAN, mxc TEXT NOT NULL, id TEXT, emoji_name TEXT, size BIGINT NOT NULL,
+		width INTEGER, height INTEGER, mime_type TEXT NOT NULL, decryption_info jsonb, timestamp BIGINT NOT NULL, PRIMARY KEY (url, encrypted))`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceDiscordServerEmoji(database, "111", "Riverside", []db.DiscordCustomEmoji{{DiscordEmojiID: "7", Name: "parrot"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	post := func(key string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/conversations/"+url.PathEscape("!room:chat.example")+"/reactions",
+			strings.NewReader(`{"event_id":"$message","key":"`+key+`"}`))
+		req.Header.Set("Authorization", "Bearer "+secretValues["MULTICHAT_TOKEN"])
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := post("discord-emoji:8"); rec.Code != 400 {
+		t.Fatalf("unknown emoji: %d %s", rec.Code, rec.Body)
+	}
+	rec := post("discord-emoji:7")
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"key":"mxc://chat.example/parrot"`) {
+		t.Fatalf("post: %d %s", rec.Code, rec.Body)
+	}
+	if sentKey != "mxc://chat.example/parrot" {
+		t.Fatalf("Synapse got key %q", sentKey)
+	}
+	var id, name string
+	if err := bridge.QueryRow(`SELECT id, emoji_name FROM discord_file WHERE mxc = 'mxc://chat.example/parrot'`).Scan(&id, &name); err != nil || id != "7" || name != "parrot" {
+		t.Fatalf("bridge row: %s %s %v", id, name, err)
+	}
+	logged, err := db.LoggedReactionByEventID(database, "$my-reaction")
+	if err != nil || logged.Shortcode != ":parrot:" {
+		t.Fatalf("logged = %+v, %v", logged, err)
+	}
+
+	// GET /emoji now says the bridge knows it.
+	req := httptest.NewRequest(http.MethodGet, "/emoji", nil)
+	req.Header.Set("Authorization", "Bearer "+secretValues["MULTICHAT_TOKEN"])
+	got := httptest.NewRecorder()
+	router.ServeHTTP(got, req)
+	if got.Code != 200 || !strings.Contains(got.Body.String(), `"bridge_mxc":"mxc://chat.example/parrot"`) || !strings.Contains(got.Body.String(), `"quick_reaction_count":5`) {
+		t.Fatalf("GET /emoji: %d %s", got.Code, got.Body)
 	}
 }

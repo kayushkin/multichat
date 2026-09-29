@@ -209,7 +209,7 @@ List members of a conversation.
 
 ### POST /conversations/{room_id}/reactions
 
-`{"event_id": "$message", "key": "🔥"}` reacts to a message as our Matrix account (`m.reaction`, an `m.annotation`); the room's bridge relays it to the platform as our own account, so everyone in the room sees it. `key` is a unicode emoji, or the `mxc://` URI of a custom emoji already used in reactions there. Answers `{"event_id": "<the reaction>"}`. A missing field is a 400; Synapse refusing it (a second identical reaction is `M_DUPLICATE_ANNOTATION`) is a 502 carrying its answer. The reaction is logged at once, so the next read shows it.
+`{"event_id": "$message", "key": "🔥"}` reacts to a message as our Matrix account (`m.reaction`, an `m.annotation`); the room's bridge relays it to the platform as our own account, so everyone in the room sees it. `key` is a unicode emoji, the `mxc://` URI of a custom emoji the bridge knows, or `discord-emoji:<id>` for any emoji in the custom emoji catalog (`GET /emoji`). For the last, multichat first teaches the Discord bridge the emoji if it has not seen it (see *Emoji*), then reacts with its `mxc://` URI. Answers `{"event_id": "<the reaction>", "key": "<the key sent>"}`; for a `discord-emoji:` key that is the `mxc://` URI, which is what the reaction log and every later read carry. A `discord-emoji:` id not in the catalog is a 400; a failure teaching the bridge is a 502. A missing field is a 400; Synapse refusing it (a second identical reaction is `M_DUPLICATE_ANNOTATION`) is a 502 carrying its answer. The reaction is logged at once, so the next read shows it.
 
 ### DELETE /conversations/{room_id}/reactions/{reaction_event_id}
 
@@ -574,6 +574,30 @@ What the Discord bridge is doing, read-only: it reads the mautrix-discord databa
 ```
 
 A server is bridged when its `bridging_mode` is not 0 (mautrix-discord's `GuildBridgingMode`: 1 if-portal-exists, 2 create-on-message, 3 everything). Its `channels` are the message-carrying ones — text (`channel_type` 0) and announcement (5) — ordered by category, then name; categories, voice channels and forums are left out. `matrix_room_id` is empty for a channel the bridge has made no room for. `admin_joined` false means `@admin` is at most invited, so multichat can neither read nor log the channel until it joins. `last_bridged_message_at` is the newest `message.timestamp` the bridge recorded there, null when none. The three log fields count message-log rows with that `channel_id` on platform `discord`, edits excluded and archive rows included — the same rows `GET /message-log` lists for the channel. `unbridged_server_count` counts servers a logged-in account is in (`user_portal` type `guild`) whose mode is 0. `DISCORD_DB` unset is a 503 naming it, as is an unconfigured Matrix client; a Synapse failure is a 502.
+
+## Emoji
+
+The custom emoji of every Discord server the bridge bridges, and the operator's favourite emoji and emoji settings (`internal/api/emoji.go`, `internal/discordemoji`, `internal/db/emoji.go`). The records are rendered to TypeScript (`EmojiCatalog`, `DiscordCustomEmoji`, `EmojiSettings`).
+
+### GET /emoji
+
+Answers `{"discord_custom_emoji": [...], "discord_refreshes": [...], "favorite_keys": [...], "settings": {...}}`. Each custom emoji has `discord_emoji_id`, `name` (no colons), `animated`, `discord_server_id`, `discord_server_name`, `fetched_at`, `reaction_key` (`discord-emoji:<id>`) and `bridge_mxc`: the `mxc://` URI the bridge knows it by, read from the bridge's `discord_file` table, or "" when the bridge has not seen it yet. `discord_refreshes` says when each server's emoji were last fetched. `favorite_keys` are unicode emoji and `discord-emoji:<id>` keys in the operator's order. `settings` is `{skin_tone, quick_reaction_count, offer_other_servers_emoji}`, defaults `""`, `5`, `false` until first saved. Nothing here calls Discord. `DISCORD_DB` unset is a 503.
+
+### POST /emoji/discord/refresh
+
+Lists each bridged server's custom emoji from Discord (`GET /guilds/{id}/emojis`) with the bot token in auth-store credential `DISCORD_EMOJI_BOT_CREDENTIAL_ID`, and replaces that server's rows, so an emoji deleted on Discord leaves the catalog; an emoji Discord marks unavailable (a lost boost) is left out. Answers the catalog as `GET /emoji` does. A missing setting is a 503 naming it; auth-store or Discord refusing is a 502 carrying its answer (a 403 or 404 from Discord usually means the bot is not in that server). Scheduler job `multichat emoji refresh` runs it daily.
+
+### PUT /emoji/favorites
+
+`{"favorite_keys": ["🔥", "discord-emoji:123"]}` replaces the favourites, in that order. A key that is not a unicode emoji or a `discord-emoji:<id>` in the catalog, a repeated key, a missing `favorite_keys` or an unknown field is a 400 and changes nothing. Answers `{"favorite_keys": [...]}`.
+
+### PUT /emoji/settings
+
+`{"skin_tone": "🏽", "quick_reaction_count": 5, "offer_other_servers_emoji": false}`, every field required. `skin_tone` is "" or one of the five modifiers U+1F3FB–U+1F3FF; `quick_reaction_count` is how many favourites the quick-react bar under a message shows, 0–12; `offer_other_servers_emoji` offers a Discord room every bridged server's emoji, not only its own (Discord refuses another server's emoji without Nitro). Out of range is a 400. Answers the settings.
+
+### Teaching the bridge an emoji
+
+mautrix-discord relays a Matrix reaction with an `mxc://` key only when its `discord_file` table holds that URI with the emoji's id and name; it adds a row the first time it relays the emoji from Discord. For one it has not seen, multichat does the same: it fetches the image from Discord's CDN, uploads it to Synapse, and inserts the row under the address the bridge files it by (`https://cdn.discordapp.com/emojis/<id>.png`, or `.webp?animated=true` for an animated one). If the bridge added the same address in between, its row wins. This is multichat's only write into a bridge's database, so the service user needs write access to `DISCORD_DB`: `~/multichat/docker-compose.yaml` runs `mautrix-discord` with this user's `UID` and `GID`, and `deploy.sh` refuses to deploy when the file is not writable. The bridge cannot put a custom emoji inside a message: it escapes `<` in plain text and drops `<img>` from HTML, so custom emoji work in reactions only.
 
 ### GET /inbound-platforms
 

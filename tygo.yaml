@@ -14,6 +14,7 @@ packages:
     include_files:
       - "inbound.go"
       - "message_log.go"
+      - "emoji.go"
   - path: "github.com/kayushkin/multichat/internal/discordbridge"
     output_path: "ts/discord_status.ts"
     type_mappings:

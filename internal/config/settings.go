@@ -38,6 +38,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"TELEGRAM_DB",
 	"META_DB",
 	"DISCORD_DB",
+	"DISCORD_EMOJI_BOT_CREDENTIAL_ID",
 }
 
 // Keys of the server's settings, as GET /api/settings names them.
@@ -50,6 +51,9 @@ const (
 	SettingTelegramBridgeDatabasePath = "telegram_bridge_database_path"
 	SettingMetaBridgeDatabasePath     = "meta_bridge_database_path"
 	SettingDiscordBridgeDatabasePath  = "discord_bridge_database_path"
+	SettingDiscordEmojiBotCredential  = "discord_emoji_bot_credential_id"
+	SettingAuthStoreURL               = "auth_store_url"
+	SettingAuthStoreToken             = "auth_store_token"
 	SettingNATSURL                    = "nats_url"
 	SettingLLMBridgeServerURL         = "llm_bridge_server_url"
 	SettingLLMBridgeServiceToken      = "llm_bridge_service_token"
@@ -89,7 +93,13 @@ func SettingDefinitions() []servicesettings.Definition {
 		{Key: SettingMetaBridgeDatabasePath, EnvironmentVariable: "META_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
 		{Key: SettingDiscordBridgeDatabasePath, EnvironmentVariable: "DISCORD_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "The mautrix-discord bridge's SQLite file, opened read-only to find our own Discord puppet, so our own Discord messages are not taken for someone else's, and to answer GET /discord/status. Unset leaves the puppet out and makes /discord/status a 503."},
+			Description: "The mautrix-discord bridge's SQLite file. Read to find our own Discord puppet, so our own Discord messages are not taken for someone else's, to answer GET /discord/status and to list the bridged servers whose emoji GET /emoji offers. Written in one place: reacting with a custom emoji the bridge has not seen adds it to the bridge's discord_file table, so the service needs write access to the file. Unset leaves the puppet out and makes /discord/status and the emoji routes a 503."},
+		{Key: SettingDiscordEmojiBotCredential, EnvironmentVariable: "DISCORD_EMOJI_BOT_CREDENTIAL_ID", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The auth-store credential id whose api_key is a Discord bot token. POST /emoji/discord/refresh lists each bridged server's custom emoji with it, so the bot must be a member of every bridged server. Unset makes that refresh a 503."},
+		{Key: SettingAuthStoreURL, EnvironmentVariable: "AUTH_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Where auth-store answers. The emoji refresh resolves the Discord bot token there. Unset makes the refresh a 503."},
+		{Key: SettingAuthStoreToken, EnvironmentVariable: "AUTH_STORE_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The bearer auth-store asks of the emoji refresh. Unset makes the refresh a 503."},
 		{Key: SettingNATSURL, EnvironmentVariable: "NATS_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "Where NATS answers. Set, it turns inbound on: the sync worker publishes messaging.inbound and the dispatcher applies the inbound rules. It needs the Matrix client and LLM_BRIDGE_URL beside it, and the service refuses to start without them. Unset, inbound is off."},
 		{Key: SettingLLMBridgeServerURL, EnvironmentVariable: "LLM_BRIDGE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -126,6 +136,12 @@ type Config struct {
 	MetaBridgeDatabasePath     string
 	DiscordBridgeDatabasePath  string
 
+	// DiscordEmojiBotCredentialID, AuthStoreURL and AuthStoreToken let the
+	// emoji refresh fetch the Discord bot token from auth-store.
+	DiscordEmojiBotCredentialID string
+	AuthStoreURL                string
+	AuthStoreToken              string
+
 	// NATSURL is empty when inbound is off. When it is set, the Matrix client
 	// is configured and LLMBridgeServerURL is set too.
 	NATSURL               string
@@ -147,19 +163,22 @@ func (c Config) MatrixConfigured() bool {
 // An error names the variable and never its value.
 func Load(registry *servicesettings.Registry) (Config, error) {
 	loaded := Config{
-		ListenPort:                 registry.Integer(SettingListenPort),
-		DatabasePath:               registry.String(SettingDatabasePath),
-		APIToken:                   registry.String(SettingAPIToken),
-		SynapseURL:                 registry.String(SettingSynapseURL),
-		MatrixToken:                registry.String(SettingMatrixToken),
-		TelegramBridgeDatabasePath: registry.String(SettingTelegramBridgeDatabasePath),
-		MetaBridgeDatabasePath:     registry.String(SettingMetaBridgeDatabasePath),
-		DiscordBridgeDatabasePath:  registry.String(SettingDiscordBridgeDatabasePath),
-		NATSURL:                    registry.String(SettingNATSURL),
-		LLMBridgeServerURL:         registry.String(SettingLLMBridgeServerURL),
-		LLMBridgeServiceToken:      registry.String(SettingLLMBridgeServiceToken),
-		OpenAIAPIKey:               registry.String(SettingOpenAIAPIKey),
-		AnthropicAPIKey:            registry.String(SettingAnthropicAPIKey),
+		ListenPort:                  registry.Integer(SettingListenPort),
+		DatabasePath:                registry.String(SettingDatabasePath),
+		APIToken:                    registry.String(SettingAPIToken),
+		SynapseURL:                  registry.String(SettingSynapseURL),
+		MatrixToken:                 registry.String(SettingMatrixToken),
+		TelegramBridgeDatabasePath:  registry.String(SettingTelegramBridgeDatabasePath),
+		MetaBridgeDatabasePath:      registry.String(SettingMetaBridgeDatabasePath),
+		DiscordBridgeDatabasePath:   registry.String(SettingDiscordBridgeDatabasePath),
+		DiscordEmojiBotCredentialID: registry.String(SettingDiscordEmojiBotCredential),
+		AuthStoreURL:                registry.String(SettingAuthStoreURL),
+		AuthStoreToken:              registry.String(SettingAuthStoreToken),
+		NATSURL:                     registry.String(SettingNATSURL),
+		LLMBridgeServerURL:          registry.String(SettingLLMBridgeServerURL),
+		LLMBridgeServiceToken:       registry.String(SettingLLMBridgeServiceToken),
+		OpenAIAPIKey:                registry.String(SettingOpenAIAPIKey),
+		AnthropicAPIKey:             registry.String(SettingAnthropicAPIKey),
 	}
 	if loaded.NATSURL != "" && !loaded.MatrixConfigured() {
 		return Config{}, fmt.Errorf("NATS_URL is set but the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN); inbound needs both")

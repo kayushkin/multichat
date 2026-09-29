@@ -20,6 +20,7 @@ var secretValues = map[string]string{
 	"LLMBRIDGE_SERVICE_TOKEN": "the-bridge-token-under-test",
 	"OPENAI_API_KEY":          "the-openai-key-under-test",
 	"ANTHROPIC_API_KEY":       "the-anthropic-key-under-test",
+	"AUTH_STORE_TOKEN":        "the-auth-store-token-under-test",
 }
 
 func routerForSettingsTests(t *testing.T) *Router {

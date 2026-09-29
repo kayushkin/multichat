@@ -15,6 +15,7 @@ import (
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/discordemoji"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
 
@@ -27,6 +28,10 @@ type Router struct {
 	// discordDBPath is the mautrix-discord SQLite file GET /discord/status
 	// reads; empty makes that route a 503 naming DISCORD_DB.
 	discordDBPath string
+	// discordEmojiRefresher fetches the bridged servers' custom emoji;
+	// discordEmojiTeacher adds one to the bridge before we react with it.
+	discordEmojiRefresher discordemoji.Refresher
+	discordEmojiTeacher   discordemoji.Teacher
 
 	// llmBridgeURL is where inbound rules have their instance_id checked
 	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
@@ -72,13 +77,21 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		anthropicAPIKey:       loaded.AnthropicAPIKey,
 		settings:              settings,
 	}
+	r.discordEmojiRefresher = discordemoji.Refresher{
+		HTTPClient:        r.httpClient,
+		AuthStoreURL:      loaded.AuthStoreURL,
+		AuthStoreToken:    loaded.AuthStoreToken,
+		BotCredentialID:   loaded.DiscordEmojiBotCredentialID,
+		DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL,
+	}
+	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
 	r.setupRoutes()
 	return r
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 	if req.Method == "OPTIONS" {
 		return
@@ -136,6 +149,10 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
+	r.mux.HandleFunc("/emoji", r.emojiHandler)
+	r.mux.HandleFunc("/emoji/discord/refresh", r.refreshDiscordEmojiHandler)
+	r.mux.HandleFunc("/emoji/favorites", r.emojiFavoritesHandler)
+	r.mux.HandleFunc("/emoji/settings", r.emojiSettingsHandler)
 	r.mux.HandleFunc("/media/", r.mediaHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.

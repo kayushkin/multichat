@@ -44,34 +44,40 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 	}
 
 	want = Config{
-		ListenPort:                 9402,
-		DatabasePath:               "/srv/multichat.db",
-		APIToken:                   "an-api-token",
-		SynapseURL:                 "http://synapse.example:1",
-		MatrixToken:                "a-matrix-token",
-		TelegramBridgeDatabasePath: "/srv/telegram.db",
-		MetaBridgeDatabasePath:     "/srv/meta.db",
-		DiscordBridgeDatabasePath:  "/srv/discord.db",
-		NATSURL:                    "nats://nats.example:1",
-		LLMBridgeServerURL:         "http://bridge.example:1",
-		LLMBridgeServiceToken:      "a-bridge-service-token",
-		OpenAIAPIKey:               "an-openai-key",
-		AnthropicAPIKey:            "an-anthropic-key",
+		ListenPort:                  9402,
+		DatabasePath:                "/srv/multichat.db",
+		APIToken:                    "an-api-token",
+		SynapseURL:                  "http://synapse.example:1",
+		MatrixToken:                 "a-matrix-token",
+		TelegramBridgeDatabasePath:  "/srv/telegram.db",
+		MetaBridgeDatabasePath:      "/srv/meta.db",
+		DiscordBridgeDatabasePath:   "/srv/discord.db",
+		DiscordEmojiBotCredentialID: "cred_discord_bot",
+		AuthStoreURL:                "http://auth-store.example:1",
+		AuthStoreToken:              "an-auth-store-token",
+		NATSURL:                     "nats://nats.example:1",
+		LLMBridgeServerURL:          "http://bridge.example:1",
+		LLMBridgeServiceToken:       "a-bridge-service-token",
+		OpenAIAPIKey:                "an-openai-key",
+		AnthropicAPIKey:             "an-anthropic-key",
 	}
 	got := mustLoadFrom(t, map[string]string{
-		"PORT":                    "9402",
-		"MULTICHAT_DB":            "/srv/multichat.db",
-		"MULTICHAT_TOKEN":         "an-api-token",
-		"SYNAPSE_URL":             "http://synapse.example:1",
-		"MATRIX_TOKEN":            "a-matrix-token",
-		"TELEGRAM_DB":             "/srv/telegram.db",
-		"META_DB":                 "/srv/meta.db",
-		"DISCORD_DB":              "/srv/discord.db",
-		"NATS_URL":                "nats://nats.example:1",
-		"LLM_BRIDGE_URL":          "http://bridge.example:1",
-		"LLMBRIDGE_SERVICE_TOKEN": "a-bridge-service-token",
-		"OPENAI_API_KEY":          "an-openai-key",
-		"ANTHROPIC_API_KEY":       "an-anthropic-key",
+		"PORT":                            "9402",
+		"MULTICHAT_DB":                    "/srv/multichat.db",
+		"MULTICHAT_TOKEN":                 "an-api-token",
+		"SYNAPSE_URL":                     "http://synapse.example:1",
+		"MATRIX_TOKEN":                    "a-matrix-token",
+		"TELEGRAM_DB":                     "/srv/telegram.db",
+		"META_DB":                         "/srv/meta.db",
+		"DISCORD_DB":                      "/srv/discord.db",
+		"DISCORD_EMOJI_BOT_CREDENTIAL_ID": "cred_discord_bot",
+		"AUTH_STORE_URL":                  "http://auth-store.example:1",
+		"AUTH_STORE_TOKEN":                "an-auth-store-token",
+		"NATS_URL":                        "nats://nats.example:1",
+		"LLM_BRIDGE_URL":                  "http://bridge.example:1",
+		"LLMBRIDGE_SERVICE_TOKEN":         "a-bridge-service-token",
+		"OPENAI_API_KEY":                  "an-openai-key",
+		"ANTHROPIC_API_KEY":               "an-anthropic-key",
 	})
 	if got != want {
 		t.Errorf("Load = %+v, want %+v", got, want)
@@ -88,7 +94,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 13; got != want {
+	if got, want := len(SettingDefinitions()), 16; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }
@@ -186,7 +192,7 @@ func TestEverySecretIsAString(t *testing.T) {
 		MCPServerName:   MCPServerSettingDefinitions(),
 	}
 	wantSecrets := map[string]string{
-		ServiceName:     "MULTICHAT_TOKEN MATRIX_TOKEN LLMBRIDGE_SERVICE_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY",
+		ServiceName:     "MULTICHAT_TOKEN MATRIX_TOKEN AUTH_STORE_TOKEN LLMBRIDGE_SERVICE_TOKEN OPENAI_API_KEY ANTHROPIC_API_KEY",
 		SendCommandName: "AUTH_STORE_TOKEN",
 		MCPServerName:   "MULTICHAT_TOKEN",
 	}

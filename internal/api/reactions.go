@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/discordemoji"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
 
@@ -29,10 +31,12 @@ func (r *Router) ownSenders() (db.OwnSenders, error) {
 // postReactionHandler serves POST /conversations/{room_id}/reactions
 // {"event_id": message, "key": emoji}: react to a message as our Matrix
 // account. The bridge relays it to the platform as our own account, so the
-// people in the room see it. The key is a unicode emoji or the mxc:// URI of a
-// custom emoji already used in reactions there. The reaction is logged at once
-// so the next read shows it; the sync worker's copy of the same event is then
-// a no-op.
+// people in the room see it. The key is a unicode emoji, the mxc:// URI of a
+// custom emoji the bridge knows, or "discord-emoji:<id>" for any emoji in the
+// custom emoji catalog (GET /emoji): multichat teaches the bridge that emoji
+// if it has not seen it, then reacts with its mxc:// URI, and answers the key
+// it used. The reaction is logged at once so the next read shows it; the sync
+// worker's copy of the same event is then a no-op.
 func (r *Router) postReactionHandler(w http.ResponseWriter, req *http.Request, roomID string) {
 	if req.Method != "POST" {
 		r.writeError(w, 405, "Method not allowed")
@@ -57,6 +61,37 @@ func (r *Router) postReactionHandler(w http.ResponseWriter, req *http.Request, r
 	if body.Key == "" {
 		r.writeError(w, 400, "key is required")
 		return
+	}
+	shortcode := ""
+	if discordEmojiID, custom := strings.CutPrefix(body.Key, db.DiscordEmojiReactionKeyPrefix); custom {
+		emoji, err := db.DiscordCustomEmojiByID(r.db, discordEmojiID)
+		if errors.Is(err, db.ErrNotFound) {
+			r.writeError(w, 400, "key "+body.Key+" is not in the custom emoji catalog; POST /emoji/discord/refresh fetches it")
+			return
+		}
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+		if r.discordDBPath == "" {
+			r.writeError(w, 503, "DISCORD_DB is not set, so the Discord bridge cannot be taught emoji "+emoji.Name)
+			return
+		}
+		bridge, err := discordemoji.OpenBridgeDatabaseForWriting(r.discordDBPath)
+		if err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+		teacher := r.discordEmojiTeacher
+		teacher.Uploader = r.matrix
+		mxc, err := teacher.Teach(bridge, emoji)
+		bridge.Close()
+		if err != nil {
+			r.writeError(w, 502, err.Error())
+			return
+		}
+		body.Key = mxc
+		shortcode = ":" + emoji.Name + ":"
 	}
 	self, err := r.matrix.WhoAmI()
 	if err != nil {
@@ -87,13 +122,14 @@ func (r *Router) postReactionHandler(w http.ResponseWriter, req *http.Request, r
 		SenderUserID:      self,
 		SenderDisplayName: displayName,
 		Key:               body.Key,
+		Shortcode:         shortcode,
 		ContentJSON:       string(content),
 		SentAt:            time.Now(),
 	}); err != nil {
 		r.writeError(w, 500, "reaction "+reactionEventID+" was sent but could not be logged: "+err.Error())
 		return
 	}
-	r.writeJSON(w, map[string]string{"event_id": reactionEventID})
+	r.writeJSON(w, map[string]string{"event_id": reactionEventID, "key": body.Key})
 }
 
 // takeBackReactionHandler serves DELETE /conversations/{room_id}/reactions/{event_id}:

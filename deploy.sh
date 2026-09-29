@@ -129,6 +129,21 @@ for key in $REQUIRED_SECRETS; do
   echo "    $key present (${#value} chars)"
 done
 
+# Reacting with a custom Discord emoji the bridge has not seen writes the emoji
+# into the bridge's own database (internal/discordemoji). The bridge container
+# chowns its data folder to its UID/GID on every start, so the service user can
+# write there only when ~/multichat/docker-compose.yaml runs mautrix-discord as
+# this user (UID and GID in its environment). Say so here rather than let the
+# first custom reaction fail.
+DISCORD_DB_PATH="$(env_field DISCORD_DB)"
+if [ -n "$DISCORD_DB_PATH" ]; then
+  echo "==> Checking DISCORD_DB is writable (custom emoji reactions add rows to it)..."
+  for f in "$DISCORD_DB_PATH" "$DISCORD_DB_PATH-wal" "$DISCORD_DB_PATH-shm" "$(dirname "$DISCORD_DB_PATH")"; do
+    [ ! -e "$f" ] || [ -w "$f" ] || { echo "ERROR: $f is not writable by $(id -un). Run mautrix-discord with UID=$(id -u) and GID=$(id -g) in ~/multichat/docker-compose.yaml and recreate it (docker compose up -d mautrix-discord)."; exit 1; }
+  done
+  echo "    writable"
+fi
+
 echo "==> Preflight..."
 # A WorkingDirectory that does not exist fails the start with an opaque `200/CHDIR`,
 # and with Restart= set that becomes a silent crash loop -- three services on this
