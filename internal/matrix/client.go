@@ -389,22 +389,16 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 				}
 			}
 
-			// For DMs with no room name, use the other member's display name
-			if conv.Name == "" && len(memberResp.Chunk) <= 3 {
-				for _, m := range memberResp.Chunk {
-					if m.StateKey != "@admin:chat.kayushkin.com" {
-						if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(m.StateKey)+"/displayname", nil); err == nil {
-							var p struct {
-								DisplayName string `json:"displayname"`
-							}
-							json.Unmarshal(profile, &p)
-							name := stripBridgeSuffix(p.DisplayName)
-							if name != "" && name != "Telegram Bridge Bot" {
-								conv.Name = name
-								break
-							}
-						}
+			// For DMs with no room name, use the other person's display name.
+			// MemberIDs already leaves out bridge bots and our own puppets, which
+			// a bridged DM carries alongside the one other person.
+			if conv.Name == "" && len(conv.MemberIDs) == 1 {
+				if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(conv.MemberIDs[0])+"/displayname", nil); err == nil {
+					var p struct {
+						DisplayName string `json:"displayname"`
 					}
+					json.Unmarshal(profile, &p)
+					conv.Name = stripBridgeSuffix(p.DisplayName)
 				}
 			}
 		}
