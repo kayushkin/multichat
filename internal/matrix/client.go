@@ -719,25 +719,28 @@ func (c *Client) Redact(roomID, eventID string) (string, error) {
 }
 
 // bridgeRoomType is com.beeper.room_type from the room's m.bridge state ("dm"
-// for a direct message on the mautrix-go bridges), or "" when the room has no
-// m.bridge state or the bridge does not set it.
+// for a direct message on the mautrix-go bridges), or "" when no m.bridge
+// event sets it. Each bridge writes m.bridge under a state key of its own
+// ("chat.kayushkin.com/whatsapp", "fi.mau.discord://…"), so the whole state is
+// read rather than one key guessed.
 func (c *Client) bridgeRoomType(roomID string) (string, error) {
-	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/state/m.bridge"
-	status, data, err := c.requestWithStatus("GET", path, nil)
+	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state", nil)
 	if err != nil {
 		return "", err
 	}
-	if status == http.StatusNotFound {
-		return "", nil
+	var events []struct {
+		Type    string `json:"type"`
+		Content struct {
+			RoomType string `json:"com.beeper.room_type"`
+		} `json:"content"`
 	}
-	if status >= 400 {
-		return "", fmt.Errorf("matrix GET %s: %d %s", path, status, string(data))
-	}
-	var bridge struct {
-		RoomType string `json:"com.beeper.room_type"`
-	}
-	if err := json.Unmarshal(data, &bridge); err != nil {
+	if err := json.Unmarshal(data, &events); err != nil {
 		return "", err
 	}
-	return bridge.RoomType, nil
+	for _, event := range events {
+		if event.Type == "m.bridge" && event.Content.RoomType != "" {
+			return event.Content.RoomType, nil
+		}
+	}
+	return "", nil
 }
