@@ -140,6 +140,8 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/loads/search", r.loadsSearchHandler)
 	r.mux.HandleFunc("/conversations", r.conversationsHandler)
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
+	r.mux.HandleFunc("/conversations/tags", r.conversationTagsHandler)
+	r.mux.HandleFunc("/conversations/tags/bulk", r.bulkConversationTagsHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
 	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
@@ -1206,16 +1208,10 @@ func callClaude(apiKey, conversation, systemPrompt string) (map[string]interface
 
 // --- Tags ---
 
-func (r *Router) ensureTagsTables() {
-	r.db.Exec(`CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT NOT NULL DEFAULT '#f5d40c', created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`)
-	r.db.Exec(`CREATE TABLE IF NOT EXISTS contact_tags (contact_user_id TEXT NOT NULL, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (contact_user_id, tag_id))`)
-}
-
 // GET /tags — list all tags
 // POST /tags — create a tag { name, color? }
 // DELETE /tags?id=N — delete a tag
 func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
-	r.ensureTagsTables()
 	switch req.Method {
 	case "GET":
 		rows, err := r.db.Query(`SELECT id, name, color FROM tags ORDER BY name`)
@@ -1270,8 +1266,15 @@ func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
 			r.writeError(w, 400, "id required")
 			return
 		}
-		r.db.Exec(`DELETE FROM contact_tags WHERE tag_id = ?`, id)
-		r.db.Exec(`DELETE FROM tags WHERE id = ?`, id)
+		tagID, err := strconv.ParseInt(id, 10, 64)
+		if err != nil {
+			r.writeError(w, 400, "id must be a number")
+			return
+		}
+		if err := db.DeleteTagAndAssignments(r.db, tagID); err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
 		r.writeJSON(w, map[string]string{"status": "deleted"})
 
 	default:
@@ -1283,7 +1286,6 @@ func (r *Router) tagsHandler(w http.ResponseWriter, req *http.Request) {
 // POST /contacts/tags — assign tag { contact_user_id, tag_id }
 // DELETE /contacts/tags?contact=USER_ID&tag=TAG_ID — remove tag from contact
 func (r *Router) contactTagsHandler(w http.ResponseWriter, req *http.Request) {
-	r.ensureTagsTables()
 	switch req.Method {
 	case "GET":
 		contactID := req.URL.Query().Get("contact")
@@ -1414,7 +1416,6 @@ func (r *Router) autoTagHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get existing tags
-	r.ensureTagsTables()
 	rows, err := r.db.Query(`SELECT name FROM tags ORDER BY name`)
 	var existingTags []string
 	if err == nil {
@@ -1458,7 +1459,6 @@ Conversation:
 // bulkContactTagsHandler returns ALL contact→tag mappings in one call
 // GET /contacts/tags/bulk → { "contact_user_id": [tag1, tag2], ... }
 func (r *Router) bulkContactTagsHandler(w http.ResponseWriter, req *http.Request) {
-	r.ensureTagsTables()
 	rows, err := r.db.Query(`SELECT ct.contact_user_id, t.id, t.name, t.color FROM contact_tags ct JOIN tags t ON ct.tag_id = t.id ORDER BY ct.contact_user_id, t.name`)
 	if err != nil {
 		r.writeError(w, 500, err.Error())

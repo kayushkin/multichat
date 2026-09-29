@@ -381,6 +381,28 @@ Get all contact→tag mappings in one call. Useful for rendering tag badges on t
 }
 ```
 
+### POST /conversations/tags
+
+Put a tag on a room. Tagging a room twice is not an error. A `room_id` that is not a Matrix room id (`!…:server`) is a 400; a `tag_id` with no tag is a 404.
+
+```json
+{ "room_id": "!abc123:chat.example.com", "tag_id": 1 }
+```
+
+**Response:** the room's tags afterwards.
+
+```json
+{ "room_id": "!abc123:chat.example.com", "tags": [{ "id": 1, "name": "LTL", "color": "#f5d40c" }] }
+```
+
+### DELETE /conversations/tags?room={room_id}&tag={tag_id}
+
+Take a tag off a room. Answers the room's tags afterwards, like `POST`.
+
+### GET /conversations/tags/bulk
+
+Every room's own tags, keyed by room id; a room with none is absent. Contact tags are separate (`GET /contacts/tags/bulk`). Deleting a tag with `DELETE /tags` takes it off every contact and every room.
+
 ---
 
 ## AI Features
