@@ -50,10 +50,14 @@ type MessageContent struct {
 }
 
 // SyncResponse is the part of a /sync answer this service reads: the token to
-// resume from and, per joined room, the new timeline events.
+// resume from, per joined room the new timeline events, and the rooms we have
+// been invited to.
 type SyncResponse struct {
 	NextBatch string
 	Rooms     map[string][]TimelineEvent
+	// Invites maps each room we are invited to but have not joined to the
+	// user who invited us.
+	Invites map[string]string
 	// PrevBatch holds, for each room whose timeline was truncated, the token
 	// that pages backward from the oldest event delivered into the gap.
 	PrevBatch map[string]string
@@ -93,6 +97,7 @@ func (c *Client) Sync(since string, timeoutMilliseconds int) (*SyncResponse, err
 					PrevBatch string          `json:"prev_batch"`
 				} `json:"timeline"`
 			} `json:"join"`
+			Invite map[string]inviteRoom `json:"invite"`
 		} `json:"rooms"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -101,7 +106,11 @@ func (c *Client) Sync(since string, timeoutMilliseconds int) (*SyncResponse, err
 	if raw.NextBatch == "" {
 		return nil, fmt.Errorf("sync: empty next_batch")
 	}
-	out := &SyncResponse{NextBatch: raw.NextBatch, Rooms: map[string][]TimelineEvent{}, PrevBatch: map[string]string{}}
+	invites, err := c.invitersOf(raw.Rooms.Invite)
+	if err != nil {
+		return nil, err
+	}
+	out := &SyncResponse{NextBatch: raw.NextBatch, Rooms: map[string][]TimelineEvent{}, Invites: invites, PrevBatch: map[string]string{}}
 	var limited []string
 	for roomID, room := range raw.Rooms.Join {
 		if len(room.Timeline.Events) == 0 {

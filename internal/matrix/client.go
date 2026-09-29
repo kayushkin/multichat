@@ -34,9 +34,22 @@ func NewClient(homeserver, accessToken string) *Client {
 }
 
 func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
-	req, err := http.NewRequest(method, c.homeserver+path, body)
+	status, data, err := c.requestWithStatus(method, path, body)
 	if err != nil {
 		return nil, err
+	}
+	if status >= 400 {
+		return nil, fmt.Errorf("matrix %s %s: %d %s", method, path, status, string(data))
+	}
+	return data, nil
+}
+
+// requestWithStatus is request for callers that must tell one error status
+// from another: it returns the status and body instead of failing on >= 400.
+func (c *Client) requestWithStatus(method, path string, body io.Reader) (int, []byte, error) {
+	req, err := http.NewRequest(method, c.homeserver+path, body)
+	if err != nil {
+		return 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.accessToken)
 	if body != nil {
@@ -44,17 +57,14 @@ func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("matrix %s %s: %d %s", method, path, resp.StatusCode, string(data))
-	}
-	return data, nil
+	return resp.StatusCode, data, nil
 }
 
 // SendMessage sends a text message to a Matrix room

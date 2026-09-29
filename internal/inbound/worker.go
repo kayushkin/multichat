@@ -3,7 +3,8 @@
 //
 // Two loops run in the server process:
 //
-//   - SyncWorker long-polls Synapse /sync, writes every bridged message and
+//   - SyncWorker long-polls Synapse /sync, accepts every room invite a bridge
+//     sends (invites.go), writes every bridged message and
 //     reaction and every redaction to the message log (message_log.go), and
 //     publishes every message (never a reaction) a
 //     person sent as messages.MessagingInbound on messaging.inbound
@@ -50,6 +51,9 @@ type SyncWorker struct {
 	bridges map[string]matrix.BridgeInfo
 	// messageLogStartedAt bounds how far back a gap is filled.
 	messageLogStartedAt time.Time
+	// joinedAt records when this process accepted each room's invite
+	// (invites.go), so the history a new room arrives with is not published.
+	joinedAt map[string]time.Time
 }
 
 type roomFacts struct {
@@ -62,6 +66,7 @@ type roomFacts struct {
 func (w *SyncWorker) Run() {
 	w.rooms = map[string]roomFacts{}
 	w.bridges = map[string]matrix.BridgeInfo{}
+	w.joinedAt = map[string]time.Time{}
 	startedAt, err := db.MessageLogStartedAt(w.Database)
 	if err != nil {
 		log.Fatalf("inbound sync: %v", err)
@@ -84,6 +89,9 @@ func (w *SyncWorker) Run() {
 		}
 		since = initial.NextBatch
 		log.Printf("inbound sync: initial sync done, %d rooms with history skipped", len(initial.Rooms))
+	}
+	if err := w.acceptPendingInvites(); err != nil {
+		log.Fatalf("inbound sync: pending invites: %v", err)
 	}
 	log.Printf("inbound sync: running (publishing %s)", messages.MessagingInboundSubject)
 	for {
@@ -114,6 +122,7 @@ func (w *SyncWorker) Run() {
 			log.Fatalf("inbound sync: %v", err)
 		}
 		since = resp.NextBatch
+		w.acceptInvites(resp.Invites)
 	}
 }
 
@@ -132,6 +141,9 @@ func (w *SyncWorker) publishBatch(resp *matrix.SyncResponse) error {
 				continue
 			}
 			if event.Sender == self || matrix.SelfUserIDs[event.Sender] || matrix.IsBridgeBot(event.Sender) {
+				continue
+			}
+			if w.sentBeforeWeJoined(roomID, event) {
 				continue
 			}
 			inbound, err := w.envelope(roomID, event)
