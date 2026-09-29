@@ -214,6 +214,18 @@ type TelegramPhoneProvider interface {
 }
 
 // stripBridgeSuffix removes bridge-appended platform labels from display names
+// roomNameFromMembers joins the display names of memberIDs, in order, with
+// ", ". A member with no display name is left out.
+func roomNameFromMembers(memberIDs []string, displayNames map[string]string) string {
+	var names []string
+	for _, id := range memberIDs {
+		if name := stripBridgeSuffix(displayNames[id]); name != "" {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 func stripBridgeSuffix(name string) string {
 	for _, suffix := range []string{" (Telegram)", " (WhatsApp)", " (WA)", " (Signal)", " (Meta)", " (Facebook)", " (Instagram)", " (Messenger)"} {
 		name = strings.TrimSuffix(name, suffix)
@@ -352,9 +364,16 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 			var memberResp struct {
 				Chunk []struct {
 					StateKey string `json:"state_key"`
+					Content  struct {
+						DisplayName string `json:"displayname"`
+					} `json:"content"`
 				} `json:"chunk"`
 			}
 			json.Unmarshal(memberData, &memberResp)
+			displayNames := map[string]string{}
+			for _, m := range memberResp.Chunk {
+				displayNames[m.StateKey] = m.Content.DisplayName
+			}
 			// Collect non-bot, non-self member IDs
 			for _, m := range memberResp.Chunk {
 				local := strings.Split(m.StateKey, ":")[0]
@@ -389,17 +408,11 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap) ([]Conversatio
 				}
 			}
 
-			// For DMs with no room name, use the other person's display name.
-			// MemberIDs already leaves out bridge bots and our own puppets, which
-			// a bridged DM carries alongside the one other person.
-			if conv.Name == "" && len(conv.MemberIDs) == 1 {
-				if profile, err := c.request("GET", "/_matrix/client/v3/profile/"+url.PathEscape(conv.MemberIDs[0])+"/displayname", nil); err == nil {
-					var p struct {
-						DisplayName string `json:"displayname"`
-					}
-					json.Unmarshal(profile, &p)
-					conv.Name = stripBridgeSuffix(p.DisplayName)
-				}
+			// With no room name, name the room after the other people in it, as
+			// Messenger does. MemberIDs already leaves out bridge bots and our own
+			// puppets, which a bridged chat carries alongside the real members.
+			if conv.Name == "" {
+				conv.Name = roomNameFromMembers(conv.MemberIDs, displayNames)
 			}
 		}
 
