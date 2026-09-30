@@ -165,6 +165,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/emoji/favorites", r.emojiFavoritesHandler)
 	r.mux.HandleFunc("/emoji/settings", r.emojiSettingsHandler)
 	r.mux.HandleFunc("/emoji/discord/nitro-check", r.discordNitroCheckHandler)
+	r.mux.HandleFunc("/emoji/discord/server-sweep", r.discordServerSweepHandler)
 	r.mux.HandleFunc("/media/", r.mediaHandler)
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.

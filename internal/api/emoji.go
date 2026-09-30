@@ -265,3 +265,21 @@ func (r *Router) discordNitroCheckHandler(w http.ResponseWriter, req *http.Reque
 	r.writeJSON(w, map[string]any{"discord_nitro": nitro, "discord_nitro_error": nitroError, "checked_now": checkedNow,
 		"discord_server_sweep": r.discordServerSweeper.Status()})
 }
+
+// discordServerSweepHandler serves POST /emoji/discord/server-sweep: start
+// the sweep that lists every other server's emoji now, rather than with the
+// next day's first Nitro check (the Emoji page's button). It keeps the same
+// pace and lists only servers not listed in the past week; a running sweep is
+// left alone. Answers {"started", "discord_server_sweep"}.
+func (r *Router) discordServerSweepHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	if r.discordDBPath == "" {
+		r.writeError(w, 503, "DISCORD_DB is not set, so the Discord account cannot be read")
+		return
+	}
+	started := r.discordServerSweeper.Start(r.db, r.discordDBPath)
+	r.writeJSON(w, map[string]any{"started": started, "discord_server_sweep": r.discordServerSweeper.Status()})
+}
