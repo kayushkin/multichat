@@ -217,6 +217,10 @@ Takes back a reaction our Matrix account posted, by redacting it. Answers `{"red
 
 Every reaction group (here, on conversation messages and in `/message-log`) carries `reacted_by_me` (our Matrix account or our puppet reacted with that key) and `my_reaction_event_id` (our Matrix account's reaction, the id this route takes back; "" otherwise).
 
+### POST /conversations/{room_id}/send-file
+
+A multipart form with `file` and an optional `caption`: uploads the file to Synapse and sends it to the room as `m.image`, `m.video`, `m.audio` or `m.file` by its MIME type (the form part's `Content-Type`, else sniffed from the bytes), with `info.mimetype`, `info.size` and, for a PNG, JPEG or GIF, `info.w`/`info.h`. A caption goes in `body` with the file's name in `filename` (MSC2530), which mautrix-discord sends as the text of the same Discord message; with none, `body` is the file name. The bridge posts it as our own account, so it reaches real people. The size limit is Synapse's own `m.upload.size` (50 MB here), read on each call; over it is a 413 naming both sizes. No file, an empty file or a file with no name is a 400; Synapse refusing the upload or the send is a 502. Answers `{"event_id", "mxc_uri", "filename", "mimetype", "msgtype", "size"}`. It replaced `POST /conversations/{room_id}/upload` (2026-09-30), which sent every file as an image, with no caption, and reported a failed send as a success.
+
 ### POST /conversations/{room_id}/send
 
 Send a message to a conversation. The message is delivered through the appropriate platform bridge.

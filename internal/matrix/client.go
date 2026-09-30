@@ -101,32 +101,91 @@ func (c *Client) UploadMedia(data []byte, contentType, filename string) (string,
 		return "", err
 	}
 	defer resp.Body.Close()
-	respData, _ := io.ReadAll(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("upload: %w", err)
+	}
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("upload failed: %d %s", resp.StatusCode, string(respData))
 	}
 	var result struct {
 		ContentURI string `json:"content_uri"`
 	}
-	json.Unmarshal(respData, &result)
+	if err := json.Unmarshal(respData, &result); err != nil {
+		return "", fmt.Errorf("upload: %w", err)
+	}
+	if !strings.HasPrefix(result.ContentURI, "mxc://") {
+		return "", fmt.Errorf("upload: no mxc:// content_uri in %s", respData)
+	}
 	return result.ContentURI, nil
 }
 
-// SendImage sends an image message to a Matrix room
-func (c *Client) SendImage(roomID, mxcURI, filename, contentType string, size int) (string, error) {
-	txnID := fmt.Sprintf("%d", time.Now().UnixNano())
-	msg := map[string]interface{}{
-		"msgtype": "m.image",
-		"body":    filename,
-		"url":     mxcURI,
-		"info": map[string]interface{}{
-			"mimetype": contentType,
-			"size":     size,
-		},
+// MediaUploadSizeLimit is the largest file Synapse takes, in bytes, from its
+// media config (m.upload.size); 0 when it sets none.
+func (c *Client) MediaUploadSizeLimit() (int64, error) {
+	data, err := c.request("GET", "/_matrix/client/v1/media/config", nil)
+	if err != nil {
+		return 0, fmt.Errorf("media config: %w", err)
 	}
-	payload, _ := json.Marshal(msg)
-	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/m.room.message/%s",
-		url.PathEscape(roomID), txnID)
+	var config struct {
+		UploadSize int64 `json:"m.upload.size"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return 0, fmt.Errorf("media config: %w", err)
+	}
+	return config.UploadSize, nil
+}
+
+// SentFile describes a file to send as a Matrix message.
+type SentFile struct {
+	MXCURI   string
+	FileName string
+	// Caption is the text sent with the file, "" for none. Per MSC2530 it
+	// goes in body with the name in filename; bridges send it as the text of
+	// the same message (mautrix-discord does).
+	Caption  string
+	MimeType string
+	Size     int
+	// Width and Height are an image's size in pixels, 0 when not known.
+	Width, Height int
+}
+
+// FileMessageType is the Matrix msgtype for a file of this MIME type.
+func FileMessageType(mimeType string) string {
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		return "m.image"
+	case strings.HasPrefix(mimeType, "video/"):
+		return "m.video"
+	case strings.HasPrefix(mimeType, "audio/"):
+		return "m.audio"
+	default:
+		return "m.file"
+	}
+}
+
+// SendFile sends an uploaded file to a room as an image, video, audio or
+// file message, with its caption, and returns the event id.
+func (c *Client) SendFile(roomID string, file SentFile) (string, error) {
+	info := map[string]any{"mimetype": file.MimeType, "size": file.Size}
+	if file.Width > 0 && file.Height > 0 {
+		info["w"], info["h"] = file.Width, file.Height
+	}
+	content := map[string]any{
+		"msgtype":  FileMessageType(file.MimeType),
+		"body":     file.FileName,
+		"filename": file.FileName,
+		"url":      file.MXCURI,
+		"info":     info,
+	}
+	if file.Caption != "" {
+		content["body"] = file.Caption
+	}
+	payload, err := json.Marshal(content)
+	if err != nil {
+		return "", err
+	}
+	path := fmt.Sprintf("/_matrix/client/v3/rooms/%s/send/m.room.message/%d", url.PathEscape(roomID), time.Now().UnixNano())
 	data, err := c.request("PUT", path, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
@@ -134,7 +193,12 @@ func (c *Client) SendImage(roomID, mxcURI, filename, contentType string, size in
 	var resp struct {
 		EventID string `json:"event_id"`
 	}
-	json.Unmarshal(data, &resp)
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("send file: %w", err)
+	}
+	if resp.EventID == "" {
+		return "", fmt.Errorf("send file: no event_id in %s", data)
+	}
 	return resp.EventID, nil
 }
 

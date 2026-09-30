@@ -532,8 +532,8 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 		r.postReactionHandler(w, req, roomID)
 	case strings.HasPrefix(action, "reactions/"):
 		r.takeBackReactionHandler(w, req, roomID, strings.TrimPrefix(action, "reactions/"))
-	case action == "upload":
-		r.uploadHandler(w, req, roomID)
+	case action == "send-file":
+		r.sendFileHandler(w, req, roomID)
 	case action == "loads":
 		r.conversationLoadsHandler(w, req, roomID)
 	case strings.HasPrefix(action, "loads/"):
