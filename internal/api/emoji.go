@@ -59,7 +59,8 @@ func (r *Router) emojiCatalog() (db.EmojiCatalog, error) {
 		return db.EmojiCatalog{}, err
 	}
 	return db.EmojiCatalog{DiscordCustomEmoji: custom, DiscordSeenEmoji: seenElsewhere, DiscordRefreshes: refreshes,
-		DiscordNitro: nitro, DiscordNitroError: nitroError, FavoriteKeys: favorites, Settings: settings}, nil
+		DiscordNitro: nitro, DiscordNitroError: nitroError, DiscordServerSweep: r.discordServerSweeper.Status(),
+		FavoriteKeys: favorites, Settings: settings}, nil
 }
 
 // emojiHandler serves GET /emoji: every bridged Discord server's custom emoji
@@ -214,8 +215,10 @@ func sameLocalDay(a, b time.Time) bool {
 // Discord whether the bridge's account has Nitro, at most once a calendar day
 // (the host's), unless ?force=true. The Messages pages call it when they
 // open, so no check is made on a day nobody reads messages. A failed check is
-// recorded too, so a failing login is not retried all day. Answers
-// {"discord_nitro", "discord_nitro_error", "checked_now"}.
+// recorded too, so a failing login is not retried all day. The day's first
+// check also starts the sweep that lists every other server's emoji (see
+// discordemoji.ServerSweeper). Answers {"discord_nitro",
+// "discord_nitro_error", "checked_now", "discord_server_sweep"}.
 func (r *Router) discordNitroCheckHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
 		r.writeError(w, 405, "Method not allowed")
@@ -250,11 +253,15 @@ func (r *Router) discordNitroCheckHandler(w http.ResponseWriter, req *http.Reque
 			return
 		}
 		checkedNow = true
+		if req.URL.Query().Get("force") != "true" {
+			r.discordServerSweeper.Start(r.db, r.discordDBPath)
+		}
 	}
 	nitro, nitroError, err := db.DiscordNitroStatus(r.db)
 	if err != nil {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, map[string]any{"discord_nitro": nitro, "discord_nitro_error": nitroError, "checked_now": checkedNow})
+	r.writeJSON(w, map[string]any{"discord_nitro": nitro, "discord_nitro_error": nitroError, "checked_now": checkedNow,
+		"discord_server_sweep": r.discordServerSweeper.Status()})
 }

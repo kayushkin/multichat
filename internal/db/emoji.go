@@ -126,6 +126,26 @@ type EmojiSettings struct {
 	QuickReactionCount int `json:"quick_reaction_count"`
 }
 
+// DiscordServerSweepStatus is how far the sweep has got that lists, with the
+// account's own login, the custom emoji of every Discord server the account is
+// in that is not bridged: one server every 30 seconds, each at most once a
+// week, started by the daily Nitro check. It lives in memory: after a restart
+// it is empty until the next sweep, and each server's last listing is in
+// DiscordRefreshes.
+type DiscordServerSweepStatus struct {
+	Running    bool       `json:"running"`
+	StartedAt  *time.Time `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	// ServersInAccount is how many servers the account is in, bridged ones
+	// included; ServersToList how many of them this sweep lists (the ones not
+	// listed within the week); ServersListed how many it has listed so far.
+	ServersInAccount int `json:"servers_in_account"`
+	ServersToList    int `json:"servers_to_list"`
+	ServersListed    int `json:"servers_listed"`
+	// Error says why the sweep stopped, or which servers it could not list.
+	Error string `json:"error"`
+}
+
 // DiscordNitroCheck is one check of whether the bridge's Discord account has
 // Nitro. With Nitro a Discord room is offered every server's custom emoji;
 // without it Discord refuses an emoji outside its own server.
@@ -158,6 +178,9 @@ type EmojiCatalog struct {
 	// DiscordNitroError is why the latest check failed, when it failed after
 	// the one in DiscordNitro; "" otherwise.
 	DiscordNitroError string `json:"discord_nitro_error"`
+	// DiscordServerSweep is how far the listing of every other server's
+	// emoji has got.
+	DiscordServerSweep DiscordServerSweepStatus `json:"discord_server_sweep"`
 	// FavoriteKeys are unicode emoji and "discord-emoji:<id>" keys, in order.
 	FavoriteKeys []string      `json:"favorite_keys"`
 	Settings     EmojiSettings `json:"settings"`
@@ -394,4 +417,21 @@ func DiscordNitroStatus(database *sql.DB) (*DiscordNitroCheck, string, error) {
 		return nil, "", fmt.Errorf("Nitro status: %w", err)
 	}
 	return answered, lastError, nil
+}
+
+// DeleteDiscordServerEmoji removes a server's emoji and its refresh record,
+// for a server the account has left.
+func DeleteDiscordServerEmoji(database *sql.DB, serverID string) error {
+	tx, err := database.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM discord_custom_emoji WHERE discord_server_id = ?`, serverID); err != nil {
+		return fmt.Errorf("delete emoji of server %s: %w", serverID, err)
+	}
+	if _, err := tx.Exec(`DELETE FROM discord_custom_emoji_refreshes WHERE discord_server_id = ?`, serverID); err != nil {
+		return fmt.Errorf("delete refresh of server %s: %w", serverID, err)
+	}
+	return tx.Commit()
 }

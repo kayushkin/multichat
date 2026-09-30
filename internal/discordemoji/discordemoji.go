@@ -158,30 +158,68 @@ func (r Refresher) resolveBotToken() (string, error) {
 }
 
 func (r Refresher) fetchServerEmoji(botToken, serverID string) ([]discordEmoji, error) {
-	req, err := http.NewRequest("GET", strings.TrimRight(r.DiscordAPIBaseURL, "/")+"/guilds/"+serverID+"/emojis", nil)
-	if err != nil {
-		return nil, err
+	out, err := fetchServerEmoji(r.HTTPClient, r.DiscordAPIBaseURL, "Bot "+botToken, serverID)
+	var refused *discordRefusal
+	if errors.As(err, &refused) && (refused.status == 403 || refused.status == 404) {
+		return nil, fmt.Errorf("%w (is the bot a member of this server?)", err)
 	}
-	req.Header.Set("Authorization", "Bot "+botToken)
-	resp, err := r.HTTPClient.Do(req)
+	return out, err
+}
+
+// discordRefusal is a non-200 answer from Discord. Its text carries the path,
+// status and body, never the Authorization header.
+type discordRefusal struct {
+	path   string
+	status int
+	body   string
+	// retryAfter is Discord's wait before a retry, on a 429.
+	retryAfter time.Duration
+}
+
+func (e *discordRefusal) Error() string {
+	return fmt.Sprintf("discord: GET %s: %d %s", e.path, e.status, e.body)
+}
+
+// discordGet makes one GET with the given Authorization and decodes a 200
+// answer into out.
+func discordGet(client *http.Client, apiBaseURL, authorization, path string, out any) error {
+	req, err := http.NewRequest("GET", strings.TrimRight(apiBaseURL, "/")+path, nil)
 	if err != nil {
-		return nil, fmt.Errorf("discord: %w", err)
+		return err
+	}
+	req.Header.Set("Authorization", authorization)
+	resp, err := client.Do(req)
+	if err != nil {
+		// The request error names the URL, never the header.
+		return fmt.Errorf("discord: GET %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("discord: %w", err)
+		return fmt.Errorf("discord: GET %s: %w", path, err)
 	}
 	if resp.StatusCode != 200 {
-		hint := ""
-		if resp.StatusCode == 403 || resp.StatusCode == 404 {
-			hint = " (is the bot a member of this server?)"
+		refusal := &discordRefusal{path: path, status: resp.StatusCode, body: strings.TrimSpace(string(data))}
+		if resp.StatusCode == 429 {
+			var limited struct {
+				RetryAfter float64 `json:"retry_after"`
+			}
+			if json.Unmarshal(data, &limited) == nil {
+				refusal.retryAfter = time.Duration(limited.RetryAfter * float64(time.Second))
+			}
 		}
-		return nil, fmt.Errorf("discord: GET /guilds/%s/emojis: %d %s%s", serverID, resp.StatusCode, strings.TrimSpace(string(data)), hint)
+		return refusal
 	}
+	if err := json.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("discord: GET %s: %w", path, err)
+	}
+	return nil
+}
+
+func fetchServerEmoji(client *http.Client, apiBaseURL, authorization, serverID string) ([]discordEmoji, error) {
 	var out []discordEmoji
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("discord: GET /guilds/%s/emojis: %w", serverID, err)
+	if err := discordGet(client, apiBaseURL, authorization, "/guilds/"+serverID+"/emojis", &out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -358,53 +396,17 @@ var ErrNoDiscordLogin = errors.New("the Discord bridge has no logged-in account"
 // put in an error. It returns the account's Discord user id and Discord's
 // premium_type.
 func (c NitroChecker) Check(bridgeDatabase *sql.DB) (string, int, error) {
-	rows, err := bridgeDatabase.Query(`SELECT dcid, discord_token FROM "user" WHERE discord_token IS NOT NULL AND discord_token != '' AND dcid IS NOT NULL AND dcid != ''`)
-	if err != nil {
-		return "", 0, fmt.Errorf("read the bridge's Discord account: %w", err)
-	}
-	type login struct{ discordUserID, token string }
-	var logins []login
-	for rows.Next() {
-		var l login
-		if err := rows.Scan(&l.discordUserID, &l.token); err != nil {
-			rows.Close()
-			return "", 0, fmt.Errorf("read the bridge's Discord account: %w", err)
-		}
-		logins = append(logins, l)
-	}
-	rows.Close()
-	if len(logins) == 0 {
-		return "", 0, ErrNoDiscordLogin
-	}
-	if len(logins) > 1 {
-		return "", 0, fmt.Errorf("the Discord bridge holds %d logged-in accounts; multichat expects one", len(logins))
-	}
-	account := logins[0]
-	req, err := http.NewRequest("GET", strings.TrimRight(c.DiscordAPIBaseURL, "/")+"/users/@me", nil)
+	account, err := readDiscordLogin(bridgeDatabase)
 	if err != nil {
 		return "", 0, err
-	}
-	// A user login goes bare, without the "Bot " a bot token takes.
-	req.Header.Set("Authorization", account.token)
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		// The request error names the URL, never the header.
-		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
-	}
-	if resp.StatusCode != 200 {
-		return "", 0, fmt.Errorf("discord: GET /users/@me: %d %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	var me struct {
 		ID          string `json:"id"`
 		PremiumType *int   `json:"premium_type"`
 	}
-	if err := json.Unmarshal(data, &me); err != nil {
-		return "", 0, fmt.Errorf("discord: GET /users/@me: %w", err)
+	// A user login goes bare, without the "Bot " a bot token takes.
+	if err := discordGet(c.HTTPClient, c.DiscordAPIBaseURL, account.token, "/users/@me", &me); err != nil {
+		return "", 0, err
 	}
 	if me.ID != account.discordUserID {
 		return "", 0, fmt.Errorf("discord: GET /users/@me answered for user %s, but the bridge's account is %s", me.ID, account.discordUserID)
@@ -413,4 +415,33 @@ func (c NitroChecker) Check(bridgeDatabase *sql.DB) (string, int, error) {
 		return "", 0, fmt.Errorf("discord: GET /users/@me for %s carried no premium_type", me.ID)
 	}
 	return me.ID, *me.PremiumType, nil
+}
+
+// discordLogin is the bridge's Discord account and its login. The login is
+// held in memory only for the calls that need it.
+type discordLogin struct{ discordUserID, token string }
+
+// readDiscordLogin reads the one logged-in account from the bridge's user table.
+func readDiscordLogin(bridgeDatabase *sql.DB) (discordLogin, error) {
+	rows, err := bridgeDatabase.Query(`SELECT dcid, discord_token FROM "user" WHERE discord_token IS NOT NULL AND discord_token != '' AND dcid IS NOT NULL AND dcid != ''`)
+	if err != nil {
+		return discordLogin{}, fmt.Errorf("read the bridge's Discord account: %w", err)
+	}
+	var logins []discordLogin
+	for rows.Next() {
+		var l discordLogin
+		if err := rows.Scan(&l.discordUserID, &l.token); err != nil {
+			rows.Close()
+			return discordLogin{}, fmt.Errorf("read the bridge's Discord account: %w", err)
+		}
+		logins = append(logins, l)
+	}
+	rows.Close()
+	if len(logins) == 0 {
+		return discordLogin{}, ErrNoDiscordLogin
+	}
+	if len(logins) > 1 {
+		return discordLogin{}, fmt.Errorf("the Discord bridge holds %d logged-in accounts; multichat expects one", len(logins))
+	}
+	return logins[0], nil
 }

@@ -37,7 +37,11 @@ CREATE TABLE discord_file (
 
 func openBridge(t *testing.T) *sql.DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "mautrix-discord.db")
+	return openBridgeAt(t, filepath.Join(t.TempDir(), "mautrix-discord.db"))
+}
+
+func openBridgeAt(t *testing.T, path string) *sql.DB {
+	t.Helper()
 	bridge, err := sql.Open("sqlite3", path)
 	if err != nil {
 		t.Fatal(err)

@@ -34,6 +34,7 @@ type Router struct {
 	discordEmojiRefresher discordemoji.Refresher
 	discordEmojiTeacher   discordemoji.Teacher
 	discordNitroChecker   discordemoji.NitroChecker
+	discordServerSweeper  *discordemoji.ServerSweeper
 
 	// llmBridgeURL is where inbound rules have their instance_id checked
 	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
@@ -85,6 +86,11 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		AuthStoreToken:    loaded.AuthStoreToken,
 		BotCredentialID:   loaded.DiscordEmojiBotCredentialID,
 		DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL,
+	}
+	r.discordServerSweeper = &discordemoji.ServerSweeper{
+		HTTPClient: r.httpClient, DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL,
+		Interval: discordemoji.ServerSweepInterval, StaleAfter: discordemoji.ServerSweepStaleAfter,
+		Now: time.Now, Sleep: time.Sleep,
 	}
 	r.discordNitroChecker = discordemoji.NitroChecker{HTTPClient: r.httpClient, DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL}
 	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
