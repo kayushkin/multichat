@@ -43,3 +43,10 @@ func TestParseReactionContentReadsTheKeyAndShortcode(t *testing.T) {
 		t.Error("a reaction with no annotation was accepted")
 	}
 }
+
+func TestAFileMessageKeepsItsNameApartFromItsCaption(t *testing.T) {
+	facts, err := ParseMessageContent(json.RawMessage(`{"msgtype":"m.image","body":"look at this","filename":"screenshot.png","url":"mxc://x/y","info":{"mimetype":"image/png"}}`))
+	if err != nil || facts.Body != "look at this" || facts.FileName != "screenshot.png" || facts.MediaMimetype != "image/png" {
+		t.Fatalf("facts = %+v, %v", facts, err)
+	}
+}

@@ -18,6 +18,9 @@ type MessageContentFacts struct {
 	// MediaURL is the mxc:// URI of an image, file, video or audio message.
 	MediaURL      string
 	MediaMimetype string
+	// FileName is a media message's "filename" when the sender set one. Per
+	// MSC2530, when it differs from Body, Body is a caption.
+	FileName string
 	// ReplyToEventID is m.relates_to.m.in_reply_to.event_id.
 	ReplyToEventID string
 	// ReplacesEventID is set on an edit (m.relates_to rel_type m.replace):
@@ -35,6 +38,7 @@ type rawMessageContent struct {
 	Format        string `json:"format"`
 	FormattedBody string `json:"formatted_body"`
 	URL           string `json:"url"`
+	FileName      string `json:"filename"`
 	Info          struct {
 		MimeType string `json:"mimetype"`
 	} `json:"info"`
@@ -54,6 +58,7 @@ func (raw rawMessageContent) facts() MessageContentFacts {
 		Body:           raw.Body,
 		MediaURL:       raw.URL,
 		MediaMimetype:  raw.Info.MimeType,
+		FileName:       raw.FileName,
 		ReplyToEventID: raw.RelatesTo.InReplyTo.EventID,
 	}
 	if raw.FormattedBody != "" {

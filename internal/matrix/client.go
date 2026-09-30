@@ -272,10 +272,13 @@ type Message struct {
 	IsMe       bool   `json:"is_me,omitempty"`
 	// Format is "org.matrix.custom.html" when FormattedBody is Matrix HTML,
 	// else "".
-	Format         string `json:"format"`
-	FormattedBody  string `json:"formatted_body"`
-	MediaURL       string `json:"media_url"`
-	MediaMimetype  string `json:"media_mimetype"`
+	Format        string `json:"format"`
+	FormattedBody string `json:"formatted_body"`
+	MediaURL      string `json:"media_url"`
+	MediaMimetype string `json:"media_mimetype"`
+	// FileName is a media message's file name when the sender set one apart
+	// from Body; then Body is the caption sent with the file. "" otherwise.
+	FileName       string `json:"file_name,omitempty"`
 	ReplyToEventID string `json:"reply_to_event_id"`
 	// ReplacesEventID is set on an edit: the message it edits. An edit's
 	// body, format, formatted body and media are the edited message's new
@@ -638,6 +641,7 @@ func (c *Client) GetMessagePage(roomID string, limit int, from string) (*Message
 			FormattedBody:   content.FormattedBody,
 			MediaURL:        content.MediaURL,
 			MediaMimetype:   content.MediaMimetype,
+			FileName:        content.FileName,
 			ReplyToEventID:  content.ReplyToEventID,
 			ReplacesEventID: replacesEventID,
 		})
