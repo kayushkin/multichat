@@ -10,6 +10,8 @@ func TestPlatformOfUserIDReadsEveryBridgePuppetPrefix(t *testing.T) {
 		"@meta_910000000000006:chat.kayushkin.com":       "meta",
 		"@discord_920000000000000004:chat.kayushkin.com": "discord",
 		"@slack_t0123-u0456:chat.kayushkin.com":          "slack",
+		"@gmessages_1.2:chat.kayushkin.com":              "gmessages",
+		"@gmessagesbot:chat.kayushkin.com":               "",
 		"@discordbot:chat.kayushkin.com":                 "",
 		"@slackbot:chat.kayushkin.com":                   "",
 		"@admin:chat.kayushkin.com":                      "",

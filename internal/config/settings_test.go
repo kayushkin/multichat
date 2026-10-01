@@ -44,23 +44,24 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 	}
 
 	want = Config{
-		ListenPort:                  9402,
-		DatabasePath:                "/srv/multichat.db",
-		APIToken:                    "an-api-token",
-		SynapseURL:                  "http://synapse.example:1",
-		MatrixToken:                 "a-matrix-token",
-		TelegramBridgeDatabasePath:  "/srv/telegram.db",
-		MetaBridgeDatabasePath:      "/srv/meta.db",
-		DiscordBridgeDatabasePath:   "/srv/discord.db",
-		WhatsAppBridgeDatabasePath:  "/srv/whatsapp.db",
-		DiscordEmojiBotCredentialID: "cred_discord_bot",
-		AuthStoreURL:                "http://auth-store.example:1",
-		AuthStoreToken:              "an-auth-store-token",
-		NATSURL:                     "nats://nats.example:1",
-		LLMBridgeServerURL:          "http://bridge.example:1",
-		LLMBridgeServiceToken:       "a-bridge-service-token",
-		OpenAIAPIKey:                "an-openai-key",
-		AnthropicAPIKey:             "an-anthropic-key",
+		ListenPort:                       9402,
+		DatabasePath:                     "/srv/multichat.db",
+		APIToken:                         "an-api-token",
+		SynapseURL:                       "http://synapse.example:1",
+		MatrixToken:                      "a-matrix-token",
+		TelegramBridgeDatabasePath:       "/srv/telegram.db",
+		MetaBridgeDatabasePath:           "/srv/meta.db",
+		DiscordBridgeDatabasePath:        "/srv/discord.db",
+		WhatsAppBridgeDatabasePath:       "/srv/whatsapp.db",
+		GoogleMessagesBridgeDatabasePath: "/srv/gmessages.db",
+		DiscordEmojiBotCredentialID:      "cred_discord_bot",
+		AuthStoreURL:                     "http://auth-store.example:1",
+		AuthStoreToken:                   "an-auth-store-token",
+		NATSURL:                          "nats://nats.example:1",
+		LLMBridgeServerURL:               "http://bridge.example:1",
+		LLMBridgeServiceToken:            "a-bridge-service-token",
+		OpenAIAPIKey:                     "an-openai-key",
+		AnthropicAPIKey:                  "an-anthropic-key",
 	}
 	got := mustLoadFrom(t, map[string]string{
 		"PORT":                            "9402",
@@ -72,6 +73,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"META_DB":                         "/srv/meta.db",
 		"DISCORD_DB":                      "/srv/discord.db",
 		"WHATSAPP_DB":                     "/srv/whatsapp.db",
+		"GMESSAGES_DB":                    "/srv/gmessages.db",
 		"DISCORD_EMOJI_BOT_CREDENTIAL_ID": "cred_discord_bot",
 		"AUTH_STORE_URL":                  "http://auth-store.example:1",
 		"AUTH_STORE_TOKEN":                "an-auth-store-token",
@@ -96,7 +98,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 17; got != want {
+	if got, want := len(SettingDefinitions()), 18; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }

@@ -39,28 +39,30 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"META_DB",
 	"DISCORD_DB",
 	"WHATSAPP_DB",
+	"GMESSAGES_DB",
 	"DISCORD_EMOJI_BOT_CREDENTIAL_ID",
 }
 
 // Keys of the server's settings, as GET /api/settings names them.
 const (
-	SettingListenPort                 = "listen_port"
-	SettingDatabasePath               = "database_path"
-	SettingAPIToken                   = "api_token"
-	SettingSynapseURL                 = "synapse_url"
-	SettingMatrixToken                = "matrix_token"
-	SettingTelegramBridgeDatabasePath = "telegram_bridge_database_path"
-	SettingMetaBridgeDatabasePath     = "meta_bridge_database_path"
-	SettingDiscordBridgeDatabasePath  = "discord_bridge_database_path"
-	SettingWhatsAppBridgeDatabasePath = "whatsapp_bridge_database_path"
-	SettingDiscordEmojiBotCredential  = "discord_emoji_bot_credential_id"
-	SettingAuthStoreURL               = "auth_store_url"
-	SettingAuthStoreToken             = "auth_store_token"
-	SettingNATSURL                    = "nats_url"
-	SettingLLMBridgeServerURL         = "llm_bridge_server_url"
-	SettingLLMBridgeServiceToken      = "llm_bridge_service_token"
-	SettingOpenAIAPIKey               = "openai_api_key"
-	SettingAnthropicAPIKey            = "anthropic_api_key"
+	SettingListenPort                       = "listen_port"
+	SettingDatabasePath                     = "database_path"
+	SettingAPIToken                         = "api_token"
+	SettingSynapseURL                       = "synapse_url"
+	SettingMatrixToken                      = "matrix_token"
+	SettingTelegramBridgeDatabasePath       = "telegram_bridge_database_path"
+	SettingMetaBridgeDatabasePath           = "meta_bridge_database_path"
+	SettingDiscordBridgeDatabasePath        = "discord_bridge_database_path"
+	SettingWhatsAppBridgeDatabasePath       = "whatsapp_bridge_database_path"
+	SettingGoogleMessagesBridgeDatabasePath = "google_messages_bridge_database_path"
+	SettingDiscordEmojiBotCredential        = "discord_emoji_bot_credential_id"
+	SettingAuthStoreURL                     = "auth_store_url"
+	SettingAuthStoreToken                   = "auth_store_token"
+	SettingNATSURL                          = "nats_url"
+	SettingLLMBridgeServerURL               = "llm_bridge_server_url"
+	SettingLLMBridgeServiceToken            = "llm_bridge_service_token"
+	SettingOpenAIAPIKey                     = "openai_api_key"
+	SettingAnthropicAPIKey                  = "anthropic_api_key"
 )
 
 // The values in force with nothing set. The shipped unit sets the port and an
@@ -98,6 +100,8 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The mautrix-discord bridge's SQLite file. Read to find our own Discord puppet, so our own Discord messages are not taken for someone else's, to answer GET /discord/status and to list the bridged servers whose emoji GET /emoji offers. Written in one place: reacting with a custom emoji the bridge has not seen adds it to the bridge's discord_file table, so the service needs write access to the file. The daily Nitro check reads the account's Discord login from its user table for one GET /users/@me. Unset leaves the puppet out and makes /discord/status and the emoji routes a 503."},
 		{Key: SettingWhatsAppBridgeDatabasePath, EnvironmentVariable: "WHATSAPP_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-whatsapp bridge's SQLite file, opened read-only at start to find our own WhatsApp LID puppet (@whatsapp_lid-…), which sits in every WhatsApp room beside the other people. Unset leaves it out, so every WhatsApp room counts us as one of its members and no WhatsApp DM names its partner."},
+		{Key: SettingGoogleMessagesBridgeDatabasePath, EnvironmentVariable: "GMESSAGES_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The mautrix-gmessages bridge's SQLite file, opened read-only at start to find our own Google Messages puppets (@gmessages_<id_prefix>.<self participant id>), one per phone login, so the texts we send from the phone are not taken for someone else's. Unset leaves them out."},
 		{Key: SettingDiscordEmojiBotCredential, EnvironmentVariable: "DISCORD_EMOJI_BOT_CREDENTIAL_ID", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The auth-store credential id whose api_key is a Discord bot token. POST /emoji/discord/refresh lists each bridged server's custom emoji with it, so the bot must be a member of every bridged server. Unset makes that refresh a 503."},
 		{Key: SettingAuthStoreURL, EnvironmentVariable: "AUTH_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -136,10 +140,11 @@ type Config struct {
 	SynapseURL  string
 	MatrixToken string
 
-	TelegramBridgeDatabasePath string
-	MetaBridgeDatabasePath     string
-	DiscordBridgeDatabasePath  string
-	WhatsAppBridgeDatabasePath string
+	TelegramBridgeDatabasePath       string
+	MetaBridgeDatabasePath           string
+	DiscordBridgeDatabasePath        string
+	WhatsAppBridgeDatabasePath       string
+	GoogleMessagesBridgeDatabasePath string
 
 	// DiscordEmojiBotCredentialID, AuthStoreURL and AuthStoreToken let the
 	// emoji refresh fetch the Discord bot token from auth-store.
@@ -168,23 +173,24 @@ func (c Config) MatrixConfigured() bool {
 // An error names the variable and never its value.
 func Load(registry *servicesettings.Registry) (Config, error) {
 	loaded := Config{
-		ListenPort:                  registry.Integer(SettingListenPort),
-		DatabasePath:                registry.String(SettingDatabasePath),
-		APIToken:                    registry.String(SettingAPIToken),
-		SynapseURL:                  registry.String(SettingSynapseURL),
-		MatrixToken:                 registry.String(SettingMatrixToken),
-		TelegramBridgeDatabasePath:  registry.String(SettingTelegramBridgeDatabasePath),
-		MetaBridgeDatabasePath:      registry.String(SettingMetaBridgeDatabasePath),
-		DiscordBridgeDatabasePath:   registry.String(SettingDiscordBridgeDatabasePath),
-		WhatsAppBridgeDatabasePath:  registry.String(SettingWhatsAppBridgeDatabasePath),
-		DiscordEmojiBotCredentialID: registry.String(SettingDiscordEmojiBotCredential),
-		AuthStoreURL:                registry.String(SettingAuthStoreURL),
-		AuthStoreToken:              registry.String(SettingAuthStoreToken),
-		NATSURL:                     registry.String(SettingNATSURL),
-		LLMBridgeServerURL:          registry.String(SettingLLMBridgeServerURL),
-		LLMBridgeServiceToken:       registry.String(SettingLLMBridgeServiceToken),
-		OpenAIAPIKey:                registry.String(SettingOpenAIAPIKey),
-		AnthropicAPIKey:             registry.String(SettingAnthropicAPIKey),
+		ListenPort:                       registry.Integer(SettingListenPort),
+		DatabasePath:                     registry.String(SettingDatabasePath),
+		APIToken:                         registry.String(SettingAPIToken),
+		SynapseURL:                       registry.String(SettingSynapseURL),
+		MatrixToken:                      registry.String(SettingMatrixToken),
+		TelegramBridgeDatabasePath:       registry.String(SettingTelegramBridgeDatabasePath),
+		MetaBridgeDatabasePath:           registry.String(SettingMetaBridgeDatabasePath),
+		DiscordBridgeDatabasePath:        registry.String(SettingDiscordBridgeDatabasePath),
+		WhatsAppBridgeDatabasePath:       registry.String(SettingWhatsAppBridgeDatabasePath),
+		GoogleMessagesBridgeDatabasePath: registry.String(SettingGoogleMessagesBridgeDatabasePath),
+		DiscordEmojiBotCredentialID:      registry.String(SettingDiscordEmojiBotCredential),
+		AuthStoreURL:                     registry.String(SettingAuthStoreURL),
+		AuthStoreToken:                   registry.String(SettingAuthStoreToken),
+		NATSURL:                          registry.String(SettingNATSURL),
+		LLMBridgeServerURL:               registry.String(SettingLLMBridgeServerURL),
+		LLMBridgeServiceToken:            registry.String(SettingLLMBridgeServiceToken),
+		OpenAIAPIKey:                     registry.String(SettingOpenAIAPIKey),
+		AnthropicAPIKey:                  registry.String(SettingAnthropicAPIKey),
 	}
 	if loaded.NATSURL != "" && !loaded.MatrixConfigured() {
 		return Config{}, fmt.Errorf("NATS_URL is set but the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN); inbound needs both")

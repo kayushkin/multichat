@@ -144,6 +144,31 @@ func main() {
 		rows.Close()
 		discordDB.Close()
 	}
+	// Google Messages names each phone-side participant "<id_prefix>.<participant id>",
+	// and a login's metadata lists which participant ids are us.
+	if googleMessagesDBPath := loaded.GoogleMessagesBridgeDatabasePath; googleMessagesDBPath != "" {
+		googleMessagesDB, err := sql.Open("sqlite3", "file:"+googleMessagesDBPath+"?mode=ro")
+		if err != nil {
+			log.Fatalf("open GMESSAGES_DB %s: %v", googleMessagesDBPath, err)
+		}
+		rows, err := googleMessagesDB.Query(`SELECT json_extract(user_login.metadata, '$.id_prefix') || '.' || self_participant.value
+			FROM user_login, json_each(json_extract(user_login.metadata, '$.self_participant_ids')) AS self_participant`)
+		if err != nil {
+			log.Fatalf("read own Google Messages participant ids from GMESSAGES_DB %s: %v", googleMessagesDBPath, err)
+		}
+		for rows.Next() {
+			var ghostID string
+			if err := rows.Scan(&ghostID); err != nil {
+				log.Fatalf("read own Google Messages participant ids from GMESSAGES_DB %s: %v", googleMessagesDBPath, err)
+			}
+			matrix.SelfUserIDs[fmt.Sprintf("@gmessages_%s:%s", ghostID, serverName)] = true
+		}
+		if err := rows.Err(); err != nil {
+			log.Fatalf("read own Google Messages participant ids from GMESSAGES_DB %s: %v", googleMessagesDBPath, err)
+		}
+		rows.Close()
+		googleMessagesDB.Close()
+	}
 	log.Printf("Self user IDs: %d identities", len(matrix.SelfUserIDs))
 	for id := range matrix.SelfUserIDs {
 		log.Printf("  %s", id)
