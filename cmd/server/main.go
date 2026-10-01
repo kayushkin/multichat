@@ -175,6 +175,10 @@ func main() {
 	}
 
 	router := api.NewRouter(database, matrixClient, loaded, settings)
+	if matrixClient != nil {
+		// Read every room now, so the first GET /conversations does not wait.
+		matrixClient.KeepConversationsCurrent()
+	}
 	if matrixClient != nil && loaded.PeopleStoreURL != "" {
 		go func() {
 			for {

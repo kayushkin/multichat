@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +22,9 @@ type Client struct {
 	// selfUserID is WhoAmI's answer once it has one.
 	selfUserIDMutex sync.Mutex
 	selfUserID      string
+
+	// conversations is what ListConversations answers from.
+	conversations conversationCache
 }
 
 func NewClient(homeserver, accessToken string) *Client {
@@ -429,154 +431,158 @@ func (c *Client) GetRoomMembers(roomID string) ([]RoomMember, error) {
 // MetaPlatformMap maps room IDs to facebook/instagram platform
 type MetaPlatformMap map[string]string
 
-// ListConversations returns rooms the user has joined. directMessageRoomIDs
+// listedRoom is what conversationOf learns about one room from Synapse,
+// before the per-request facts (which Meta app, which Discord rooms are DMs)
+// are applied by finish.
+type listedRoom struct {
+	conversation Conversation
+	// bridgeRoomType is m.bridge's com.beeper.room_type, read only for rooms
+	// with one other member, where it decides whether the room is a DM.
+	bridgeRoomType string
+}
+
+// finish applies what the bridge databases say now: directMessageRoomIDs
 // names DM rooms whose bridge does not mark them in m.bridge (Discord); the
 // mautrix-go bridges mark theirs with com.beeper.room_type "dm".
-func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, directMessageRoomIDs map[string]bool) ([]Conversation, error) {
-	data, err := c.request("GET", "/_matrix/client/v3/joined_rooms", nil)
+func (room listedRoom) finish(metaPlatforms MetaPlatformMap, directMessageRoomIDs map[string]bool) Conversation {
+	conv := room.conversation
+	if len(conv.Members) == 1 && (directMessageRoomIDs[conv.RoomID] || room.bridgeRoomType == "dm") {
+		conv.DirectMessagePartnerUserID = conv.Members[0].UserID
+	}
+	// Resolve meta → facebook/instagram
+	if conv.Platform == "meta" && metaPlatforms != nil {
+		if p, ok := metaPlatforms[conv.RoomID]; ok {
+			conv.Platform = p
+		}
+	}
+	return conv
+}
+
+// conversationOf reads one joined room from Synapse. listed is false for a
+// room the conversation list leaves out: a bridge's management room, or a
+// room no bridge carries.
+func (c *Client) conversationOf(roomID string) (room listedRoom, listed bool, err error) {
+	conv := Conversation{RoomID: roomID}
+
+	nameData, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state/m.room.name", nil)
+	switch {
+	case isMatrixNotFound(err):
+		// The room has no name of its own.
+	case err != nil:
+		return listedRoom{}, false, err
+	default:
+		var nameEvt struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(nameData, &nameEvt); err != nil {
+			return listedRoom{}, false, fmt.Errorf("m.room.name of %s: %w", roomID, err)
+		}
+		conv.Name = nameEvt.Name
+	}
+
+	memberData, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/members?membership=join", nil)
 	if err != nil {
-		return nil, err
+		return listedRoom{}, false, err
 	}
-	var resp struct {
-		JoinedRooms []string `json:"joined_rooms"`
+	var memberResp struct {
+		Chunk []struct {
+			StateKey string `json:"state_key"`
+			Content  struct {
+				DisplayName string `json:"displayname"`
+			} `json:"content"`
+		} `json:"chunk"`
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
+	if err := json.Unmarshal(memberData, &memberResp); err != nil {
+		return listedRoom{}, false, fmt.Errorf("members of %s: %w", roomID, err)
 	}
-
-	var convos []Conversation
-	for _, roomID := range resp.JoinedRooms {
-		conv := Conversation{RoomID: roomID}
-
-		// Get room name
-		if nameData, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state/m.room.name", nil); err == nil {
-			var nameEvt struct {
-				Name string `json:"name"`
-			}
-			json.Unmarshal(nameData, &nameEvt)
-			conv.Name = nameEvt.Name
+	// Collect non-bot, non-self member IDs
+	for _, m := range memberResp.Chunk {
+		local := strings.Split(m.StateKey, ":")[0]
+		if !strings.HasSuffix(local, "bot") && m.StateKey != "@admin:chat.kayushkin.com" && !SelfUserIDs[m.StateKey] {
+			conv.Members = append(conv.Members, ConversationMember{UserID: m.StateKey, DisplayName: stripBridgeSuffix(m.Content.DisplayName)})
 		}
+	}
+	// Real member count = other people + you
+	conv.MemberCount = len(conv.Members) + 1
 
-		// Get members
-		if memberData, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/members?membership=join", nil); err == nil {
-			var memberResp struct {
-				Chunk []struct {
-					StateKey string `json:"state_key"`
-					Content  struct {
-						DisplayName string `json:"displayname"`
-					} `json:"content"`
-				} `json:"chunk"`
-			}
-			json.Unmarshal(memberData, &memberResp)
-			// Collect non-bot, non-self member IDs
-			for _, m := range memberResp.Chunk {
-				local := strings.Split(m.StateKey, ":")[0]
-				if !strings.HasSuffix(local, "bot") && m.StateKey != "@admin:chat.kayushkin.com" && !SelfUserIDs[m.StateKey] {
-					conv.Members = append(conv.Members, ConversationMember{UserID: m.StateKey, DisplayName: stripBridgeSuffix(m.Content.DisplayName)})
-				}
-			}
-			// Real member count = other people + you
-			conv.MemberCount = len(conv.Members) + 1
-
-			// Detect platform from member user IDs
-			for _, m := range memberResp.Chunk {
-				switch {
-				case PlatformOfUserID(m.StateKey) != "":
-					conv.Platform = PlatformOfUserID(m.StateKey)
-				case strings.Contains(m.StateKey, "facebook_"):
-					conv.Platform = "facebook"
-				case strings.Contains(m.StateKey, "instagram_"):
-					conv.Platform = "instagram"
-				default:
-					continue
-				}
-				break
-			}
-
-			// Detect bridge bot management room
-			if conv.Name == "" {
-				for _, m := range memberResp.Chunk {
-					if strings.HasPrefix(m.StateKey, "@telegrambot") {
-						conv.Name = "Telegram Bridge"
-					}
-				}
-			}
-
-			// With no room name, name the room after the other people in it, as
-			// Messenger does. Members already leaves out bridge bots and our own
-			// puppets, which a bridged chat carries alongside the real members.
-			if conv.Name == "" {
-				conv.Name = roomNameFromMembers(conv.Members)
-				conv.NamedAfterMembers = conv.Name != ""
-			}
-		}
-
-		if conv.Name == "" {
-			conv.Name = "Unnamed Room"
-		}
-
-		// Skip bridge bot/management rooms and unidentified rooms
-		nameLower := strings.ToLower(conv.Name)
-		if strings.Contains(nameLower, "bridge") {
+	// Detect platform from member user IDs
+	for _, m := range memberResp.Chunk {
+		switch {
+		case PlatformOfUserID(m.StateKey) != "":
+			conv.Platform = PlatformOfUserID(m.StateKey)
+		case strings.Contains(m.StateKey, "facebook_"):
+			conv.Platform = "facebook"
+		case strings.Contains(m.StateKey, "instagram_"):
+			conv.Platform = "instagram"
+		default:
 			continue
 		}
-		if conv.Platform == "" {
-			continue
-		}
-
-		if len(conv.Members) == 1 {
-			isDirectMessage := directMessageRoomIDs[roomID]
-			if !isDirectMessage {
-				roomType, err := c.bridgeRoomType(roomID)
-				if err != nil {
-					return nil, fmt.Errorf("m.bridge state of %s: %w", roomID, err)
-				}
-				isDirectMessage = roomType == "dm"
-			}
-			if isDirectMessage {
-				conv.DirectMessagePartnerUserID = conv.Members[0].UserID
-			}
-		}
-
-		// Resolve meta → facebook/instagram
-		if conv.Platform == "meta" && metaPlatforms != nil {
-			if p, ok := metaPlatforms[conv.RoomID]; ok {
-				conv.Platform = p
-			}
-		}
-
-		// Fetch latest message for sorting + preview
-		msgPath := fmt.Sprintf("/_matrix/client/v3/rooms/%s/messages?dir=b&limit=1&filter=%s",
-			url.PathEscape(roomID),
-			url.QueryEscape(`{"types":["m.room.message"]}`))
-		if msgData, err := c.request("GET", msgPath, nil); err == nil {
-			var msgResp struct {
-				Chunk []struct {
-					OriginServerTS int64           `json:"origin_server_ts"`
-					Content        json.RawMessage `json:"content"`
-				} `json:"chunk"`
-			}
-			if json.Unmarshal(msgData, &msgResp) == nil && len(msgResp.Chunk) > 0 {
-				conv.LastActivity = msgResp.Chunk[0].OriginServerTS
-				content, err := ParseMessageContent(msgResp.Chunk[0].Content)
-				if err != nil {
-					return nil, fmt.Errorf("last message of %s: %w", roomID, err)
-				}
-				if content.NewContent != nil {
-					// An edit: preview the edited text, not the "* …" fallback.
-					content = *content.NewContent
-				}
-				conv.LastMessage = lastMessagePreview(content.Body)
-			}
-		}
-
-		convos = append(convos, conv)
+		break
 	}
-	// Sort by most recent activity
-	sort.Slice(convos, func(i, j int) bool {
-		return convos[i].LastActivity > convos[j].LastActivity
-	})
-	return convos, nil
+
+	// Detect bridge bot management room
+	if conv.Name == "" {
+		for _, m := range memberResp.Chunk {
+			if strings.HasPrefix(m.StateKey, "@telegrambot") {
+				conv.Name = "Telegram Bridge"
+			}
+		}
+	}
+
+	// With no room name, name the room after the other people in it, as
+	// Messenger does. Members already leaves out bridge bots and our own
+	// puppets, which a bridged chat carries alongside the real members.
+	if conv.Name == "" {
+		conv.Name = roomNameFromMembers(conv.Members)
+		conv.NamedAfterMembers = conv.Name != ""
+	}
+	if conv.Name == "" {
+		conv.Name = "Unnamed Room"
+	}
+
+	// Skip bridge bot/management rooms and unidentified rooms
+	if strings.Contains(strings.ToLower(conv.Name), "bridge") || conv.Platform == "" {
+		return listedRoom{}, false, nil
+	}
+
+	room = listedRoom{conversation: conv}
+	if len(conv.Members) == 1 {
+		room.bridgeRoomType, err = c.bridgeRoomType(roomID)
+		if err != nil {
+			return listedRoom{}, false, fmt.Errorf("m.bridge state of %s: %w", roomID, err)
+		}
+	}
+
+	// Fetch latest message for sorting + preview
+	msgPath := fmt.Sprintf("/_matrix/client/v3/rooms/%s/messages?dir=b&limit=1&filter=%s",
+		url.PathEscape(roomID),
+		url.QueryEscape(`{"types":["m.room.message"]}`))
+	msgData, err := c.request("GET", msgPath, nil)
+	if err != nil {
+		return listedRoom{}, false, err
+	}
+	var msgResp struct {
+		Chunk []struct {
+			OriginServerTS int64           `json:"origin_server_ts"`
+			Content        json.RawMessage `json:"content"`
+		} `json:"chunk"`
+	}
+	if err := json.Unmarshal(msgData, &msgResp); err != nil {
+		return listedRoom{}, false, fmt.Errorf("last message of %s: %w", roomID, err)
+	}
+	if len(msgResp.Chunk) > 0 {
+		room.conversation.LastActivity = msgResp.Chunk[0].OriginServerTS
+		content, err := ParseMessageContent(msgResp.Chunk[0].Content)
+		if err != nil {
+			return listedRoom{}, false, fmt.Errorf("last message of %s: %w", roomID, err)
+		}
+		if content.NewContent != nil {
+			// An edit: preview the edited text, not the "* …" fallback.
+			content = *content.NewContent
+		}
+		room.conversation.LastMessage = lastMessagePreview(content.Body)
+	}
+	return room, true, nil
 }
 
 // GetMessages returns messages from a room
