@@ -24,7 +24,7 @@ Environment=DISCORD_DB=%h/multichat/discord-data/mautrix-discord.db
 Environment=WHATSAPP_DB=%h/multichat/whatsapp-data/mautrix-whatsapp.db
 Environment=GMESSAGES_DB=%h/multichat/gmessages-data/mautrix-gmessages.db
 Environment=SIGNAL_DB=%h/multichat/signal-data/mautrix-signal.db
-Environment=PRINCIPAL_STORE_URL=http://127.0.0.1:8314
+Environment=PEOPLE_STORE_URL=http://127.0.0.1:8321
 
 # Custom Discord emoji. POST /emoji/discord/refresh lists each bridged server's
 # emoji with a Discord bot token it resolves from auth-store by credential id:

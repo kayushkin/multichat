@@ -97,17 +97,17 @@ Add a local contact (not from Matrix).
 
 ### GET /contacts/unified
 
-Every bridge identity Synapse knows, grouped by **person**. A person is a principal-store id (`principal_000040`); an identity is linked to one by the routes below, never by its name. An identity linked to no one is a group of its own with no `principal_id`, named as its platform shows it. Our own puppets are left out. The display name of a linked person is principal-store's, read on every call; principal-store failing is a **502**, and `PRINCIPAL_STORE_URL` unset a **503**.
+Every bridge identity Synapse knows, grouped by **person**. A person is a people-store id (`person_000040`); an identity is a people-store identity of kind `matrix_user`, attached to a person by the routes below, never by its name. An identity attached to no one is a group of its own with no `person_id`, named as its platform shows it. Our own puppets are left out. A linked person's display name is people-store's, read on every call; `person_deleted_at` is set when the operator deleted the person there (their accounts stay attached until someone takes them off). people-store failing is a **502**, and `PEOPLE_STORE_URL` unset a **503**.
 
 **Response:**
 ```json
 [
   {
-    "principal_id": "principal_000040",
+    "person_id": "person_000040",
     "display_name": "Priya",
     "identities": [
-      { "user_id": "@gmessages_1.630:chat.kayushkin.com", "platform": "gmessages", "display_name": "Priya", "linked_by": "agent", "link_reason": "…" },
-      { "user_id": "@discord_920000000000000002:chat.kayushkin.com", "platform": "discord", "display_name": "Zora Star", "linked_by": "agent", "link_reason": "…" }
+      { "user_id": "@gmessages_1.630:chat.kayushkin.com", "platform": "gmessages", "display_name": "Priya", "linked_by": "phone_number", "link_reason": "same phone number +15550100002" },
+      { "user_id": "@discord_920000000000000002:chat.kayushkin.com", "platform": "discord", "display_name": "Zora Star", "linked_by": "operator", "link_reason": "linked by the operator in dash" }
     ],
     "platforms": ["discord", "gmessages"]
   }
@@ -118,21 +118,14 @@ Sorted by number of platforms (descending), then by name.
 
 ### Linking identities to people
 
-`linked_by`, `removed_by`, `suggested_by`, `decided_by` and `reviewed_by` take one of `GET /contacts/links/sources`: `operator`, `phone_number`, `agent`. **The automatic sources (`phone_number`, `agent`) obey two rules the operator does not**: they never link two identities the operator separated (an unlink, or a rejected suggestion, records a refusal), and they never merge two people who already have different ids. Either is a **409**; the operator's link overrides both, clears the refusal, and moves every identity of the second person onto the first. A user id must be a bridge puppet that is not ours (**400** otherwise).
+people-store owns the person, the link, and the rules (`~/repos/people-store/CONTRACT.md`); these routes turn a bridge puppet id into its people-store identity and write there. `linked_by` is one of people-store's link sources, served here at `GET /contacts/links/sources` (`operator`, `phone_number`, `agent`, `import`). **The automatic sources obey rules the operator does not**: people-store refuses (**409**) a handle the operator took off a person, and never moves a handle between people for them; multichat adds that they never join two accounts that both have people already (**409**). The operator's link overrides a refusal and deletes it, and may move an account to another person. A user id must be a bridge puppet that is not ours (**400** otherwise).
 
-- `POST /contacts/links {user_id, with_user_id, linked_by, reason, display_name?}` — the two identities are one person. If neither is linked, a contact is created in principal-store named `display_name`, or `user_id`'s own name when that is empty. Answers `{principal_id}`.
-- `POST /contacts/links {user_id, principal_id, linked_by, reason}` — the identity is that existing person (**400** when principal-store does not know the id).
-- `POST /contacts/links/remove {user_id, removed_by}` — unlinks it and records that it is not the same person as anyone left on that person. Answers `{removed: link | null}`.
-- `POST /contacts/links/phone-match` — one phone-number pass now (the server runs one at start and every 10 minutes). Numbers come from `GMESSAGES_DB`, `WHATSAPP_DB` (`whatsmeow_lid_map`, plus `@whatsapp_<number>` puppets), `SIGNAL_DB` and `TELEGRAM_DB`. It creates a new person only when one of the identities is someone we talk with (below). Answers `{linked, refused, skipped_conflicts}`.
-- `GET /contacts/links/suggestions` — open suggestions: links an agent was not sure enough to make. `POST /contacts/links/suggestions {user_id, with_user_id, reason, suggested_by}` adds one (the same open pair twice keeps the first). `POST /contacts/links/suggestions/{id}/accept {decided_by}` links the pair, `…/reject {decided_by}` records a refusal; a suggestion that is not open is a **404**.
+- `POST /contacts/links {user_id, with_user_id, linked_by, reason, display_name?}` — the two accounts are one person. An account with no person joins the other's; if neither has one, a person is created in people-store named `display_name`, or `user_id`'s own name when that is empty. When both have people, only the operator may link them, and `user_id` moves to `with_user_id`'s person. Answers `{person_id}`.
+- `POST /contacts/links {user_id, person_id, linked_by, reason}` — the account is that existing person (**400** when people-store does not know the id).
+- `POST /contacts/links/remove {user_id, removed_by: "operator"}` — takes the account off its person; people-store records that it is not that person, so no automatic source links it back. Only the operator removes. Answers `{removed: identity | null}`.
+- `POST /contacts/links/phone-match` — one phone-number pass now (the server runs one at start and every 10 minutes). Numbers come from `GMESSAGES_DB`, `WHATSAPP_DB` (`whatsmeow_lid_map`, plus `@whatsapp_<number>` puppets), `SIGNAL_DB` and `TELEGRAM_DB`. Accounts that share a number join the person one of them has; when none has one, a person is created only when one of them is someone we talk with (below). Answers `{linked, refused, skipped_conflicts}`: accounts attached, accounts people-store refused, and numbers whose accounts are already on two or more people.
 
-### The agent review queue
-
-"Someone we talk with" is an identity that has sent a message into the message log, or the other person in a one-to-one chat we have joined.
-
-- `GET /contacts/reviews/pending?limit=25` — those people the agent pass has neither reviewed nor claimed: `{total, active_claims, pending: [{user_id, platform, display_name, principal_id?}]}`.
-- `POST /contacts/reviews/claim {limit, claimed_by}` — hands a reviewer the next `limit` (1–100) and claims them for 30 minutes, so they leave the pending list and a second session never gets them: `{claimed: [...], remaining}`. A claim ends when the identity is reviewed or the 30 minutes run out. `GET …/pending` reports `active_claims`, the count claimed right now.
-- `POST /contacts/reviews {user_ids, reviewed_by}` — marks them reviewed.
+**Suggestions and the review queue are people-store's**, not multichat's, since 2026-10-01: an unsure link is a people-store suggestion (`POST /suggestions` with `source: agent`), which the operator decides on dash's People page, and the contact review agent's queue is people-store's `GET /reviews/pending`. "Someone we talk with" is an identity that has sent a message into the message log, or the other person in a one-to-one chat we have joined.
 
 ---
 

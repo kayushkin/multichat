@@ -1,144 +1,141 @@
-// Package contactlinks decides which bridge identities are one person. A
-// person is a principal-store id; multichat stores which identities point at
-// it. The operator, the phone-number matcher and the agent pass all link
-// through Linker, so they obey the same rules: an automatic source never
-// overrides the operator's "these are different people", and never merges two
-// people who already have separate ids.
+// Package contactlinks decides which bridge accounts are one person. A person
+// is a people-store id (person_000001); each bridge account is a people-store
+// identity of kind matrix_user, and people-store records who linked it and
+// why. The operator's picker, the phone-number matcher and the review agent
+// all link through Linker. people-store enforces the rules the automatic
+// sources obey — they never relink a handle the operator took off a person,
+// and never take a handle from one person to give it to another — and Linker
+// adds the one people-store cannot see: an automatic source never merges two
+// people who both have ids already.
 package contactlinks
 
 import (
-	"database/sql"
 	"errors"
-	"slices"
+	"fmt"
 
-	"github.com/kayushkin/multichat/internal/db"
-	"github.com/kayushkin/multichat/internal/principals"
+	"github.com/kayushkin/multichat/internal/matrix"
+	"github.com/kayushkin/multichat/internal/people"
 )
 
-// PrincipalStore is the part of principal-store linking needs.
-type PrincipalStore interface {
-	CreateContact(displayName string) (string, error)
-	Get(id string) (principals.Principal, error)
+// The link sources multichat writes as. people-store owns the vocabulary
+// (GET /link-sources); these are the two whose meaning multichat acts on.
+const (
+	// SourceOperator is the operator's own word: it overrides refusals and may
+	// move an account from one person to another.
+	SourceOperator = "operator"
+	// SourcePhoneNumber is the phone-number matcher.
+	SourcePhoneNumber = "phone_number"
+)
+
+var (
+	// ErrAlreadyTwoPeople is an automatic source asking to join two accounts
+	// that already belong to different people. Only the operator merges.
+	ErrAlreadyTwoPeople = errors.New("these accounts already belong to two different people; only the operator can move one")
+	// ErrUnknownPerson is a link to a person id people-store does not know.
+	ErrUnknownPerson = errors.New("people-store has no person with that id")
+)
+
+// PeopleStore is the part of people-store linking needs.
+type PeopleStore interface {
+	OwnerOf(userID string) (*people.Identity, error)
+	MatrixUserIdentities() (map[string]people.Identity, error)
+	Person(id string) (people.Person, error)
+	CreatePerson(displayName string, links []people.Link) (string, error)
+	AddIdentity(personID string, link people.Link) (people.Identity, error)
+	RemoveIdentity(identityID string) error
 }
 
-// Linker links identities to people.
+// Linker links bridge accounts to people.
 type Linker struct {
-	Database   *sql.DB
-	Principals PrincipalStore
+	People PeopleStore
 }
 
-// groupOf returns the person an identity is linked to ("" for none) and every
-// identity on that person, or just the identity itself when unlinked.
-func (l Linker) groupOf(contactUserID string) (string, []string, error) {
-	link, err := db.ContactIdentityLinkOf(l.Database, contactUserID)
-	if err != nil {
-		return "", nil, err
-	}
-	if link == nil {
-		return "", []string{contactUserID}, nil
-	}
-	group, err := db.ContactUserIDsOfPrincipal(l.Database, link.PrincipalID)
-	return link.PrincipalID, group, err
+func link(userID, linkedBy, reason string) people.Link {
+	return people.MatrixUserLink(userID, matrix.PlatformOfUserID(userID), linkedBy, reason)
 }
 
-// LinkSamePerson records that two identities are one person and returns that
-// person's id. When neither is linked yet, a new contact is created in
-// principal-store under newPersonDisplayName. When both already belong to
-// different people, only the operator may merge them: every identity of the
-// second person moves to the first.
-func (l Linker) LinkSamePerson(contactUserID, otherContactUserID, newPersonDisplayName, linkedBy, reason string) (string, error) {
-	if !slices.Contains(db.ContactLinkSources, linkedBy) {
-		return "", db.ErrUnknownContactLinkSource
+func personOf(identity *people.Identity) string {
+	if identity == nil {
+		return ""
 	}
-	if contactUserID == otherContactUserID {
-		return "", errors.New("an identity cannot be linked to itself")
-	}
-	firstPrincipal, firstGroup, err := l.groupOf(contactUserID)
-	if err != nil {
-		return "", err
-	}
-	secondPrincipal, secondGroup, err := l.groupOf(otherContactUserID)
-	if err != nil {
-		return "", err
-	}
-	if firstPrincipal != "" && firstPrincipal == secondPrincipal {
-		return firstPrincipal, nil
-	}
-	if err := l.checkAllowed(firstGroup, secondGroup, linkedBy); err != nil {
-		return "", err
-	}
-	if firstPrincipal != "" && secondPrincipal != "" && linkedBy != db.ContactLinkSourceOperator {
-		return "", db.ErrContactLinkConflict
-	}
+	return identity.PersonID
+}
 
-	target, moving := firstPrincipal, secondGroup
+// LinkSamePerson records that two accounts are one person and returns that
+// person's id. An account with no person joins the other's; when neither has
+// one, a person named newPersonDisplayName is made with both. When both
+// already have different people, only the operator may link them, and then
+// userID moves to otherUserID's person.
+func (l Linker) LinkSamePerson(userID, otherUserID, newPersonDisplayName, linkedBy, reason string) (string, error) {
+	if userID == otherUserID {
+		return "", errors.New("an account cannot be linked to itself")
+	}
+	first, err := l.People.OwnerOf(userID)
+	if err != nil {
+		return "", err
+	}
+	second, err := l.People.OwnerOf(otherUserID)
+	if err != nil {
+		return "", err
+	}
+	firstPerson, secondPerson := personOf(first), personOf(second)
 	switch {
-	case firstPrincipal != "":
-	case secondPrincipal != "":
-		target, moving = secondPrincipal, firstGroup
+	case firstPerson != "" && firstPerson == secondPerson:
+		return firstPerson, nil
+	case firstPerson != "" && secondPerson != "":
+		if linkedBy != SourceOperator {
+			return "", ErrAlreadyTwoPeople
+		}
+		moved := link(userID, linkedBy, reason)
+		moved.Move = true
+		_, err := l.People.AddIdentity(secondPerson, moved)
+		return secondPerson, err
+	case firstPerson != "":
+		_, err := l.People.AddIdentity(firstPerson, link(otherUserID, linkedBy, reason))
+		return firstPerson, err
+	case secondPerson != "":
+		_, err := l.People.AddIdentity(secondPerson, link(userID, linkedBy, reason))
+		return secondPerson, err
 	default:
-		target, err = l.Principals.CreateContact(newPersonDisplayName)
-		if err != nil {
-			return "", err
-		}
-		moving = []string{contactUserID, otherContactUserID}
+		return l.People.CreatePerson(newPersonDisplayName, []people.Link{link(userID, linkedBy, reason), link(otherUserID, linkedBy, reason)})
 	}
-	if err := db.SetContactIdentityLinks(l.Database, moving, target, linkedBy, reason); err != nil {
-		return "", err
-	}
-	if linkedBy == db.ContactLinkSourceOperator {
-		if err := db.ClearContactLinkRefusalsBetween(l.Database, firstGroup, secondGroup); err != nil {
-			return "", err
-		}
-	}
-	return target, nil
 }
 
-// LinkToPrincipal points one identity at a person that already exists in
-// principal-store, such as one with no chat identity yet.
-func (l Linker) LinkToPrincipal(contactUserID, principalID, linkedBy, reason string) error {
-	if !slices.Contains(db.ContactLinkSources, linkedBy) {
-		return db.ErrUnknownContactLinkSource
-	}
-	if _, err := l.Principals.Get(principalID); err != nil {
+// LinkToPerson points one account at a person who already exists, such as one
+// with no chat account yet. An account that has a person already moves only
+// when the operator says so.
+func (l Linker) LinkToPerson(userID, personID, linkedBy, reason string) error {
+	if _, err := l.People.Person(personID); err != nil {
+		if errors.Is(err, people.ErrNotFound) {
+			return fmt.Errorf("%w: %s", ErrUnknownPerson, personID)
+		}
 		return err
 	}
-	currentPrincipal, _, err := l.groupOf(contactUserID)
+	current, err := l.People.OwnerOf(userID)
 	if err != nil {
 		return err
 	}
-	if currentPrincipal == principalID {
+	if personOf(current) == personID {
 		return nil
 	}
-	if currentPrincipal != "" && linkedBy != db.ContactLinkSourceOperator {
-		return db.ErrContactLinkConflict
+	added := link(userID, linkedBy, reason)
+	if current != nil {
+		if linkedBy != SourceOperator {
+			return ErrAlreadyTwoPeople
+		}
+		added.Move = true
 	}
-	targetGroup, err := db.ContactUserIDsOfPrincipal(l.Database, principalID)
-	if err != nil {
-		return err
-	}
-	if err := l.checkAllowed([]string{contactUserID}, targetGroup, linkedBy); err != nil {
-		return err
-	}
-	if err := db.SetContactIdentityLinks(l.Database, []string{contactUserID}, principalID, linkedBy, reason); err != nil {
-		return err
-	}
-	if linkedBy == db.ContactLinkSourceOperator {
-		return db.ClearContactLinkRefusalsBetween(l.Database, []string{contactUserID}, targetGroup)
-	}
-	return nil
+	_, err = l.People.AddIdentity(personID, added)
+	return err
 }
 
-func (l Linker) checkAllowed(firstGroup, secondGroup []string, linkedBy string) error {
-	if linkedBy == db.ContactLinkSourceOperator {
-		return nil
+// Unlink takes an account off its person and returns the identity it had, or
+// nil when it had none. people-store records that the account is not that
+// person, so no automatic source links it back.
+func (l Linker) Unlink(userID string) (*people.Identity, error) {
+	current, err := l.People.OwnerOf(userID)
+	if err != nil || current == nil {
+		return nil, err
 	}
-	refused, err := db.AnyContactLinkRefused(l.Database, firstGroup, secondGroup)
-	if err != nil {
-		return err
-	}
-	if refused {
-		return db.ErrContactLinkRefused
-	}
-	return nil
+	return current, l.People.RemoveIdentity(current.ID)
 }

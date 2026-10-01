@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/kayushkin/multichat/internal/contactlinks"
-	"github.com/kayushkin/multichat/internal/principals"
+	"github.com/kayushkin/multichat/internal/people"
 	"io"
 	"net/http"
 	"sort"
@@ -31,9 +31,10 @@ type Router struct {
 	// discordDBPath is the mautrix-discord SQLite file GET /discord/status
 	// reads; empty makes that route a 503 naming DISCORD_DB.
 	discordDBPath string
-	// principals reaches principal-store, which owns every person's id;
-	// bridgeDatabases are where the phone-number matcher reads numbers.
-	principals      principals.Client
+	// people reaches people-store, which owns every person and the accounts
+	// attached to them; bridgeDatabases are where the phone-number matcher
+	// reads numbers.
+	people          people.Client
 	bridgeDatabases contactlinks.BridgeDatabases
 	// discordEmojiRefresher fetches the bridged servers' custom emoji;
 	// discordEmojiTeacher adds one to the bridge before we react with it.
@@ -78,7 +79,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		tgDBPath:      loaded.TelegramBridgeDatabasePath,
 		metaDBPath:    loaded.MetaBridgeDatabasePath,
 		discordDBPath: loaded.DiscordBridgeDatabasePath,
-		principals:    principals.Client{BaseURL: loaded.PrincipalStoreURL, HTTPClient: &http.Client{Timeout: 10 * time.Second}},
+		people:        people.Client{BaseURL: loaded.PeopleStoreURL, HTTPClient: &http.Client{Timeout: 10 * time.Second}},
 		bridgeDatabases: contactlinks.BridgeDatabases{
 			GoogleMessages: loaded.GoogleMessagesBridgeDatabasePath,
 			WhatsApp:       loaded.WhatsAppBridgeDatabasePath,

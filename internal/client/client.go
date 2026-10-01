@@ -78,13 +78,14 @@ type Identity struct {
 }
 
 // UnifiedContact is one person across every platform they reach us on. A
-// linked person carries principal-store's id and name; an identity linked to
-// no one is a contact of its own with no principal id.
+// linked person carries people-store's id and name; an account linked to no
+// one is a contact of its own with no person id.
 type UnifiedContact struct {
-	PrincipalID string     `json:"principal_id,omitempty"`
-	DisplayName string     `json:"display_name"`
-	Identities  []Identity `json:"identities"`
-	Platforms   []string   `json:"platforms"`
+	PersonID        string     `json:"person_id,omitempty"`
+	PersonDeletedAt int64      `json:"person_deleted_at,omitempty"`
+	DisplayName     string     `json:"display_name"`
+	Identities      []Identity `json:"identities"`
+	Platforms       []string   `json:"platforms"`
 }
 
 func (c *Client) UnifiedContacts() ([]UnifiedContact, error) {
@@ -168,6 +169,35 @@ func (c *Client) SendToRoom(roomID, body string) (*SendResult, error) {
 // either the person's name or that account's own name, case-insensitive and
 // exact. None, or more than one, is an error naming what was found — never a
 // guess.
+// ResolvePersonContact returns a people-store person's one account on
+// platform, joined on the person id. None, or more than one, is an error.
+func ResolvePersonContact(contacts []UnifiedContact, personID, platform string) (Identity, error) {
+	for _, contact := range contacts {
+		if contact.PersonID != personID {
+			continue
+		}
+		var onPlatform []Identity
+		for _, identity := range contact.Identities {
+			if identity.Platform == platform {
+				onPlatform = append(onPlatform, identity)
+			}
+		}
+		switch len(onPlatform) {
+		case 0:
+			return Identity{}, fmt.Errorf("%s (%s) has no %s account linked", personID, contact.DisplayName, platform)
+		case 1:
+			return onPlatform[0], nil
+		default:
+			ids := make([]string, len(onPlatform))
+			for i, identity := range onPlatform {
+				ids[i] = identity.UserID
+			}
+			return Identity{}, fmt.Errorf("%s has %d %s accounts (%s); pass the user id instead", personID, len(onPlatform), platform, strings.Join(ids, ", "))
+		}
+	}
+	return Identity{}, fmt.Errorf("no contact has person id %s: either people-store has no such person or none of their accounts is linked", personID)
+}
+
 func ResolveContact(contacts []UnifiedContact, displayName, platform string) (Identity, error) {
 	wanted := strings.TrimSpace(displayName)
 	var named int

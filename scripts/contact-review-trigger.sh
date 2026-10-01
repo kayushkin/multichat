@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Starts the contact review agent job when people are waiting for review and
-# no review session is already on them. Run from a scheduler shell job:
-#   contact-review-trigger.sh <agent job id> <scheduler url>
-# MULTICHAT_URL, AUTH_STORE_URL and AUTH_STORE_TOKEN come from the scheduler
-# unit's multichat-send drop-in.
+# Starts the contact review agent job when people-store's review queue holds
+# handles and no review session holds a claim. Run from a scheduler shell job:
+#   contact-review-trigger.sh <agent job id> <scheduler url> <people-store url>
+# The queue (GET /reviews/pending) is the handles the operator talks with that
+# nobody has reviewed; its activity comes from the hourly people-store
+# multichat import. people-store binds 127.0.0.1 and asks for no token.
 set -euo pipefail
-agent_job_id=${1:?usage: contact-review-trigger.sh <agent job id> <scheduler url>}
-scheduler_url=${2:?usage: contact-review-trigger.sh <agent job id> <scheduler url>}
-: "${MULTICHAT_URL:?MULTICHAT_URL is not set}" "${AUTH_STORE_URL:?AUTH_STORE_URL is not set}" "${AUTH_STORE_TOKEN:?AUTH_STORE_TOKEN is not set}"
+usage='usage: contact-review-trigger.sh <agent job id> <scheduler url> <people-store url>'
+agent_job_id=${1:?$usage}
+scheduler_url=${2:?$usage}
+people_store_url=${3:?$usage}
 
-token=$(curl -sfS -H "Authorization: Bearer $AUTH_STORE_TOKEN" -H 'X-Auth-App: multichat-contact-review-trigger' -H 'X-Auth-Reason: read the contact review queue' \
-  "$AUTH_STORE_URL/api/resolve/multichat" | jq -er .api_key)
-queue=$(curl -sfS -H "Authorization: Bearer $token" "$MULTICHAT_URL/api/contacts/reviews/pending?limit=1")
+queue=$(curl -sfS "$people_store_url/reviews/pending?limit=1")
 waiting=$(jq -er .total <<<"$queue")
 claims=$(jq -er .active_claims <<<"$queue")
 if (( waiting == 0 )); then

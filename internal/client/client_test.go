@@ -10,7 +10,7 @@ func TestResolveContactIsExactAndRefusesToGuess(t *testing.T) {
 		{DisplayName: "Alex Morgan", Platforms: []string{"whatsapp", "meta"}, Identities: []Identity{{UserID: "@whatsapp_1:x", Platform: "whatsapp"}, {UserID: "@meta_1:x", Platform: "meta"}}},
 		{DisplayName: "Ana", Identities: []Identity{{UserID: "@telegram_2:x", Platform: "telegram"}}},
 		{DisplayName: "ana", Identities: []Identity{{UserID: "@telegram_3:x", Platform: "telegram"}}},
-		{PrincipalID: "principal_000040", DisplayName: "Priya", Identities: []Identity{
+		{PersonID: "person_000040", DisplayName: "Priya", Identities: []Identity{
 			{UserID: "@gmessages_1.630:x", Platform: "gmessages", DisplayName: "Priya"},
 			{UserID: "@discord_4939:x", Platform: "discord", DisplayName: "Zora Star"},
 		}},
@@ -31,6 +31,29 @@ func TestResolveContactIsExactAndRefusesToGuess(t *testing.T) {
 		}
 	}
 	if _, err := ResolveContact(contacts, "Nobody", "telegram"); err == nil {
+		t.Error("expected a not-found error")
+	}
+}
+
+func TestResolvePersonContactJoinsOnThePersonID(t *testing.T) {
+	contacts := []UnifiedContact{
+		{PersonID: "person_000040", DisplayName: "Priya", Identities: []Identity{
+			{UserID: "@gmessages_1.630:x", Platform: "gmessages"},
+			{UserID: "@discord_4939:x", Platform: "discord"},
+			{UserID: "@discord_5000:x", Platform: "discord"},
+		}},
+		{DisplayName: "person_000040", Identities: []Identity{{UserID: "@telegram_2:x", Platform: "telegram"}}},
+	}
+	if got, err := ResolvePersonContact(contacts, "person_000040", "gmessages"); err != nil || got.UserID != "@gmessages_1.630:x" {
+		t.Errorf("gmessages: %+v, %v", got, err)
+	}
+	if _, err := ResolvePersonContact(contacts, "person_000040", "discord"); err == nil || !strings.Contains(err.Error(), "2 discord accounts") {
+		t.Errorf("ambiguous: %v", err)
+	}
+	if _, err := ResolvePersonContact(contacts, "person_000040", "telegram"); err == nil {
+		t.Error("a contact whose name is the id must not match")
+	}
+	if _, err := ResolvePersonContact(contacts, "person_000099", "telegram"); err == nil {
 		t.Error("expected a not-found error")
 	}
 }

@@ -2,7 +2,8 @@
 // scheduler's shell jobs call it.
 //
 //	multichat-send -name "Alex Morgan" -platform whatsapp "running 10 min late"
-//	multichat-send -user-id @telegram_12345:chat.kayushkin.com "same, by id"
+//	multichat-send -person person_000012 -platform whatsapp "by people-store id"
+//	multichat-send -user-id @telegram_12345:chat.kayushkin.com "same, by puppet id"
 //	echo "body from stdin" | multichat-send -name "…" -platform telegram
 //
 // Settings come from the environment, all required, and are declared in
@@ -33,9 +34,10 @@ const authStoreProvider = "multichat"
 func main() {
 	name := flag.String("name", "", "contact display name (exact, case-insensitive); needs -platform")
 	platform := flag.String("platform", "", "whatsapp | telegram | signal | meta | discord | slack")
-	userID := flag.String("user-id", "", "bridge puppet id, instead of -name/-platform")
+	person := flag.String("person", "", "people-store person id (person_000012); needs -platform")
+	userID := flag.String("user-id", "", "bridge puppet id, instead of -name or -person")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: multichat-send (-name NAME -platform PLATFORM | -user-id ID) [message]\n\nmessage is the remaining arguments, or stdin when none are given.\n\n")
+		fmt.Fprintf(os.Stderr, "usage: multichat-send (-name NAME | -person PERSON_ID) -platform PLATFORM | -user-id ID) [message]\n\nmessage is the remaining arguments, or stdin when none are given.\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -51,11 +53,20 @@ func main() {
 	if body == "" {
 		fail("no message: pass it as arguments or on stdin")
 	}
-	if *userID == "" && (*name == "" || *platform == "") {
-		fail("pass -user-id, or both -name and -platform")
+	chosen := 0
+	for _, given := range []string{*name, *person, *userID} {
+		if given != "" {
+			chosen++
+		}
 	}
-	if *userID != "" && (*name != "" || *platform != "") {
-		fail("pass -user-id or -name/-platform, not both")
+	if chosen != 1 {
+		fail("pass exactly one of -user-id, -name or -person")
+	}
+	if *userID == "" && *platform == "" {
+		fail("-name and -person need -platform")
+	}
+	if *userID != "" && *platform != "" {
+		fail("-user-id names the account already; drop -platform")
 	}
 
 	settings, err := config.NewSendCommandSettingsRegistry(servicesettings.ProcessEnvironment())
@@ -78,7 +89,12 @@ func main() {
 		if err != nil {
 			fail("%v", err)
 		}
-		identity, err := client.ResolveContact(contacts, *name, *platform)
+		var identity client.Identity
+		if *person != "" {
+			identity, err = client.ResolvePersonContact(contacts, *person, *platform)
+		} else {
+			identity, err = client.ResolveContact(contacts, *name, *platform)
+		}
 		if err != nil {
 			fail("%v", err)
 		}

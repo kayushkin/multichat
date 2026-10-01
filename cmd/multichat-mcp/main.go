@@ -40,7 +40,7 @@ func main() {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_contacts",
-		Description: "People reachable through multichat. A person linked across platforms carries a principal_id and every identity linked to it, each under the name that platform shows (a Discord handle, the phone's contact name for texts); an identity linked to no one is listed alone. Filter by a case-insensitive substring of the person's or any identity's name, and/or a platform (whatsapp, telegram, signal, meta, discord, slack, gmessages for SMS). The user_id of an identity is what send_message takes.",
+		Description: "People reachable through multichat. A person linked across platforms carries a people-store person_id (person_000001, the id a journal entry or note uses for them) and every identity linked to it, each under the name that platform shows (a Discord handle, the phone's contact name for texts); an identity linked to no one is listed alone. Filter by a person_id, by a case-insensitive substring of the person's or any identity's name, and/or by a platform (whatsapp, telegram, signal, meta, discord, slack, gmessages for SMS). The user_id of an identity is what send_message takes.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in listContactsInput) (*mcp.CallToolResult, listContactsOutput, error) {
 		contacts, err := api.UnifiedContacts()
@@ -49,6 +49,9 @@ func main() {
 		}
 		out := listContactsOutput{Contacts: []client.UnifiedContact{}}
 		for _, contact := range contacts {
+			if in.PersonID != "" && contact.PersonID != in.PersonID {
+				continue
+			}
 			if in.Query != "" && !contactNameContains(contact, in.Query) {
 				continue
 			}
@@ -127,6 +130,7 @@ func main() {
 }
 
 type listContactsInput struct {
+	PersonID string `json:"person_id,omitempty" jsonschema:"people-store person id, e.g. person_000012"`
 	Query    string `json:"query,omitempty" jsonschema:"case-insensitive substring of the display name"`
 	Platform string `json:"platform,omitempty" jsonschema:"whatsapp | telegram | signal | meta | discord | slack"`
 }

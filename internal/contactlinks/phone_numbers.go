@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/matrix"
+	"github.com/kayushkin/multichat/internal/people"
 )
 
 // BridgeDatabases are the bridge SQLite files that know phone numbers. An
@@ -110,19 +110,22 @@ func hasLetter(name string) bool {
 	return strings.IndexFunc(name, unicode.IsLetter) >= 0
 }
 
-// PhoneNumberMatchResult counts what one pass did.
+// PhoneNumberMatchResult counts what one pass did: accounts attached to a
+// person, accounts people-store refused for the person they would have joined
+// (the operator took them off), and numbers left alone because their accounts
+// already belong to two or more people.
 type PhoneNumberMatchResult struct {
 	Linked  int `json:"linked"`
 	Refused int `json:"refused"`
 	Skipped int `json:"skipped_conflicts"`
 }
 
-// LinkByPhoneNumber links every pair of identities that share a phone number.
-// Only identities Synapse knows (contacts) and that are not ours count. A new
-// person is created only when one of them is someone we talk with; a group of
-// strangers from group chats joins a person only if one of them already has
-// one. A pair the operator marked as different people, or two people who
-// already have separate ids, is left alone and counted.
+// LinkByPhoneNumber links every set of accounts that share a phone number.
+// Only accounts Synapse knows (contacts) and that are not ours count. When one
+// of them belongs to a person, the rest join that person; when none does, a
+// new person is made with all of them, but only when one is someone we talk
+// with, so a group of strangers from group chats makes no person. Accounts
+// that already belong to two people are left for the operator and counted.
 func (l Linker) LinkByPhoneNumber(databases BridgeDatabases, serverName string, contacts []matrix.Contact, selfUserIDs, talkedWith map[string]bool) (PhoneNumberMatchResult, error) {
 	var result PhoneNumberMatchResult
 	byPhoneNumber, err := IdentitiesByPhoneNumber(databases, serverName)
@@ -130,6 +133,16 @@ func (l Linker) LinkByPhoneNumber(databases BridgeDatabases, serverName string, 
 		return result, err
 	}
 	whatsAppPhoneNumberPuppets(byPhoneNumber, contacts)
+	return l.linkByPhoneNumber(byPhoneNumber, contacts, selfUserIDs, talkedWith)
+}
+
+// linkByPhoneNumber is LinkByPhoneNumber after the numbers are read.
+func (l Linker) linkByPhoneNumber(byPhoneNumber map[string][]string, contacts []matrix.Contact, selfUserIDs, talkedWith map[string]bool) (PhoneNumberMatchResult, error) {
+	var result PhoneNumberMatchResult
+	owners, err := l.People.MatrixUserIdentities()
+	if err != nil {
+		return result, err
+	}
 	contactsByUserID := map[string]matrix.Contact{}
 	for _, contact := range contacts {
 		contactsByUserID[contact.UserID] = contact
@@ -144,54 +157,63 @@ func (l Linker) LinkByPhoneNumber(databases BridgeDatabases, serverName string, 
 		if len(known) < 2 {
 			continue
 		}
-		worthAPerson := false
-		for _, contact := range known {
-			if talkedWith[contact.UserID] {
-				worthAPerson = true
-				break
-			}
-			link, err := db.ContactIdentityLinkOf(l.Database, contact.UserID)
-			if err != nil {
-				return result, err
-			}
-			if link != nil {
-				worthAPerson = true
-				break
-			}
-		}
-		if !worthAPerson {
-			continue
-		}
 		slices.SortStableFunc(known, func(a, b matrix.Contact) int {
 			return namingRank(a) - namingRank(b)
 		})
-		anchor := known[0]
-		newPersonDisplayName := anchor.DisplayName
-		if !hasLetter(newPersonDisplayName) {
-			newPersonDisplayName = "+" + phoneNumber
+		var persons []string
+		worthAPerson := false
+		for _, contact := range known {
+			if owner, ok := owners[contact.UserID]; ok {
+				if !slices.Contains(persons, owner.PersonID) {
+					persons = append(persons, owner.PersonID)
+				}
+			}
+			worthAPerson = worthAPerson || talkedWith[contact.UserID]
 		}
 		reason := "same phone number +" + phoneNumber
-		for _, other := range known[1:] {
-			anchorBefore, _, err := l.groupOf(anchor.UserID)
-			if err != nil {
-				return result, err
+		switch {
+		case len(persons) > 1:
+			result.Skipped++
+			log.Printf("contact links: %s is on %d people %v; left for the operator", reason, len(persons), persons)
+		case len(persons) == 1:
+			for _, contact := range known {
+				if _, owned := owners[contact.UserID]; owned {
+					continue
+				}
+				identity, err := l.People.AddIdentity(persons[0], link(contact.UserID, SourcePhoneNumber, reason))
+				switch {
+				case errors.Is(err, people.ErrConflict):
+					result.Refused++
+				case err != nil:
+					return result, err
+				default:
+					owners[contact.UserID] = identity
+					result.Linked++
+				}
 			}
-			otherBefore, _, err := l.groupOf(other.UserID)
-			if err != nil {
-				return result, err
+		case worthAPerson:
+			newPersonDisplayName := known[0].DisplayName
+			if !hasLetter(newPersonDisplayName) {
+				newPersonDisplayName = "+" + phoneNumber
 			}
-			after, err := l.LinkSamePerson(anchor.UserID, other.UserID, newPersonDisplayName, db.ContactLinkSourcePhoneNumber, reason)
-			switch {
-			case errors.Is(err, db.ErrContactLinkRefused):
-				result.Refused++
-			case errors.Is(err, db.ErrContactLinkConflict):
+			links := make([]people.Link, len(known))
+			for i, contact := range known {
+				links[i] = link(contact.UserID, SourcePhoneNumber, reason)
+			}
+			personID, err := l.People.CreatePerson(newPersonDisplayName, links)
+			if errors.Is(err, people.ErrConflict) {
+				// One of them was linked since the pass read the owners.
 				result.Skipped++
-				log.Printf("contact links: %s and %s share %s but are already two people; left for the operator", anchor.UserID, other.UserID, reason)
-			case err != nil:
-				return result, err
-			case anchorBefore != after || otherBefore != after:
-				result.Linked++
+				log.Printf("contact links: %s: %v", reason, err)
+				continue
 			}
+			if err != nil {
+				return result, err
+			}
+			for _, contact := range known {
+				owners[contact.UserID] = people.Identity{PersonID: personID, Kind: people.IdentityKindMatrixUser, Value: contact.UserID}
+			}
+			result.Linked += len(known)
 		}
 	}
 	return result, nil
