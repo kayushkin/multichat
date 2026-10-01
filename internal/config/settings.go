@@ -40,6 +40,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"DISCORD_DB",
 	"WHATSAPP_DB",
 	"GMESSAGES_DB",
+	"SIGNAL_DB",
 	"DISCORD_EMOJI_BOT_CREDENTIAL_ID",
 }
 
@@ -55,6 +56,8 @@ const (
 	SettingDiscordBridgeDatabasePath        = "discord_bridge_database_path"
 	SettingWhatsAppBridgeDatabasePath       = "whatsapp_bridge_database_path"
 	SettingGoogleMessagesBridgeDatabasePath = "google_messages_bridge_database_path"
+	SettingSignalBridgeDatabasePath         = "signal_bridge_database_path"
+	SettingPrincipalStoreURL                = "principal_store_url"
 	SettingDiscordEmojiBotCredential        = "discord_emoji_bot_credential_id"
 	SettingAuthStoreURL                     = "auth_store_url"
 	SettingAuthStoreToken                   = "auth_store_token"
@@ -102,6 +105,10 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The mautrix-whatsapp bridge's SQLite file, opened read-only at start to find our own WhatsApp LID puppet (@whatsapp_lid-…), which sits in every WhatsApp room beside the other people. Unset leaves it out, so every WhatsApp room counts us as one of its members and no WhatsApp DM names its partner."},
 		{Key: SettingGoogleMessagesBridgeDatabasePath, EnvironmentVariable: "GMESSAGES_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-gmessages bridge's SQLite file, opened read-only at start to find our own Google Messages puppets (@gmessages_<id_prefix>.<self participant id>), one per phone login, so the texts we send from the phone are not taken for someone else's. Unset leaves them out."},
+		{Key: SettingSignalBridgeDatabasePath, EnvironmentVariable: "SIGNAL_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The mautrix-signal bridge's SQLite file, opened read-only by the phone-number matcher for each Signal contact's number. Unset leaves Signal out of phone matching."},
+		{Key: SettingPrincipalStoreURL, EnvironmentVariable: "PRINCIPAL_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Where principal-store answers. It owns the id of every person; GET /contacts/unified asks it for each linked person's name, and linking two unlinked identities creates a contact there. Unset makes the link routes and /contacts/unified a 503 and turns phone matching off."},
 		{Key: SettingDiscordEmojiBotCredential, EnvironmentVariable: "DISCORD_EMOJI_BOT_CREDENTIAL_ID", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The auth-store credential id whose api_key is a Discord bot token. POST /emoji/discord/refresh lists each bridged server's custom emoji with it, so the bot must be a member of every bridged server. Unset makes that refresh a 503."},
 		{Key: SettingAuthStoreURL, EnvironmentVariable: "AUTH_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -145,6 +152,8 @@ type Config struct {
 	DiscordBridgeDatabasePath        string
 	WhatsAppBridgeDatabasePath       string
 	GoogleMessagesBridgeDatabasePath string
+	SignalBridgeDatabasePath         string
+	PrincipalStoreURL                string
 
 	// DiscordEmojiBotCredentialID, AuthStoreURL and AuthStoreToken let the
 	// emoji refresh fetch the Discord bot token from auth-store.
@@ -183,6 +192,8 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		DiscordBridgeDatabasePath:        registry.String(SettingDiscordBridgeDatabasePath),
 		WhatsAppBridgeDatabasePath:       registry.String(SettingWhatsAppBridgeDatabasePath),
 		GoogleMessagesBridgeDatabasePath: registry.String(SettingGoogleMessagesBridgeDatabasePath),
+		SignalBridgeDatabasePath:         registry.String(SettingSignalBridgeDatabasePath),
+		PrincipalStoreURL:                registry.String(SettingPrincipalStoreURL),
 		DiscordEmojiBotCredentialID:      registry.String(SettingDiscordEmojiBotCredential),
 		AuthStoreURL:                     registry.String(SettingAuthStoreURL),
 		AuthStoreToken:                   registry.String(SettingAuthStoreToken),

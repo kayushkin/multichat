@@ -97,23 +97,41 @@ Add a local contact (not from Matrix).
 
 ### GET /contacts/unified
 
-List contacts grouped by identity across platforms. Contacts with matching display names are merged.
+Every bridge identity Synapse knows, grouped by **person**. A person is a principal-store id (`principal_000040`); an identity is linked to one by the routes below, never by its name. An identity linked to no one is a group of its own with no `principal_id`, named as its platform shows it. Our own puppets are left out. The display name of a linked person is principal-store's, read on every call; principal-store failing is a **502**, and `PRINCIPAL_STORE_URL` unset a **503**.
 
 **Response:**
 ```json
 [
   {
-    "display_name": "John Doe",
+    "principal_id": "principal_000040",
+    "display_name": "Priya",
     "identities": [
-      { "user_id": "@telegram_12345:chat.example.com", "platform": "telegram", "avatar_url": "mxc://..." },
-      { "user_id": "@whatsapp_15551234567:chat.example.com", "platform": "whatsapp" }
+      { "user_id": "@gmessages_1.630:chat.kayushkin.com", "platform": "gmessages", "display_name": "Priya", "linked_by": "agent", "link_reason": "…" },
+      { "user_id": "@discord_920000000000000002:chat.kayushkin.com", "platform": "discord", "display_name": "Zora Star", "linked_by": "agent", "link_reason": "…" }
     ],
-    "platforms": ["telegram", "whatsapp"]
+    "platforms": ["discord", "gmessages"]
   }
 ]
 ```
 
-Sorted by number of platforms (descending), then alphabetically.
+Sorted by number of platforms (descending), then by name.
+
+### Linking identities to people
+
+`linked_by`, `removed_by`, `suggested_by`, `decided_by` and `reviewed_by` take one of `GET /contacts/links/sources`: `operator`, `phone_number`, `agent`. **The automatic sources (`phone_number`, `agent`) obey two rules the operator does not**: they never link two identities the operator separated (an unlink, or a rejected suggestion, records a refusal), and they never merge two people who already have different ids. Either is a **409**; the operator's link overrides both, clears the refusal, and moves every identity of the second person onto the first. A user id must be a bridge puppet that is not ours (**400** otherwise).
+
+- `POST /contacts/links {user_id, with_user_id, linked_by, reason, display_name?}` — the two identities are one person. If neither is linked, a contact is created in principal-store named `display_name`, or `user_id`'s own name when that is empty. Answers `{principal_id}`.
+- `POST /contacts/links {user_id, principal_id, linked_by, reason}` — the identity is that existing person (**400** when principal-store does not know the id).
+- `POST /contacts/links/remove {user_id, removed_by}` — unlinks it and records that it is not the same person as anyone left on that person. Answers `{removed: link | null}`.
+- `POST /contacts/links/phone-match` — one phone-number pass now (the server runs one at start and every 10 minutes). Numbers come from `GMESSAGES_DB`, `WHATSAPP_DB` (`whatsmeow_lid_map`, plus `@whatsapp_<number>` puppets), `SIGNAL_DB` and `TELEGRAM_DB`. It creates a new person only when one of the identities is someone we talk with (below). Answers `{linked, refused, skipped_conflicts}`.
+- `GET /contacts/links/suggestions` — open suggestions: links an agent was not sure enough to make. `POST /contacts/links/suggestions {user_id, with_user_id, reason, suggested_by}` adds one (the same open pair twice keeps the first). `POST /contacts/links/suggestions/{id}/accept {decided_by}` links the pair, `…/reject {decided_by}` records a refusal; a suggestion that is not open is a **404**.
+
+### The agent review queue
+
+"Someone we talk with" is an identity that has sent a message into the message log, or the other person in a one-to-one chat we have joined.
+
+- `GET /contacts/reviews/pending?limit=50` — those people the agent pass has not reviewed: `{total, pending: [{user_id, platform, display_name, principal_id?}]}`.
+- `POST /contacts/reviews {user_ids, reviewed_by}` — marks them reviewed.
 
 ---
 

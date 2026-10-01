@@ -316,26 +316,39 @@ func stripBridgeSuffix(name string) string {
 	return name
 }
 
-// ListContacts returns all bridged contacts, merging Telegram+WhatsApp by phone
+// ListContacts returns every bridge puppet Synapse knows, one per identity.
+// It reads every page of the admin user list: one page of 500 once hid three
+// quarters of them.
 func (c *Client) ListContacts() ([]Contact, error) {
-	data, err := c.request("GET", "/_synapse/admin/v2/users?from=0&limit=500&guests=false", nil)
-	if err != nil {
-		return nil, err
+	type synapseUser struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"displayname"`
+		Admin       bool   `json:"admin"`
+		AvatarURL   string `json:"avatar_url"`
 	}
-	var resp struct {
-		Users []struct {
-			Name        string `json:"name"`
-			DisplayName string `json:"displayname"`
-			Admin       bool   `json:"admin"`
-			AvatarURL   string `json:"avatar_url"`
-		} `json:"users"`
+	var users []synapseUser
+	from := "0"
+	for {
+		data, err := c.request("GET", "/_synapse/admin/v2/users?from="+url.QueryEscape(from)+"&limit=1000&guests=false", nil)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Users     []synapseUser   `json:"users"`
+			NextToken json.RawMessage `json:"next_token"`
+		}
+		if err := json.Unmarshal(data, &page); err != nil {
+			return nil, err
+		}
+		users = append(users, page.Users...)
+		next := strings.Trim(string(page.NextToken), `"`)
+		if next == "" || next == "null" || len(page.Users) == 0 {
+			break
+		}
+		from = next
 	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
-	}
-
 	var contacts []Contact
-	for _, u := range resp.Users {
+	for _, u := range users {
 		localpart := strings.Split(u.Name, ":")[0]
 		var platform, platformID string
 

@@ -40,7 +40,7 @@ func main() {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_contacts",
-		Description: "People reachable through multichat, each with their identities per platform (whatsapp, telegram, signal, meta, discord, slack). Filter by a case-insensitive substring of the display name and/or a platform. The user_id of an identity is what send_message takes.",
+		Description: "People reachable through multichat. A person linked across platforms carries a principal_id and every identity linked to it, each under the name that platform shows (a Discord handle, the phone's contact name for texts); an identity linked to no one is listed alone. Filter by a case-insensitive substring of the person's or any identity's name, and/or a platform (whatsapp, telegram, signal, meta, discord, slack, gmessages for SMS). The user_id of an identity is what send_message takes.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in listContactsInput) (*mcp.CallToolResult, listContactsOutput, error) {
 		contacts, err := api.UnifiedContacts()
@@ -49,7 +49,7 @@ func main() {
 		}
 		out := listContactsOutput{Contacts: []client.UnifiedContact{}}
 		for _, contact := range contacts {
-			if in.Query != "" && !strings.Contains(strings.ToLower(contact.DisplayName), strings.ToLower(in.Query)) {
+			if in.Query != "" && !contactNameContains(contact, in.Query) {
 				continue
 			}
 			if in.Platform != "" {
@@ -152,3 +152,18 @@ type sendMessageInput struct {
 }
 
 func boolPointer(b bool) *bool { return &b }
+
+// contactNameContains reports whether the person's name or any identity's own
+// name contains query, case-insensitively.
+func contactNameContains(contact client.UnifiedContact, query string) bool {
+	query = strings.ToLower(query)
+	if strings.Contains(strings.ToLower(contact.DisplayName), query) {
+		return true
+	}
+	for _, identity := range contact.Identities {
+		if strings.Contains(strings.ToLower(identity.DisplayName), query) {
+			return true
+		}
+	}
+	return false
+}

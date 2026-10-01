@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/kayushkin/multichat/internal/contactlinks"
+	"github.com/kayushkin/multichat/internal/principals"
 	"io"
 	"net/http"
 	"sort"
@@ -29,6 +31,10 @@ type Router struct {
 	// discordDBPath is the mautrix-discord SQLite file GET /discord/status
 	// reads; empty makes that route a 503 naming DISCORD_DB.
 	discordDBPath string
+	// principals reaches principal-store, which owns every person's id;
+	// bridgeDatabases are where the phone-number matcher reads numbers.
+	principals      principals.Client
+	bridgeDatabases contactlinks.BridgeDatabases
 	// discordEmojiRefresher fetches the bridged servers' custom emoji;
 	// discordEmojiTeacher adds one to the bridge before we react with it.
 	discordEmojiRefresher discordemoji.Refresher
@@ -66,12 +72,19 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		panic("multichat: a settings registry is required; GET /settings describes the service from it")
 	}
 	r := &Router{
-		db:                    db,
-		matrix:                matrixClient,
-		mux:                   http.NewServeMux(),
-		tgDBPath:              loaded.TelegramBridgeDatabasePath,
-		metaDBPath:            loaded.MetaBridgeDatabasePath,
-		discordDBPath:         loaded.DiscordBridgeDatabasePath,
+		db:            db,
+		matrix:        matrixClient,
+		mux:           http.NewServeMux(),
+		tgDBPath:      loaded.TelegramBridgeDatabasePath,
+		metaDBPath:    loaded.MetaBridgeDatabasePath,
+		discordDBPath: loaded.DiscordBridgeDatabasePath,
+		principals:    principals.Client{BaseURL: loaded.PrincipalStoreURL, HTTPClient: &http.Client{Timeout: 10 * time.Second}},
+		bridgeDatabases: contactlinks.BridgeDatabases{
+			GoogleMessages: loaded.GoogleMessagesBridgeDatabasePath,
+			WhatsApp:       loaded.WhatsAppBridgeDatabasePath,
+			Signal:         loaded.SignalBridgeDatabasePath,
+			Telegram:       loaded.TelegramBridgeDatabasePath,
+		},
 		llmBridgeURL:          strings.TrimRight(loaded.LLMBridgeServerURL, "/"),
 		llmBridgeServiceToken: loaded.LLMBridgeServiceToken,
 		httpClient:            &http.Client{Timeout: 10 * time.Second},
@@ -135,7 +148,6 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/schema", r.schemaHandler)
 	r.mux.HandleFunc("/contacts", r.contactsHandler)
 	r.mux.HandleFunc("/contacts/add", r.addContactHandler)
-	r.mux.HandleFunc("/contacts/unified", r.unifiedContactsHandler)
 	r.mux.HandleFunc("/stats", r.statsHandler)
 	r.mux.HandleFunc("/search", r.searchHandler)
 	r.mux.HandleFunc("/alerts", r.alertsHandler)
@@ -167,6 +179,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/emoji/discord/nitro-check", r.discordNitroCheckHandler)
 	r.mux.HandleFunc("/emoji/discord/server-sweep", r.discordServerSweepHandler)
 	r.mux.HandleFunc("/media/", r.mediaHandler)
+	r.setupContactLinkRoutes()
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.
 	r.mux.Handle(SettingsPath, servicesettings.Handler(r.settings, SettingsPath))
@@ -784,112 +797,6 @@ func (r *Router) summarizeHandler(w http.ResponseWriter, req *http.Request) {
 		r.writeError(w, 500, err.Error())
 		return
 	}
-	r.writeJSON(w, result)
-}
-
-func (r *Router) unifiedContactsHandler(w http.ResponseWriter, req *http.Request) {
-	contacts, err := r.matrix.ListContacts()
-	if err != nil {
-		r.writeError(w, 500, err.Error())
-		return
-	}
-
-	// Resolve meta → facebook/instagram using bridge DB
-	metaUserPlatforms := map[string]string{} // meta user ID → "facebook" or "instagram"
-	if r.metaDBPath != "" {
-		if metaDB, err := sql.Open("sqlite3", r.metaDBPath+"?mode=ro"); err == nil {
-			loginPlatform := map[string]string{}
-			rows, _ := metaDB.Query(`SELECT id, json_extract(metadata, '$.platform') FROM user_login`)
-			if rows != nil {
-				for rows.Next() {
-					var id, platform string
-					rows.Scan(&id, &platform)
-					loginPlatform[id] = platform
-				}
-				rows.Close()
-			}
-			// Map ghost mxid → platform via ghost table
-			rows, _ = metaDB.Query(`SELECT g.mxid, up.login_id FROM ghost g JOIN user_portal up ON 1=1 WHERE g.mxid IS NOT NULL`)
-			if rows != nil {
-				for rows.Next() {
-					var mxid, loginID string
-					rows.Scan(&mxid, &loginID)
-					if p, ok := loginPlatform[loginID]; ok {
-						metaUserPlatforms[mxid] = p
-					}
-				}
-				rows.Close()
-			}
-			// Also try: extract numeric ID from @meta_XXXX and match to portal receiver
-			rows, _ = metaDB.Query(`SELECT p.mxid, up.login_id FROM portal p JOIN user_portal up ON p.id = up.portal_id AND p.receiver = up.portal_receiver WHERE p.receiver != ''`)
-			if rows != nil {
-				for rows.Next() {
-					var mxid, loginID string
-					rows.Scan(&mxid, &loginID)
-					if p, ok := loginPlatform[loginID]; ok {
-						metaUserPlatforms[mxid] = p
-					}
-				}
-				rows.Close()
-			}
-			metaDB.Close()
-		}
-	}
-
-	type Identity struct {
-		UserID   string `json:"user_id"`
-		Platform string `json:"platform"`
-		Avatar   string `json:"avatar_url,omitempty"`
-	}
-	type Unified struct {
-		DisplayName string     `json:"display_name"`
-		Identities  []Identity `json:"identities"`
-		Platforms   []string   `json:"platforms"`
-	}
-	groups := map[string]*Unified{}
-	for _, c := range contacts {
-		key := strings.ToLower(strings.TrimSpace(c.DisplayName))
-		if key == "" {
-			continue
-		}
-		if _, ok := groups[key]; !ok {
-			groups[key] = &Unified{DisplayName: c.DisplayName}
-		}
-		// Resolve meta platform
-		platform := c.Platform
-		if platform == "meta" {
-			if p, ok := metaUserPlatforms[c.UserID]; ok {
-				platform = p
-			}
-		}
-		found := false
-		for _, id := range groups[key].Identities {
-			if id.UserID == c.UserID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			groups[key].Identities = append(groups[key].Identities, Identity{UserID: c.UserID, Platform: platform, Avatar: c.AvatarURL})
-		}
-	}
-	result := make([]Unified, 0, len(groups))
-	for _, g := range groups {
-		platSet := map[string]bool{}
-		for _, id := range g.Identities {
-			platSet[id.Platform] = true
-		}
-		for p := range platSet {
-			g.Platforms = append(g.Platforms, p)
-		}
-		result = append(result, *g)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if len(result[i].Platforms) != len(result[j].Platforms) {
-			return len(result[i].Platforms) > len(result[j].Platforms)
-		}
-		return result[i].DisplayName < result[j].DisplayName
-	})
 	r.writeJSON(w, result)
 }
 

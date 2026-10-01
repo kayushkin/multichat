@@ -10,16 +10,25 @@ func TestResolveContactIsExactAndRefusesToGuess(t *testing.T) {
 		{DisplayName: "Alex Morgan", Platforms: []string{"whatsapp", "meta"}, Identities: []Identity{{UserID: "@whatsapp_1:x", Platform: "whatsapp"}, {UserID: "@meta_1:x", Platform: "meta"}}},
 		{DisplayName: "Ana", Identities: []Identity{{UserID: "@telegram_2:x", Platform: "telegram"}}},
 		{DisplayName: "ana", Identities: []Identity{{UserID: "@telegram_3:x", Platform: "telegram"}}},
+		{PrincipalID: "principal_000040", DisplayName: "Priya", Identities: []Identity{
+			{UserID: "@gmessages_1.630:x", Platform: "gmessages", DisplayName: "Priya"},
+			{UserID: "@discord_4939:x", Platform: "discord", DisplayName: "Zora Star"},
+		}},
 	}
 	got, err := ResolveContact(contacts, "alex morgan", "whatsapp")
 	if err != nil || got.UserID != "@whatsapp_1:x" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	if _, err := ResolveContact(contacts, "Alex Morgan", "telegram"); err == nil || !strings.Contains(err.Error(), "no telegram identity") {
+	if _, err := ResolveContact(contacts, "Alex Morgan", "telegram"); err == nil || !strings.Contains(err.Error(), "has a telegram identity") {
 		t.Errorf("expected a no-identity error, got %v", err)
 	}
-	if _, err := ResolveContact(contacts, "Ana", "telegram"); err == nil || !strings.Contains(err.Error(), "2 contacts named") {
+	if _, err := ResolveContact(contacts, "Ana", "telegram"); err == nil || !strings.Contains(err.Error(), "2 telegram identities") {
 		t.Errorf("expected an ambiguity error, got %v", err)
+	}
+	for _, name := range []string{"Priya", "zora star"} {
+		if got, err := ResolveContact(contacts, name, "discord"); err != nil || got.UserID != "@discord_4939:x" {
+			t.Errorf("%q on discord: got %+v, %v", name, got, err)
+		}
 	}
 	if _, err := ResolveContact(contacts, "Nobody", "telegram"); err == nil {
 		t.Error("expected a not-found error")

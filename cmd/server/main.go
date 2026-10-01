@@ -175,6 +175,19 @@ func main() {
 	}
 
 	router := api.NewRouter(database, matrixClient, loaded, settings)
+	if matrixClient != nil && loaded.PrincipalStoreURL != "" {
+		go func() {
+			for {
+				result, err := router.LinkByPhoneNumber()
+				if err != nil {
+					log.Printf("contact links: phone-number pass failed: %v", err)
+				} else if result.Linked > 0 || result.Skipped > 0 {
+					log.Printf("contact links: phone-number pass linked %d, refused %d, left %d conflicts", result.Linked, result.Refused, result.Skipped)
+				}
+				time.Sleep(10 * time.Minute)
+			}
+		}()
+	}
 
 	// Inbound: /sync -> messaging.inbound -> rules -> agent sessions. Gated on
 	// NATS_URL because the bus is the contract; with it set, a bus that cannot

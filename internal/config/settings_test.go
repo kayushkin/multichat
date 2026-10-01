@@ -54,6 +54,8 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		DiscordBridgeDatabasePath:        "/srv/discord.db",
 		WhatsAppBridgeDatabasePath:       "/srv/whatsapp.db",
 		GoogleMessagesBridgeDatabasePath: "/srv/gmessages.db",
+		SignalBridgeDatabasePath:         "/srv/signal.db",
+		PrincipalStoreURL:                "http://principal-store.example:1",
 		DiscordEmojiBotCredentialID:      "cred_discord_bot",
 		AuthStoreURL:                     "http://auth-store.example:1",
 		AuthStoreToken:                   "an-auth-store-token",
@@ -74,6 +76,8 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"DISCORD_DB":                      "/srv/discord.db",
 		"WHATSAPP_DB":                     "/srv/whatsapp.db",
 		"GMESSAGES_DB":                    "/srv/gmessages.db",
+		"SIGNAL_DB":                       "/srv/signal.db",
+		"PRINCIPAL_STORE_URL":             "http://principal-store.example:1",
 		"DISCORD_EMOJI_BOT_CREDENTIAL_ID": "cred_discord_bot",
 		"AUTH_STORE_URL":                  "http://auth-store.example:1",
 		"AUTH_STORE_TOKEN":                "an-auth-store-token",
@@ -98,7 +102,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 18; got != want {
+	if got, want := len(SettingDefinitions()), 20; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }

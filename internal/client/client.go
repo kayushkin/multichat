@@ -66,15 +66,22 @@ func (c *Client) do(method, path string, body any, into any) error {
 	return nil
 }
 
-// Identity is one platform account of a person.
+// Identity is one platform account of a person, under the name that platform
+// shows for it.
 type Identity struct {
-	UserID    string `json:"user_id"`
-	Platform  string `json:"platform"`
-	AvatarURL string `json:"avatar_url,omitempty"`
+	UserID      string `json:"user_id"`
+	Platform    string `json:"platform"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+	LinkedBy    string `json:"linked_by,omitempty"`
+	LinkReason  string `json:"link_reason,omitempty"`
 }
 
-// UnifiedContact is one person across every platform they reach us on.
+// UnifiedContact is one person across every platform they reach us on. A
+// linked person carries principal-store's id and name; an identity linked to
+// no one is a contact of its own with no principal id.
 type UnifiedContact struct {
+	PrincipalID string     `json:"principal_id,omitempty"`
 	DisplayName string     `json:"display_name"`
 	Identities  []Identity `json:"identities"`
 	Platforms   []string   `json:"platforms"`
@@ -157,38 +164,38 @@ func (c *Client) SendToRoom(roomID, body string) (*SendResult, error) {
 	return &SendResult{RoomID: roomID, EventID: out.EventID}, nil
 }
 
-// ResolveContact finds the one identity for a person on a platform. The
-// display name match is case-insensitive and exact; more than one person
-// with that name, or none, or no identity on that platform, is an error
-// naming what was found — never a guess.
+// ResolveContact finds the one identity on a platform answering to a name:
+// either the person's name or that account's own name, case-insensitive and
+// exact. None, or more than one, is an error naming what was found — never a
+// guess.
 func ResolveContact(contacts []UnifiedContact, displayName, platform string) (Identity, error) {
-	var matches []UnifiedContact
+	wanted := strings.TrimSpace(displayName)
+	var named int
+	var onPlatform []Identity
 	for _, contact := range contacts {
-		if strings.EqualFold(strings.TrimSpace(contact.DisplayName), strings.TrimSpace(displayName)) {
-			matches = append(matches, contact)
+		personMatches := strings.EqualFold(strings.TrimSpace(contact.DisplayName), wanted)
+		for _, identity := range contact.Identities {
+			if !personMatches && !strings.EqualFold(strings.TrimSpace(identity.DisplayName), wanted) {
+				continue
+			}
+			named++
+			if identity.Platform == platform {
+				onPlatform = append(onPlatform, identity)
+			}
 		}
 	}
-	if len(matches) == 0 {
+	if named == 0 {
 		return Identity{}, fmt.Errorf("no contact named %q", displayName)
 	}
-	if len(matches) > 1 {
-		return Identity{}, fmt.Errorf("%d contacts named %q; pass the user id instead", len(matches), displayName)
-	}
-	var onPlatform []Identity
-	for _, identity := range matches[0].Identities {
-		if identity.Platform == platform {
-			onPlatform = append(onPlatform, identity)
-		}
-	}
 	if len(onPlatform) == 0 {
-		return Identity{}, fmt.Errorf("%q has no %s identity (has: %s)", matches[0].DisplayName, platform, strings.Join(matches[0].Platforms, ", "))
+		return Identity{}, fmt.Errorf("no contact named %q has a %s identity", displayName, platform)
 	}
 	if len(onPlatform) > 1 {
 		ids := make([]string, len(onPlatform))
 		for i, identity := range onPlatform {
 			ids[i] = identity.UserID
 		}
-		return Identity{}, fmt.Errorf("%q has %d %s identities (%s); pass the user id instead", matches[0].DisplayName, len(onPlatform), platform, strings.Join(ids, ", "))
+		return Identity{}, fmt.Errorf("%d %s identities answer to %q (%s); pass the user id instead", len(onPlatform), platform, displayName, strings.Join(ids, ", "))
 	}
 	return onPlatform[0], nil
 }
