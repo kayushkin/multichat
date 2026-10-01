@@ -28,6 +28,7 @@ func (r *Router) setupContactLinkRoutes() {
 	r.mux.HandleFunc("POST /contacts/links/suggestions", r.addContactLinkSuggestionHandler)
 	r.mux.HandleFunc("POST /contacts/links/suggestions/{id}/{decision}", r.decideContactLinkSuggestionHandler)
 	r.mux.HandleFunc("GET /contacts/reviews/pending", r.pendingContactReviewsHandler)
+	r.mux.HandleFunc("POST /contacts/reviews/claim", r.claimContactReviewsHandler)
 	r.mux.HandleFunc("POST /contacts/reviews", r.markContactsReviewedHandler)
 }
 
@@ -481,46 +482,33 @@ type PendingContactReview struct {
 	PrincipalID string `json:"principal_id,omitempty"`
 }
 
-// pendingContactReviewsHandler lists the people we have exchanged messages
-// with whom the agent pass has not reviewed yet, so a scheduler check can
-// start the agent only when there is something to do.
-func (r *Router) pendingContactReviewsHandler(w http.ResponseWriter, req *http.Request) {
-	if r.matrix == nil {
-		r.writeError(w, 503, "the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN)")
-		return
-	}
-	limit := 50
-	if raw := req.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed < 1 || parsed > 1000 {
-			r.writeError(w, 400, "limit must be a whole number from 1 to 1000")
-			return
-		}
-		limit = parsed
-	}
+// pendingContactReviews returns the people we talk with whom the agent pass
+// has neither reviewed nor claimed in the last half hour, sorted by id, and
+// how many identities are claimed right now.
+func (r *Router) pendingContactReviews() ([]PendingContactReview, int, error) {
 	talkedWith, err := r.peopleWeTalkWith()
 	if err != nil {
-		r.writeError(w, 502, err.Error())
-		return
+		return nil, 0, err
 	}
 	reviewed, err := db.ReviewedContactUserIDs(r.db)
 	if err != nil {
-		r.writeError(w, 500, err.Error())
-		return
+		return nil, 0, err
+	}
+	claimed, err := db.ActiveContactReviewClaims(r.db)
+	if err != nil {
+		return nil, 0, err
 	}
 	links, err := db.ListContactIdentityLinks(r.db)
 	if err != nil {
-		r.writeError(w, 500, err.Error())
-		return
+		return nil, 0, err
 	}
 	contacts, err := r.matrix.ListContacts()
 	if err != nil {
-		r.writeError(w, 502, err.Error())
-		return
+		return nil, 0, err
 	}
 	pending := []PendingContactReview{}
 	for _, contact := range contacts {
-		if !talkedWith[contact.UserID] || reviewed[contact.UserID] || matrix.SelfUserIDs[contact.UserID] {
+		if !talkedWith[contact.UserID] || reviewed[contact.UserID] || claimed[contact.UserID] || matrix.SelfUserIDs[contact.UserID] {
 			continue
 		}
 		pending = append(pending, PendingContactReview{
@@ -529,11 +517,77 @@ func (r *Router) pendingContactReviewsHandler(w http.ResponseWriter, req *http.R
 		})
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].UserID < pending[j].UserID })
-	total := len(pending)
-	if len(pending) > limit {
-		pending = pending[:limit]
+	return pending, len(claimed), nil
+}
+
+func parseReviewLimit(raw string) (int, error) {
+	if raw == "" {
+		return 25, nil
 	}
-	r.writeJSON(w, map[string]any{"total": total, "pending": pending})
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 || limit > 1000 {
+		return 0, errors.New("limit must be a whole number from 1 to 1000")
+	}
+	return limit, nil
+}
+
+// pendingContactReviewsHandler answers {total, active_claims, pending}, so a
+// scheduler check starts the agent only when there is work and no session is
+// already on it.
+func (r *Router) pendingContactReviewsHandler(w http.ResponseWriter, req *http.Request) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN)")
+		return
+	}
+	limit, err := parseReviewLimit(req.URL.Query().Get("limit"))
+	if err != nil {
+		r.writeError(w, 400, err.Error())
+		return
+	}
+	pending, activeClaims, err := r.pendingContactReviews()
+	if err != nil {
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	total := len(pending)
+	pending = pending[:min(limit, total)]
+	r.writeJSON(w, map[string]any{"total": total, "active_claims": activeClaims, "pending": pending})
+}
+
+// claimContactReviewsHandler hands a reviewer the next batch and claims it
+// for half an hour, so two sessions never review the same people.
+func (r *Router) claimContactReviewsHandler(w http.ResponseWriter, req *http.Request) {
+	if r.matrix == nil {
+		r.writeError(w, 503, "the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN)")
+		return
+	}
+	var body struct {
+		Limit     int    `json:"limit"`
+		ClaimedBy string `json:"claimed_by"`
+	}
+	if err := decodeStrictJSON(req, &body); err != nil {
+		r.writeError(w, 400, "body must be JSON {limit, claimed_by}: "+err.Error())
+		return
+	}
+	if body.Limit < 1 || body.Limit > 100 || !slices.Contains(db.ContactLinkSources, body.ClaimedBy) {
+		r.writeError(w, 400, fmt.Sprintf("limit must be 1 to 100 and claimed_by one of %v", db.ContactLinkSources))
+		return
+	}
+	pending, _, err := r.pendingContactReviews()
+	if err != nil {
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	batch := pending[:min(body.Limit, len(pending))]
+	ids := make([]string, len(batch))
+	for i, item := range batch {
+		ids[i] = item.UserID
+	}
+	if err := db.ClaimContactsForReview(r.db, ids, body.ClaimedBy); err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, map[string]any{"claimed": batch, "remaining": len(pending) - len(batch)})
 }
 
 func (r *Router) markContactsReviewedHandler(w http.ResponseWriter, req *http.Request) {

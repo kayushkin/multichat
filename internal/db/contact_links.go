@@ -44,6 +44,11 @@ CREATE TABLE IF NOT EXISTS contact_link_suggestions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS contact_link_suggestions_open_pair
 	ON contact_link_suggestions(contact_user_id, other_contact_user_id) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS contact_review_claims (
+	contact_user_id TEXT PRIMARY KEY,
+	claimed_by      TEXT NOT NULL,
+	claimed_at      INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS contact_reviews (
 	contact_user_id TEXT PRIMARY KEY,
 	reviewed_by     TEXT NOT NULL,
@@ -389,4 +394,47 @@ func ContactUserIDsWeHaveTalkedWith(database *sql.DB) (map[string]bool, error) {
 		senders[id] = true
 	}
 	return senders, rows.Err()
+}
+
+// ContactReviewClaimLifetime is how long a claim keeps an identity out of
+// other reviewers' batches. A session that dies mid-batch lets go when it
+// runs out.
+const ContactReviewClaimLifetime = 30 * 60
+
+// ActiveContactReviewClaims returns the identities claimed within the claim
+// lifetime and not reviewed since.
+func ActiveContactReviewClaims(database *sql.DB) (map[string]bool, error) {
+	rows, err := database.Query(`SELECT claim.contact_user_id FROM contact_review_claims AS claim
+		LEFT JOIN contact_reviews AS review ON review.contact_user_id = claim.contact_user_id AND review.reviewed_at >= claim.claimed_at
+		WHERE claim.claimed_at > ? AND review.contact_user_id IS NULL`, time.Now().Unix()-ContactReviewClaimLifetime)
+	if err != nil {
+		return nil, fmt.Errorf("list contact review claims: %w", err)
+	}
+	defer rows.Close()
+	claimed := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("list contact review claims: %w", err)
+		}
+		claimed[id] = true
+	}
+	return claimed, rows.Err()
+}
+
+// ClaimContactsForReview records that a reviewer is working on identities.
+func ClaimContactsForReview(database *sql.DB, contactUserIDs []string, claimedBy string) error {
+	transaction, err := database.Begin()
+	if err != nil {
+		return fmt.Errorf("claim contacts: %w", err)
+	}
+	defer transaction.Rollback()
+	now := time.Now().Unix()
+	for _, id := range contactUserIDs {
+		if _, err := transaction.Exec(`INSERT INTO contact_review_claims (contact_user_id, claimed_by, claimed_at) VALUES (?, ?, ?)
+			ON CONFLICT (contact_user_id) DO UPDATE SET claimed_by = excluded.claimed_by, claimed_at = excluded.claimed_at`, id, claimedBy, now); err != nil {
+			return fmt.Errorf("claim %s: %w", id, err)
+		}
+	}
+	return transaction.Commit()
 }

@@ -130,7 +130,8 @@ Sorted by number of platforms (descending), then by name.
 
 "Someone we talk with" is an identity that has sent a message into the message log, or the other person in a one-to-one chat we have joined.
 
-- `GET /contacts/reviews/pending?limit=50` — those people the agent pass has not reviewed: `{total, pending: [{user_id, platform, display_name, principal_id?}]}`.
+- `GET /contacts/reviews/pending?limit=25` — those people the agent pass has neither reviewed nor claimed: `{total, active_claims, pending: [{user_id, platform, display_name, principal_id?}]}`.
+- `POST /contacts/reviews/claim {limit, claimed_by}` — hands a reviewer the next `limit` (1–100) and claims them for 30 minutes, so they leave the pending list and a second session never gets them: `{claimed: [...], remaining}`. A claim ends when the identity is reviewed or the 30 minutes run out. `GET …/pending` reports `active_claims`, the count claimed right now.
 - `POST /contacts/reviews {user_ids, reviewed_by}` — marks them reviewed.
 
 ---
