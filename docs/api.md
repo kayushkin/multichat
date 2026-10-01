@@ -419,6 +419,22 @@ Take a tag off a room. Answers the room's tags afterwards, like `POST`.
 
 Every room's own tags, keyed by room id; a room with none is absent. Contact tags are separate (`GET /contacts/tags/bulk`). Deleting a tag with `DELETE /tags` takes it off every contact and every room.
 
+### GET /conversations/links
+
+Every conversation link: rooms on different apps that are one conversation, such as a group that texts and also talks in a Discord group DM. Each link is `{ "id", "room_ids" }`, room ids sorted; a room is in at most one link. The rooms stay separate rooms — a link only says to list them together.
+
+```json
+[{ "id": 1, "room_ids": ["!discord:chat.example.com", "!texts:chat.example.com"] }]
+```
+
+### POST /conversations/links
+
+Make rooms one conversation: `{ "room_ids": ["!a:…", "!b:…"] }`. When none of them is linked it makes a new link; when some already are, the rest join that link. Answers the link afterwards. Fewer than two different rooms, or an id that is not a Matrix room id, is a 400; rooms already in two different links is a 409 — take one out first.
+
+### POST /conversations/links/remove
+
+Take a room out of its link: `{ "room_id": "!a:…" }`. A link left with one room is deleted. A room in no link is not an error. Answers every link afterwards, like `GET`.
+
 ---
 
 ## AI Features

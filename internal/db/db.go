@@ -40,6 +40,10 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if err := createConversationLinkSchema(db); err != nil {
+		return nil, err
+	}
+
 	return db, nil
 }
 

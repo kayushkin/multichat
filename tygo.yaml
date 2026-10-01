@@ -1,8 +1,9 @@
 # TypeScript types generated from multichat's Go wire types. The Go structs
 # are the source of truth; ts/ is a render of them. Regenerate with
 # ./generate-ts.sh after changing a wire type. Rendered: the inbound-rule
-# records (bridge-ui's Inbound rules page), the message log and the Discord
-# bridge status (bridge-ui's Discord page); ts/index.ts re-exports them all.
+# records (bridge-ui's Inbound rules page), the message log, the Discord
+# bridge status (bridge-ui's Discord page) and conversation links (its
+# Conversations page); ts/index.ts re-exports them all.
 # multichat has no frontend of its own; bridge-ui reads these. tygo keeps one entry per Go
 # package, so each package renders to one file.
 packages:
@@ -15,6 +16,7 @@ packages:
       - "inbound.go"
       - "message_log.go"
       - "emoji.go"
+      - "conversation_links.go"
   - path: "github.com/kayushkin/multichat/internal/discordbridge"
     output_path: "ts/discord_status.ts"
     type_mappings:

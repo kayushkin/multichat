@@ -164,6 +164,8 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/tags", r.conversationTagsHandler)
 	r.mux.HandleFunc("/conversations/tags/bulk", r.bulkConversationTagsHandler)
+	r.mux.HandleFunc("/conversations/links", r.conversationLinksHandler)
+	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
 	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
