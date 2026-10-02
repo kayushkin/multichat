@@ -28,6 +28,10 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	if err := createAutoReactionSchema(db); err != nil {
+		return nil, err
+	}
+
 	if err := createMessageLogSchema(db); err != nil {
 		return nil, err
 	}

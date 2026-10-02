@@ -168,6 +168,8 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
+	r.mux.HandleFunc("/auto-reactions", r.autoReactionsHandler)
+	r.mux.HandleFunc("/auto-reactions/", r.autoReactionHandler)
 	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
 	r.mux.HandleFunc("/inbound-rules/", r.inboundRuleHandler)
 	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)

@@ -207,9 +207,10 @@ func main() {
 		}
 		log.Printf("NATS connected: %s", natsURL)
 		go (&inbound.SyncWorker{Matrix: matrixClient, Database: database, Bus: busClient}).Run()
+		go (&inbound.AutoReactor{Database: database, Bus: busClient, Matrix: matrixClient}).Run()
 		go (&inbound.Dispatcher{Database: database, Bus: busClient, LLMBridgeURL: strings.TrimRight(loaded.LLMBridgeServerURL, "/"), LLMBridgeServiceToken: loaded.LLMBridgeServiceToken, HTTPClient: &http.Client{Timeout: 10 * time.Second}}).Run()
 	} else {
-		log.Println("NATS_URL not set: inbound messaging (sync worker, rule dispatcher) is off")
+		log.Println("NATS_URL not set: inbound messaging (sync worker, rule dispatcher, auto-reactor) is off")
 	}
 
 	http.Handle("/api/", http.StripPrefix("/api", router))

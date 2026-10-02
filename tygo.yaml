@@ -17,6 +17,7 @@ packages:
       - "message_log.go"
       - "emoji.go"
       - "conversation_links.go"
+      - "auto_reactions.go"
   - path: "github.com/kayushkin/multichat/internal/discordbridge"
     output_path: "ts/discord_status.ts"
     type_mappings:
