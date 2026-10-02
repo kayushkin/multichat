@@ -49,7 +49,8 @@ func (a *AutoReactor) Run() {
 	select {}
 }
 
-// React adds every matching rule's reaction to one message. A reaction the
+// React adds every matching rule's reaction to one message sent after the
+// rule was made. A reaction the
 // homeserver refuses is kept on its rule and does not stop the others.
 func (a *AutoReactor) React(inbound messages.MessagingInbound) error {
 	rules, err := db.EnabledAutoReactionsFor(a.Database, inbound.SenderUserID, inbound.RoomID)
@@ -57,6 +58,12 @@ func (a *AutoReactor) React(inbound messages.MessagingInbound) error {
 		return err
 	}
 	for _, rule := range rules {
+		// A rule reacts only to what was sent after it was made. A new
+		// durable consumer starts by replaying the whole stream, and a new
+		// rule must not reach back into weeks of someone's messages.
+		if inbound.Timestamp.Unix() < rule.CreatedAt {
+			continue
+		}
 		if err := db.ClaimAutoReaction(a.Database, rule.ID, inbound.EventID); errors.Is(err, db.ErrAlreadyReacted) {
 			continue
 		} else if err != nil {

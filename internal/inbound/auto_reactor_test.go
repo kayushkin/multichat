@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kayushkin/bus/messages"
 	"github.com/kayushkin/multichat/internal/db"
@@ -42,7 +43,7 @@ func autoReactorForTest(t *testing.T) (*AutoReactor, *fakeReactionSender) {
 }
 
 func message(eventID, roomID, sender string) messages.MessagingInbound {
-	return messages.MessagingInbound{EventID: eventID, RoomID: roomID, SenderUserID: sender}
+	return messages.MessagingInbound{EventID: eventID, RoomID: roomID, SenderUserID: sender, Timestamp: time.Now().Add(time.Second)}
 }
 
 // TestAutoReactorReactsToThatPersonInTheRoomsTheRuleNames: an every-room rule
@@ -130,5 +131,22 @@ func TestAutoReactorSkipsSwitchedOffRulesAndKeepsRefusals(t *testing.T) {
 	}
 	if len(sender.sent) != 0 {
 		t.Errorf("a switched-off rule reacted: %v", sender.sent)
+	}
+}
+
+// TestAutoReactorLeavesMessagesFromBeforeTheRule: a new consumer replays the
+// stream from its start, and that history must not get reactions.
+func TestAutoReactorLeavesMessagesFromBeforeTheRule(t *testing.T) {
+	reactor, sender := autoReactorForTest(t)
+	if _, err := db.CreateAutoReaction(reactor.Database, lukasOnDiscord, "", "🥛", true); err != nil {
+		t.Fatal(err)
+	}
+	old := message("$old", "!general:chat.example", lukasOnDiscord)
+	old.Timestamp = time.Now().Add(-48 * time.Hour)
+	if err := reactor.React(old); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.sent) != 0 {
+		t.Errorf("reacted to a message from before the rule: %v", sender.sent)
 	}
 }
