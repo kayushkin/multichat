@@ -7,15 +7,18 @@ import (
 	"sort"
 )
 
-// BridgeBotMembership is a bridge bot a room's m.bridge state names, with
-// the bot's membership in that room ("" when it has none at all).
+// BridgeBotMembership is a bridge bot a room's m.bridge state names, the
+// protocol that state names (discordgo, telegram, …), and the bot's
+// membership in that room ("" when it has none at all).
 type BridgeBotMembership struct {
 	BotUserID  string
+	ProtocolID string
 	Membership string
 }
 
 // RoomBridgeBots reads which bridge bots a room's m.bridge state events name
-// (their bridgebot field) and each bot's membership in the room. A room with
+// (their bridgebot field), the protocol each names, and each bot's
+// membership in the room. A room with
 // no m.bridge state gives none.
 func (c *Client) RoomBridgeBots(roomID string) ([]BridgeBotMembership, error) {
 	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state", nil)
@@ -28,13 +31,16 @@ func (c *Client) RoomBridgeBots(roomID string) ([]BridgeBotMembership, error) {
 		Content  struct {
 			BridgeBot  string `json:"bridgebot"`
 			Membership string `json:"membership"`
+			Protocol   struct {
+				ID string `json:"id"`
+			} `json:"protocol"`
 		} `json:"content"`
 	}
 	if err := json.Unmarshal(data, &events); err != nil {
 		return nil, fmt.Errorf("state of %s: %w", roomID, err)
 	}
 	membership := map[string]string{}
-	bots := map[string]bool{}
+	protocolOfBot := map[string]string{}
 	for _, event := range events {
 		switch event.Type {
 		case "m.room.member":
@@ -43,12 +49,15 @@ func (c *Client) RoomBridgeBots(roomID string) ([]BridgeBotMembership, error) {
 			if event.Content.BridgeBot == "" {
 				return nil, fmt.Errorf("room %s: m.bridge state %q names no bridgebot", roomID, event.StateKey)
 			}
-			bots[event.Content.BridgeBot] = true
+			if event.Content.Protocol.ID == "" {
+				return nil, fmt.Errorf("room %s: m.bridge state %q names no protocol", roomID, event.StateKey)
+			}
+			protocolOfBot[event.Content.BridgeBot] = event.Content.Protocol.ID
 		}
 	}
 	var out []BridgeBotMembership
-	for bot := range bots {
-		out = append(out, BridgeBotMembership{BotUserID: bot, Membership: membership[bot]})
+	for bot, protocolID := range protocolOfBot {
+		out = append(out, BridgeBotMembership{BotUserID: bot, ProtocolID: protocolID, Membership: membership[bot]})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].BotUserID < out[j].BotUserID })
 	return out, nil

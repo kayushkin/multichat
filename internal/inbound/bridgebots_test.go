@@ -12,13 +12,14 @@ import (
 	"github.com/kayushkin/multichat/internal/matrix"
 )
 
-func TestTheWorkerInvitesABridgeBotMissingFromItsRoomAndLeavesOneThatIsThere(t *testing.T) {
+func TestTheWorkerInvitesADiscordBotMissingFromItsRoomAndLeavesOtherBridgesBotsOut(t *testing.T) {
 	// Each room's state: the bot its m.bridge names, and that bot's membership.
 	rooms := map[string]string{
-		"!crab:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x"}},{"type":"m.room.member","state_key":"@discord_1:x","content":{"membership":"join"}}]`,
-		"!left:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x"}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"leave"}}]`,
-		"!fine:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x"}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"join"}}]`,
-		"!asked:x":  `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x"}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"invite"}}]`,
+		"!crab:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x","protocol":{"id":"discordgo"}}},{"type":"m.room.member","state_key":"@discord_1:x","content":{"membership":"join"}}]`,
+		"!left:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x","protocol":{"id":"discordgo"}}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"leave"}}]`,
+		"!fine:x":   `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x","protocol":{"id":"discordgo"}}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"join"}}]`,
+		"!asked:x":  `[{"type":"m.bridge","state_key":"d","content":{"bridgebot":"@discordbot:x","protocol":{"id":"discordgo"}}},{"type":"m.room.member","state_key":"@discordbot:x","content":{"membership":"invite"}}]`,
+		"!saved:x":  `[{"type":"m.bridge","state_key":"t","content":{"bridgebot":"@telegrambot:x","protocol":{"id":"telegram"}}},{"type":"m.room.member","state_key":"@admin:x","content":{"membership":"join"}}]`,
 		"!matrix:x": `[{"type":"m.room.member","state_key":"@admin:x","content":{"membership":"join"}}]`,
 	}
 	var invites []string
@@ -52,12 +53,12 @@ func TestTheWorkerInvitesABridgeBotMissingFromItsRoomAndLeavesOneThatIsThere(t *
 	defer synapse.Close()
 	worker := &SyncWorker{Matrix: matrix.NewClient(synapse.URL, "token")}
 
-	for _, roomID := range []string{"!crab:x", "!left:x", "!fine:x", "!asked:x", "!matrix:x"} {
+	for _, roomID := range []string{"!crab:x", "!left:x", "!fine:x", "!asked:x", "!saved:x", "!matrix:x"} {
 		if err := worker.inviteMissingBridgeBots(roomID); err != nil {
 			t.Fatalf("%s: %v", roomID, err)
 		}
 	}
 	if want := []string{"@discordbot:x to !crab:x", "@discordbot:x to !left:x"}; !reflect.DeepEqual(invites, want) {
-		t.Fatalf("invited %v, want %v (missing or departed bots only, the rate-limited invite retried)", invites, want)
+		t.Fatalf("invited %v, want %v (missing or departed Discord bots only, the rate-limited invite retried; never the Telegram bot)", invites, want)
 	}
 }
