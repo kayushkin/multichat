@@ -252,6 +252,12 @@ type Conversation struct {
 	// message room, and "" in any other room: a group, a server channel, or a
 	// DM whose bridge does not say it is one (Telegram).
 	DirectMessagePartnerUserID string `json:"direct_message_partner_user_id,omitempty"`
+	// Visibility is the operator's choice for the room — "hidden", "shown",
+	// or "auto" to follow the auto-hide rule — and Hidden the result. The
+	// API fills both from multichat's own database; the Matrix read leaves
+	// them empty.
+	Visibility string `json:"visibility"`
+	Hidden     bool   `json:"hidden"`
 }
 
 // ConversationMember is one person in a room: their Matrix user id and the

@@ -164,6 +164,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/new", r.newConversationHandler)
 	r.mux.HandleFunc("/conversations/tags", r.conversationTagsHandler)
 	r.mux.HandleFunc("/conversations/tags/bulk", r.bulkConversationTagsHandler)
+	r.mux.HandleFunc("/conversations/visibility-settings", r.conversationVisibilitySettingsHandler)
 	r.mux.HandleFunc("/conversations/links", r.conversationLinksHandler)
 	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
@@ -502,6 +503,10 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 		r.writeError(w, 500, err.Error())
 		return
 	}
+	if err := r.markHiddenConversations(convos); err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
 	r.writeJSON(w, convos)
 }
 
@@ -552,6 +557,8 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 		r.takeBackReactionHandler(w, req, roomID, strings.TrimPrefix(action, "reactions/"))
 	case action == "send-file":
 		r.sendFileHandler(w, req, roomID)
+	case action == "visibility":
+		r.conversationVisibilityHandler(w, req, roomID)
 	case action == "loads":
 		r.conversationLoadsHandler(w, req, roomID)
 	case strings.HasPrefix(action, "loads/"):

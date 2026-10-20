@@ -149,7 +149,7 @@ List all conversations with metadata.
 ]
 ```
 
-Sorted by last activity (most recent first). `direct_message_partner_user_id` is the other person in a one-to-one DM and absent in any other room. The mautrix-go bridges (WhatsApp, Signal, Meta, Slack) mark a DM with `com.beeper.room_type: "dm"` in its `m.bridge` state; mautrix-discord does not, so a Discord DM is one whose portal has type 1 in `DISCORD_DB`. The Python Telegram bridge marks neither, so Telegram DMs have no partner id.
+Sorted by last activity (most recent first). Every room also carries `visibility` — the operator's choice, `hidden`, `shown` or `auto` — and `hidden`, the result: a room on `auto` is hidden when the auto-hide rule is on and its `member_count` is above the threshold (see *Hiding conversations*). The list still includes hidden rooms; hiding them is the UI's job. `direct_message_partner_user_id` is the other person in a one-to-one DM and absent in any other room. The mautrix-go bridges (WhatsApp, Signal, Meta, Slack) mark a DM with `com.beeper.room_type: "dm"` in its `m.bridge` state; mautrix-discord does not, so a Discord DM is one whose portal has type 1 in `DISCORD_DB`. The Python Telegram bridge marks neither, so Telegram DMs have no partner id.
 
 ### POST /conversations/new
 
@@ -434,6 +434,19 @@ Make rooms one conversation: `{ "room_ids": ["!a:…", "!b:…"] }`. When none o
 ### POST /conversations/links/remove
 
 Take a room out of its link: `{ "room_id": "!a:…" }`. A link left with one room is deleted. A room in no link is not an error. Answers every link afterwards, like `GET`.
+
+
+### PUT /conversations/{room_id}/visibility
+
+Hide a room from the conversation list, show it whatever its size, or put it back on the auto-hide rule. Answers `{"room_id", "visibility"}`. A value other than those three, or a `room_id` that is not a Matrix room id, is a 400.
+
+```json
+{ "visibility": "hidden" }
+```
+
+### GET /conversations/visibility-settings · PUT /conversations/visibility-settings
+
+The auto-hide rule, `{"auto_hide_enabled": true, "auto_hide_member_count_threshold": 30}` until first changed (table `conversation_visibility_settings`; the per-room choices are `conversation_visibility`). With it on, a room left on `auto` with more than the threshold's members is hidden. `PUT` takes both fields and answers the rule afterwards; a threshold below 1 is a 400. Note that a Discord channel's `member_count` counts only people who have joined its bridged room, not the whole server.
 
 ---
 
