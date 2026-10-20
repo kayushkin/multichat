@@ -169,6 +169,9 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
+	r.mux.HandleFunc("/awaiting-reply", r.awaitingReplyHandler)
+	r.mux.HandleFunc("/awaiting-reply/settings", r.awaitingReplySettingsHandler)
+	r.mux.HandleFunc("/awaiting-reply/clears", r.awaitingReplyClearsHandler)
 	r.mux.HandleFunc("/auto-reactions", r.autoReactionsHandler)
 	r.mux.HandleFunc("/auto-reactions/", r.autoReactionHandler)
 	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
@@ -436,7 +439,22 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 		r.writeError(w, 503, "Matrix client not configured")
 		return
 	}
+	convos, err := r.listConversations()
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	if err := r.markHiddenConversations(convos); err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, convos)
+}
 
+// listConversations reads the conversation list with what the bridge
+// databases say now: which Meta rooms are Facebook or Instagram, and which
+// Discord rooms are direct messages.
+func (r *Router) listConversations() ([]matrix.Conversation, error) {
 	// Build meta platform map from bridge DB
 	var metaPlatforms matrix.MetaPlatformMap
 	if r.metaDBPath != "" {
@@ -487,27 +505,16 @@ func (r *Router) conversationsHandler(w http.ResponseWriter, req *http.Request) 
 	if r.discordDBPath != "" {
 		bridge, err := discordbridge.Open(r.discordDBPath)
 		if err != nil {
-			r.writeError(w, 500, err.Error())
-			return
+			return nil, err
 		}
 		discordDirectMessageRoomIDs, err = discordbridge.DirectMessageRoomIDs(bridge)
 		bridge.Close()
 		if err != nil {
-			r.writeError(w, 500, "read Discord DM rooms from DISCORD_DB: "+err.Error())
-			return
+			return nil, fmt.Errorf("read Discord DM rooms from DISCORD_DB: %w", err)
 		}
 	}
 
-	convos, err := r.matrix.ListConversations(metaPlatforms, discordDirectMessageRoomIDs)
-	if err != nil {
-		r.writeError(w, 500, err.Error())
-		return
-	}
-	if err := r.markHiddenConversations(convos); err != nil {
-		r.writeError(w, 500, err.Error())
-		return
-	}
-	r.writeJSON(w, convos)
+	return r.matrix.ListConversations(metaPlatforms, discordDirectMessageRoomIDs)
 }
 
 func (r *Router) newConversationHandler(w http.ResponseWriter, req *http.Request) {

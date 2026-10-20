@@ -2,3 +2,4 @@
 // file ../generate-ts.sh renders from Go.
 export * from './db'
 export * from './discord_status'
+export * from './awaiting_reply'

@@ -2,8 +2,9 @@
 # are the source of truth; ts/ is a render of them. Regenerate with
 # ./generate-ts.sh after changing a wire type. Rendered: the inbound-rule
 # records (bridge-ui's Inbound rules page), the message log, the Discord
-# bridge status (bridge-ui's Discord page) and conversation links and
-# conversation visibility (its Conversations page); ts/index.ts re-exports them all.
+# bridge status (bridge-ui's Discord page), conversation links and
+# conversation visibility (its Conversations page) and the awaiting-reply
+# list (its Waiting on you page); ts/index.ts re-exports them all.
 # multichat has no frontend of its own; bridge-ui reads these. tygo keeps one entry per Go
 # package, so each package renders to one file.
 packages:
@@ -19,6 +20,7 @@ packages:
       - "conversation_links.go"
       - "auto_reactions.go"
       - "conversation_visibility.go"
+      - "awaiting_reply.go"
   - path: "github.com/kayushkin/multichat/internal/discordbridge"
     output_path: "ts/discord_status.ts"
     type_mappings:
@@ -26,3 +28,13 @@ packages:
     optional_type: "null"
     include_files:
       - "status.go"
+  - path: "github.com/kayushkin/multichat/internal/awaitingreply"
+    output_path: "ts/awaiting_reply.ts"
+    type_mappings:
+      "time.Time": "string"
+      "db.AwaitingReplySettings": "AwaitingReplySettings"
+    optional_type: "null"
+    include_files:
+      - "types.go"
+    frontmatter: |
+      import type { AwaitingReplySettings } from './db'

@@ -450,6 +450,40 @@ The auto-hide rule, `{"auto_hide_enabled": true, "auto_hide_member_count_thresho
 
 ---
 
+## Awaiting reply
+
+Which conversations hold a message the operator has not answered from someone they tagged (`internal/awaitingreply`, tables `awaiting_reply_settings` and `awaiting_reply_room_clears`). **It counts people, not accounts**: a people-store person counts when any of their accounts carries one of the chosen tags, and then a message from any of their accounts counts. An account no person owns counts on its own tag. A **room** carrying a chosen tag counts everyone's messages but the operator's. A message counts when it is within `max_message_age_days`, came after the operator's newest message in that room (if `clear_when_replied`), and after the room's clear mark. A tagged person's messages count only in rooms of at most `max_group_member_count` members, the operator included (a direct message has 2), and **never in a Discord server channel**: the bridge sets `network_id` there and nowhere else on Discord, while on other platforms a network means something else (a WhatsApp community, a Marketplace chat). A room the operator tagged ignores both rules. Edits and deleted messages never count.
+
+### GET /awaiting-reply
+
+```json
+{
+  "settings": { "tag_ids": [6], "max_group_member_count": 5, "max_message_age_days": 30, "clear_when_opened": true, "clear_when_replied": true, "updated_at": "…" },
+  "waiting": [{
+    "room_id": "!exampleRoomId00000:chat.kayushkin.com", "name": "D", "platform": "discord", "member_count": 2,
+    "direct_message": true, "counted_because_room_is_tagged": false,
+    "senders": [{ "person_id": "person_000097", "display_name": "DanaT", "user_id": "@discord_92000000000000001:chat.kayushkin.com" }],
+    "unanswered_message_count": 1,
+    "messages": [{ "event_id": "$…", "sender": { … }, "message_type": "m.text", "body": "sounded awful lol", "media_url": "", "media_mimetype": "", "sent_at": "2026-10-12T15:56:29.057Z" }],
+    "waiting_since": "2026-10-12T15:56:29.057Z", "newest_message_at": "2026-10-12T15:56:29.057Z"
+  }],
+  "cleared": [{ "room_id": "…", "name": "…", "…": "…", "last_message": { … }, "cleared_by": "replied", "cleared_at": "…" }],
+  "computed_at": "…"
+}
+```
+
+`waiting` is newest first, each with up to its five newest unanswered messages, oldest first. `cleared` lists rooms that stopped waiting in the last 7 days, with `cleared_by` `replied`, `opened` or `dismissed`. A sender's `display_name` is the person's name when a person owns the account, else the account's own name. Reads the tags here, every `matrix_user` identity and person from people-store (`PEOPLE_STORE_URL`; unset is a 503, a failed read a 502), the message log and the conversation list.
+
+### GET /awaiting-reply/settings, PUT /awaiting-reply/settings
+
+`PUT` takes the whole object: `tag_ids` (every id must be a tag), `max_group_member_count` (≥ 2), `max_message_age_days` (≥ 1), `clear_when_opened`, `clear_when_replied`. A missing or unknown field is a 400. Before the first save the settings are the defaults above with `tag_ids: []`, so nothing counts. `clear_when_opened` is for the client: it decides whether opening a conversation posts a clear.
+
+### POST /awaiting-reply/clears
+
+`{"room_id": "!…:server", "reason": "opened" | "dismissed", "cleared_through": "<newest_message_at the operator was shown>"}` marks the room seen up to that message, so one that arrives later brings it back. A mark never moves backwards: an older `cleared_through` keeps the newer one. Answers the room's mark `{room_id, cleared_through, cleared_at, reason}`.
+
+---
+
 ## AI Features
 
 ### POST /ai/summarize

@@ -1,11 +1,11 @@
 {
   "name": "@kayushkin/multichat-types",
   "version": "0.2.0",
-  "description": "TypeScript types for multichat's inbound rules, message log and Discord bridge status. Generated from internal/db and internal/discordbridge — the Go packages are the source of truth.",
+  "description": "TypeScript types for multichat's inbound rules, message log, Discord bridge status and awaiting-reply list. Generated from internal/db, internal/discordbridge and internal/awaitingreply — the Go packages are the source of truth.",
   "type": "module",
   "types": "./index.ts",
   "exports": { ".": { "types": "./index.ts", "default": "./index.ts" } },
-  "files": ["index.ts", "db.ts", "discord_status.ts", "README.md"],
+  "files": ["index.ts", "db.ts", "discord_status.ts", "awaiting_reply.ts", "README.md"],
   "license": "Apache-2.0",
   "author": "kayushkin",
   "repository": { "type": "git", "url": "git+https://github.com/kayushkin/multichat.git", "directory": "ts" }
