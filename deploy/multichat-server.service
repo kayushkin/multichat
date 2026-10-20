@@ -25,6 +25,8 @@ Environment=WHATSAPP_DB=%h/multichat/whatsapp-data/mautrix-whatsapp.db
 Environment=GMESSAGES_DB=%h/multichat/gmessages-data/mautrix-gmessages.db
 Environment=SIGNAL_DB=%h/multichat/signal-data/mautrix-signal.db
 Environment=PEOPLE_STORE_URL=http://127.0.0.1:8321
+# POST /api/short-names/assign reads and writes chat short names here.
+Environment=SHORT_NAME_STORE_URL=http://127.0.0.1:8325
 
 # Custom Discord emoji. POST /emoji/discord/refresh lists each bridged server's
 # emoji with a Discord bot token it resolves from auth-store by credential id:

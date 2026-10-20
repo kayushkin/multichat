@@ -70,3 +70,24 @@ func parseStoredTime(value string) (time.Time, error) {
 	}
 	return time.Time{}, fmt.Errorf("unrecognised stored time %q", value)
 }
+
+// MessageCountsByRoom counts the logged messages of every room, edits left
+// out and deleted messages and archive rows counted, keyed by Matrix room id.
+// A room with nothing logged is absent.
+func MessageCountsByRoom(database *sql.DB) (map[string]int, error) {
+	rows, err := database.Query(`SELECT room_id, count(*) FROM message_log WHERE replaces_event_id = '' GROUP BY room_id`)
+	if err != nil {
+		return nil, fmt.Errorf("count logged messages by room: %w", err)
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var roomID string
+		var count int
+		if err := rows.Scan(&roomID, &count); err != nil {
+			return nil, fmt.Errorf("count logged messages by room: %w", err)
+		}
+		counts[roomID] = count
+	}
+	return counts, rows.Err()
+}

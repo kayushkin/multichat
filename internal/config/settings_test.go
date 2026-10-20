@@ -38,7 +38,7 @@ func mustLoadFrom(t *testing.T, variables map[string]string) Config {
 // The registry gives the server what os.Getenv gave it before 2026-09-21: the
 // same defaults with nothing set, and the operator's values when they are.
 func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
-	want := Config{ListenPort: 8402, DatabasePath: "multichat.db"}
+	want := Config{ListenPort: 8402, DatabasePath: "multichat.db", ShortNamerModelRole: "balanced"}
 	if got := mustLoadFrom(t, nil); got != want {
 		t.Errorf("Load with nothing set = %+v, want %+v", got, want)
 	}
@@ -64,6 +64,8 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		LLMBridgeServiceToken:            "a-bridge-service-token",
 		OpenAIAPIKey:                     "an-openai-key",
 		AnthropicAPIKey:                  "an-anthropic-key",
+		ShortNameStoreURL:                "http://short-name-store.example:1",
+		ShortNamerModelRole:              "efficient",
 	}
 	got := mustLoadFrom(t, map[string]string{
 		"PORT":                            "9402",
@@ -86,6 +88,8 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"LLMBRIDGE_SERVICE_TOKEN":         "a-bridge-service-token",
 		"OPENAI_API_KEY":                  "an-openai-key",
 		"ANTHROPIC_API_KEY":               "an-anthropic-key",
+		"SHORT_NAME_STORE_URL":            "http://short-name-store.example:1",
+		"SHORT_NAMER_MODEL_ROLE":          "efficient",
 	})
 	if got != want {
 		t.Errorf("Load = %+v, want %+v", got, want)
@@ -102,7 +106,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 20; got != want {
+	if got, want := len(SettingDefinitions()), 22; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }

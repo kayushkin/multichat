@@ -19,7 +19,9 @@ import (
 	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/discordemoji"
+	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
+	"github.com/kayushkin/multichat/internal/shortnames"
 )
 
 type Router struct {
@@ -55,6 +57,10 @@ type Router struct {
 	apiToken        string
 	openAIAPIKey    string
 	anthropicAPIKey string
+
+	// shortNameAssigner names chats in short-name-store at shortNameStoreURL.
+	shortNameAssigner *shortnames.Assigner
+	shortNameStoreURL string
 
 	// settings is what GET /settings describes: every environment variable
 	// the server reads.
@@ -108,6 +114,20 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 	}
 	r.discordNitroChecker = discordemoji.NitroChecker{HTTPClient: r.httpClient, DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL}
 	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
+	r.shortNameStoreURL = loaded.ShortNameStoreURL
+	r.shortNameAssigner = &shortnames.Assigner{
+		Store: shortnames.StoreClient{BaseURL: loaded.ShortNameStoreURL, HTTPClient: r.httpClient},
+		Model: shortnames.OneShotModel{
+			BridgeURL:          r.llmBridgeURL,
+			ServiceTokenHeader: inbound.BridgeServiceTokenHeader,
+			ServiceToken:       loaded.LLMBridgeServiceToken,
+			ModelRole:          loaded.ShortNamerModelRole,
+			MaxTokens:          shortNamerMaxTokens,
+			// One call names 40 rooms, and the bridge may try a second model.
+			HTTPClient: &http.Client{Timeout: 5 * time.Minute},
+		},
+		ModelRole: loaded.ShortNamerModelRole,
+	}
 	r.setupRoutes()
 	return r
 }
@@ -188,6 +208,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/emoji/discord/nitro-check", r.discordNitroCheckHandler)
 	r.mux.HandleFunc("/emoji/discord/server-sweep", r.discordServerSweepHandler)
 	r.mux.HandleFunc("/media/", r.mediaHandler)
+	r.mux.HandleFunc("/short-names/assign", r.assignShortNamesHandler)
 	r.setupContactLinkRoutes()
 	// Behind the same bearer as every other route. Nothing is Editable, so
 	// PUT /settings/{key} is not mounted and answers 404.

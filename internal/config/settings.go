@@ -42,6 +42,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"GMESSAGES_DB",
 	"SIGNAL_DB",
 	"DISCORD_EMOJI_BOT_CREDENTIAL_ID",
+	"SHORT_NAMER_MODEL_ROLE",
 }
 
 // Keys of the server's settings, as GET /api/settings names them.
@@ -66,6 +67,8 @@ const (
 	SettingLLMBridgeServiceToken            = "llm_bridge_service_token"
 	SettingOpenAIAPIKey                     = "openai_api_key"
 	SettingAnthropicAPIKey                  = "anthropic_api_key"
+	SettingShortNameStoreURL                = "short_name_store_url"
+	SettingShortNamerModelRole              = "short_namer_model_role"
 )
 
 // The values in force with nothing set. The shipped unit sets the port and an
@@ -74,6 +77,10 @@ const (
 const (
 	DefaultListenPort   = 8402
 	DefaultDatabasePath = "multichat.db"
+	// DefaultShortNamerModelRole is model-store's "balanced" role. Naming a
+	// chat is a short judgement over a page of facts, and the pass runs
+	// hourly, so the strongest and dearest role buys little.
+	DefaultShortNamerModelRole = "balanced"
 )
 
 // SettingDefinitions declares every environment variable the server reads.
@@ -125,6 +132,10 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The OpenAI key the /ai/summarize, /ai/escalation-scan and /ai/auto-tag routes spend. Unset, those routes answer 500 \"No AI API key configured\", except summarize, which then tries ANTHROPIC_API_KEY."},
 		{Key: SettingAnthropicAPIKey, EnvironmentVariable: "ANTHROPIC_API_KEY", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The Anthropic key /ai/summarize uses when OPENAI_API_KEY is unset. Nothing else reads it."},
+		{Key: SettingShortNameStoreURL, EnvironmentVariable: "SHORT_NAME_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Where short-name-store answers. POST /short-names/assign reads the names in namespace messages there and writes the new ones there. Unset makes that route a 503."},
+		{Key: SettingShortNamerModelRole, EnvironmentVariable: "SHORT_NAMER_MODEL_ROLE", Kind: msg.ServiceSettingKindBehaviour, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultShortNamerModelRole,
+			Description: "The model-store role POST /short-names/assign asks llm-bridge-server's POST /oneshot for when it has a model propose short names. Changing it changes which model picks names, and names are permanent once written."},
 	}
 }
 
@@ -169,6 +180,10 @@ type Config struct {
 
 	OpenAIAPIKey    string
 	AnthropicAPIKey string
+
+	// ShortNameStoreURL is empty when the short-name pass cannot run.
+	ShortNameStoreURL   string
+	ShortNamerModelRole string
 }
 
 // MatrixConfigured reports whether both halves of the Matrix client are set.
@@ -202,6 +217,8 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		LLMBridgeServiceToken:            registry.String(SettingLLMBridgeServiceToken),
 		OpenAIAPIKey:                     registry.String(SettingOpenAIAPIKey),
 		AnthropicAPIKey:                  registry.String(SettingAnthropicAPIKey),
+		ShortNameStoreURL:                registry.String(SettingShortNameStoreURL),
+		ShortNamerModelRole:              registry.String(SettingShortNamerModelRole),
 	}
 	if loaded.NATSURL != "" && !loaded.MatrixConfigured() {
 		return Config{}, fmt.Errorf("NATS_URL is set but the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN); inbound needs both")
