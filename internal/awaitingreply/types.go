@@ -63,7 +63,7 @@ type Conversation struct {
 
 // WaitingConversation is a room with messages the operator has not answered.
 type WaitingConversation struct {
-	Conversation
+	Conversation `tstype:",extends"`
 	// Senders are the counted people who wrote since the operator's last
 	// word, in the order they first wrote.
 	Senders []Sender `json:"senders"`
@@ -80,7 +80,7 @@ type WaitingConversation struct {
 
 // ClearedConversation is a room that stopped waiting.
 type ClearedConversation struct {
-	Conversation
+	Conversation `tstype:",extends"`
 	// LastMessage is the newest counted message, the one that was cleared.
 	LastMessage PreviewMessage `json:"last_message"`
 	// ClearedBy is ClearedByReply or one of db.AwaitingReplyClearReasons.
