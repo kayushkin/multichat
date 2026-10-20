@@ -59,6 +59,7 @@ func (w *SyncWorker) acceptInvites(invites map[string]string) {
 		}
 		w.joinedAt[roomID] = joinedAt
 		log.Printf("inbound sync: accepted invite to %s from %s", roomID, inviter)
+		w.queueBridgeBotCheck(roomID)
 	}
 }
 

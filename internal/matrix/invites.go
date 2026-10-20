@@ -86,19 +86,34 @@ func (e *RateLimitedError) Error() string {
 // JoinRoom accepts an invite to a room. Synapse limits how fast one account
 // may join rooms; a refusal for that reason is a *RateLimitedError.
 func (c *Client) JoinRoom(roomID string) error {
-	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/join"
-	status, data, err := c.requestWithStatus("POST", path, strings.NewReader(`{}`))
+	return c.postRateLimited("/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/join", `{}`)
+}
+
+// InviteUser invites a user to a room. Synapse limits how many invites one
+// user may receive; a refusal for that reason is a *RateLimitedError.
+func (c *Client) InviteUser(roomID, userID string) error {
+	body, err := json.Marshal(map[string]string{"user_id": userID})
+	if err != nil {
+		return err
+	}
+	return c.postRateLimited("/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/invite", string(body))
+}
+
+// postRateLimited POSTs body to path and turns a 429 into a
+// *RateLimitedError carrying how long Synapse asked us to wait.
+func (c *Client) postRateLimited(path, body string) error {
+	status, data, err := c.requestWithStatus("POST", path, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
 	if status == 429 {
-		var body struct {
+		var limit struct {
 			RetryAfterMilliseconds int64 `json:"retry_after_ms"`
 		}
-		if err := json.Unmarshal(data, &body); err != nil || body.RetryAfterMilliseconds <= 0 {
+		if err := json.Unmarshal(data, &limit); err != nil || limit.RetryAfterMilliseconds <= 0 {
 			return fmt.Errorf("matrix POST %s: 429 without retry_after_ms: %s", path, data)
 		}
-		return &RateLimitedError{Path: path, RetryAfter: time.Duration(body.RetryAfterMilliseconds) * time.Millisecond}
+		return &RateLimitedError{Path: path, RetryAfter: time.Duration(limit.RetryAfterMilliseconds) * time.Millisecond}
 	}
 	if status >= 400 {
 		return fmt.Errorf("matrix POST %s: %d %s", path, status, data)

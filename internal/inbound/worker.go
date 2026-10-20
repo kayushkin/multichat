@@ -4,7 +4,8 @@
 // Two loops run in the server process:
 //
 //   - SyncWorker long-polls Synapse /sync, accepts every room invite a bridge
-//     sends (invites.go), writes every bridged message and
+//     sends (invites.go), invites a bridge's bot into any room it is missing
+//     from (bridgebots.go), writes every bridged message and
 //     reaction and every redaction to the message log (message_log.go), and
 //     publishes every message (never a reaction) a
 //     person sent as messages.MessagingInbound on messaging.inbound
@@ -54,6 +55,8 @@ type SyncWorker struct {
 	// joinedAt records when this process accepted each room's invite
 	// (invites.go), so the history a new room arrives with is not published.
 	joinedAt map[string]time.Time
+	// bridgeBotChecks queues rooms for the bridge bot checker (bridgebots.go).
+	bridgeBotChecks chan string
 }
 
 type roomFacts struct {
@@ -67,6 +70,8 @@ func (w *SyncWorker) Run() {
 	w.rooms = map[string]roomFacts{}
 	w.bridges = map[string]matrix.BridgeInfo{}
 	w.joinedAt = map[string]time.Time{}
+	w.bridgeBotChecks = make(chan string, bridgeBotQueueSize)
+	go w.checkBridgeBots()
 	startedAt, err := db.MessageLogStartedAt(w.Database)
 	if err != nil {
 		log.Fatalf("inbound sync: %v", err)
@@ -92,6 +97,13 @@ func (w *SyncWorker) Run() {
 	}
 	if err := w.acceptPendingInvites(); err != nil {
 		log.Fatalf("inbound sync: pending invites: %v", err)
+	}
+	joinedRoomIDs, err := w.Matrix.JoinedRoomIDs()
+	if err != nil {
+		log.Fatalf("inbound sync: joined rooms: %v", err)
+	}
+	for _, roomID := range joinedRoomIDs {
+		w.queueBridgeBotCheck(roomID)
 	}
 	log.Printf("inbound sync: running (publishing %s)", messages.MessagingInboundSubject)
 	for {

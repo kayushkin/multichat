@@ -42,7 +42,7 @@ func TestTheWorkerAcceptsBridgeInvitesWaitsOutTheRateLimitAndLeavesOthersAlone(t
 		}
 	}))
 	defer synapse.Close()
-	worker := &SyncWorker{Matrix: matrix.NewClient(synapse.URL, "token"), joinedAt: map[string]time.Time{}}
+	worker := &SyncWorker{Matrix: matrix.NewClient(synapse.URL, "token"), joinedAt: map[string]time.Time{}, bridgeBotChecks: make(chan string, 10)}
 
 	if err := worker.acceptPendingInvites(); err != nil {
 		t.Fatal(err)
@@ -50,6 +50,16 @@ func TestTheWorkerAcceptsBridgeInvitesWaitsOutTheRateLimitAndLeavesOthersAlone(t
 	sort.Strings(joins)
 	if want := []string{"!dm:x", "!group:x"}; !reflect.DeepEqual(joins, want) {
 		t.Fatalf("joined %v, want %v (bridge invites only, the rate-limited one retried)", joins, want)
+	}
+
+	close(worker.bridgeBotChecks)
+	var queued []string
+	for roomID := range worker.bridgeBotChecks {
+		queued = append(queued, roomID)
+	}
+	sort.Strings(queued)
+	if !reflect.DeepEqual(queued, joins) {
+		t.Fatalf("queued %v for a bridge bot check, want every joined room %v", queued, joins)
 	}
 
 	joinedAt := worker.joinedAt["!group:x"]
