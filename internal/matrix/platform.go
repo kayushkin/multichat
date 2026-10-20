@@ -3,10 +3,13 @@ package matrix
 import "strings"
 
 // KnownPlatforms is every platform a bridge puppet can come in through, in
-// the order the mautrix bridges were added. It is the served vocabulary for
-// anything that filters by platform (inbound rules, the MCP contact search),
-// so nothing builds a filter from observed values.
-var KnownPlatforms = []string{"whatsapp", "telegram", "signal", "meta", "discord", "slack", "gmessages"}
+// the order the bridges were added. It is the served vocabulary for anything
+// that filters by platform (inbound rules, the MCP contact search), so nothing
+// builds a filter from observed values. "gmessagesweb" is repo
+// gmessages-web-bridge, which reads Google Messages for web in Chrome on the
+// Mac; "gmessages" is mautrix-gmessages, unpaired since 2026-10-01. Their
+// prefixes do not overlap: "@gmessagesweb_" does not start with "@gmessages_".
+var KnownPlatforms = []string{"whatsapp", "telegram", "signal", "meta", "discord", "slack", "gmessages", "gmessagesweb"}
 
 // PlatformOfUserID reports which bridge a Matrix user id belongs to, from the
 // puppet prefix the bridge stamps on its ghosts (@whatsapp_…, @telegram_…).

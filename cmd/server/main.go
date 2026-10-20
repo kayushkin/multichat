@@ -169,6 +169,9 @@ func main() {
 		rows.Close()
 		googleMessagesDB.Close()
 	}
+	// gmessages-web-bridge sends the operator's own texts, the ones sent from
+	// the phone, as one puppet: its SelfPuppetLocalpart.
+	matrix.SelfUserIDs[fmt.Sprintf("@gmessagesweb_self:%s", serverName)] = true
 	log.Printf("Self user IDs: %d identities", len(matrix.SelfUserIDs))
 	for id := range matrix.SelfUserIDs {
 		log.Printf("  %s", id)
