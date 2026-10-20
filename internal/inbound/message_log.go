@@ -1,8 +1,10 @@
 package inbound
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/kayushkin/multichat/internal/db"
@@ -88,6 +90,28 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 		}
 		if _, err := db.MarkReactionRedacted(w.Database, target, event.EventID, event.Sender, redactedAt); err != nil {
 			return err
+		}
+		return nil
+	case matrix.MessageSendStatusEventType:
+		// A bridge saying whether an event of ours reached the platform. Only
+		// a refusal of an auto-reaction is kept, on its rule.
+		var status matrix.MessageSendStatusContent
+		if err := json.Unmarshal(event.Content, &status); err != nil {
+			return fmt.Errorf("message send status: %w", err)
+		}
+		if !status.Failed() {
+			return nil
+		}
+		refusal := strings.TrimSpace(status.Status + ": " + status.Error)
+		if status.Error == "" {
+			refusal = strings.TrimSpace(status.Status + ": " + status.Message)
+		}
+		matched, err := db.RecordAutoReactionPlatformFailure(w.Database, status.RelatesTo.EventID, refusal)
+		if err != nil {
+			return err
+		}
+		if matched {
+			log.Printf("auto-reactor: the bridge did not deliver %s in %s: %s", status.RelatesTo.EventID, roomID, refusal)
 		}
 		return nil
 	case "m.room.message", "m.sticker":

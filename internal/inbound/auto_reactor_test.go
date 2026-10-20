@@ -1,6 +1,7 @@
 package inbound
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/kayushkin/bus/messages"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/matrix"
 )
 
 type sentReaction struct{ room, event, key string }
@@ -23,7 +25,7 @@ func (f *fakeReactionSender) SendReaction(roomID, targetEventID, key string) (st
 		return "", f.refuse
 	}
 	f.sent = append(f.sent, sentReaction{roomID, targetEventID, key})
-	return "$reaction", nil
+	return "$reaction-to-" + targetEventID, nil
 }
 
 const (
@@ -148,5 +150,51 @@ func TestAutoReactorLeavesMessagesFromBeforeTheRule(t *testing.T) {
 	}
 	if len(sender.sent) != 0 {
 		t.Errorf("reacted to a message from before the rule: %v", sender.sent)
+	}
+}
+
+// TestABridgeRefusalLandsOnTheRule: Matrix takes the reaction and the rule
+// counts it, then mautrix-discord reports that Discord refused it, as it did
+// for every 🥛 on Lukas in the Riverside server from 2026-10-02 16:33 UTC. The
+// refusal must show on the rule, not leave it looking healthy.
+func TestABridgeRefusalLandsOnTheRule(t *testing.T) {
+	reactor, _ := autoReactorForTest(t)
+	rule, err := db.CreateAutoReaction(reactor.Database, lukasOnDiscord, "", "🥛", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"$1", "$2"} {
+		if err := reactor.React(message(id, "!general:chat.example", lukasOnDiscord)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	worker := &SyncWorker{Database: reactor.Database}
+	status := func(id, reactionEventID, state string) matrix.TimelineEvent {
+		content, _ := json.Marshal(map[string]any{
+			"m.relates_to": map[string]string{"rel_type": "m.reference", "event_id": reactionEventID},
+			"status":       state, "reason": "m.foreign_error",
+			"error": `HTTP 403 Forbidden, {"message": "Reaction blocked", "code": 90001}`,
+		})
+		return matrix.TimelineEvent{EventID: id, Type: matrix.MessageSendStatusEventType, Sender: "@discordbot:chat.example", Content: content}
+	}
+	for _, e := range []matrix.TimelineEvent{
+		status("$s1", "$reaction-to-$2", "SUCCESS"),                // delivered: nothing changes
+		status("$s2", "$reaction-to-$1", "FAIL_PERMANENT"),         // refused
+		status("$s3", "$reaction-to-$1", "FAIL_PERMANENT"),         // the same report again
+		status("$s4", "$someone-elses-reaction", "FAIL_PERMANENT"), // not an auto-reaction
+	} {
+		if err := worker.logEvent("!general:chat.example", e); err != nil {
+			t.Fatalf("%s: %v", e.EventID, err)
+		}
+	}
+	after, err := db.GetAutoReaction(reactor.Database, rule.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ReactionCount != 1 {
+		t.Errorf("reaction_count = %d, want 1: two sent, one refused", after.ReactionCount)
+	}
+	if !strings.Contains(after.LastError, "Reaction blocked") || !strings.HasPrefix(after.LastError, "FAIL_PERMANENT") || after.LastErrorAt == 0 {
+		t.Errorf("last_error = %q at %d", after.LastError, after.LastErrorAt)
 	}
 }

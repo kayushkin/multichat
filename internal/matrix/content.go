@@ -119,3 +119,28 @@ func ParseReactionContent(content json.RawMessage) (ReactionContent, error) {
 	}
 	return ReactionContent{TargetEventID: raw.RelatesTo.EventID, Key: raw.RelatesTo.Key, Shortcode: raw.Shortcode}, nil
 }
+
+// MessageSendStatusEventType is the event a mautrix bridge sends, with
+// message_status_events on, to say whether an event we sent reached the
+// platform.
+const MessageSendStatusEventType = "com.beeper.message_send_status"
+
+// MessageSendStatusContent is its content. Status is SUCCESS, PENDING,
+// FAIL_RETRIABLE or FAIL_PERMANENT; Error is the platform's own words,
+// Message the bridge's.
+type MessageSendStatusContent struct {
+	RelatesTo struct {
+		RelType string `json:"rel_type"`
+		EventID string `json:"event_id"`
+	} `json:"m.relates_to"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason"`
+	Error   string `json:"error"`
+	Message string `json:"message"`
+}
+
+// Failed reports whether the status says the event will not reach the
+// platform without being sent again.
+func (c MessageSendStatusContent) Failed() bool {
+	return c.Status == "FAIL_PERMANENT" || c.Status == "FAIL_RETRIABLE"
+}

@@ -69,11 +69,16 @@ func (a *AutoReactor) React(inbound messages.MessagingInbound) error {
 		} else if err != nil {
 			return err
 		}
-		_, reactionErr := a.Matrix.SendReaction(inbound.RoomID, inbound.EventID, rule.ReactionKey)
+		reactionEventID, reactionErr := a.Matrix.SendReaction(inbound.RoomID, inbound.EventID, rule.ReactionKey)
 		if reactionErr != nil {
 			log.Printf("auto-reactor: rule %d %s on %s in %s: %v", rule.ID, rule.ReactionKey, inbound.EventID, inbound.RoomID, reactionErr)
 		} else {
 			log.Printf("auto-reactor: rule %d reacted %s to %s from %s in %s", rule.ID, rule.ReactionKey, inbound.EventID, inbound.SenderUserID, inbound.RoomID)
+			// Matrix took it; the bridge may still fail to deliver it, and
+			// says so with a message send status that names this event.
+			if err := db.RecordAutoReactionSent(a.Database, rule.ID, inbound.EventID, reactionEventID); err != nil {
+				return err
+			}
 		}
 		if err := db.RecordAutoReactionOutcome(a.Database, rule.ID, reactionErr); err != nil {
 			return err

@@ -40,7 +40,45 @@ func createAutoReactionSchema(database *sql.DB) error {
 	if _, err := database.Exec(autoReactionSchema); err != nil {
 		return fmt.Errorf("create auto-reaction schema: %w", err)
 	}
+	// Added 2026-10-20: the reaction each claim sent, and the platform's
+	// refusal of it, so a bridge's failure report can find its rule.
+	for _, column := range []struct{ name, definition string }{
+		{"reaction_event_id", "TEXT NOT NULL DEFAULT ''"},
+		{"platform_error", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		present, err := tableHasColumn(database, "auto_reaction_claims", column.name)
+		if err != nil {
+			return err
+		}
+		if present {
+			continue
+		}
+		if _, err := database.Exec(`ALTER TABLE auto_reaction_claims ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return fmt.Errorf("add auto_reaction_claims.%s: %w", column.name, err)
+		}
+	}
+	if _, err := database.Exec(`CREATE INDEX IF NOT EXISTS auto_reaction_claims_by_reaction ON auto_reaction_claims (reaction_event_id) WHERE reaction_event_id != ''`); err != nil {
+		return fmt.Errorf("index auto_reaction_claims by reaction: %w", err)
+	}
 	return nil
+}
+
+func tableHasColumn(database *sql.DB, table, column string) (bool, error) {
+	rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return false, fmt.Errorf("read the columns of %s: %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return false, fmt.Errorf("read the columns of %s: %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // AutoReaction is one rule. SenderDisplayName and RoomName are for display
@@ -205,4 +243,53 @@ func RecordAutoReactionOutcome(database *sql.DB, id int64, reactionErr error) er
 		return fmt.Errorf("record the outcome of auto-reaction %d: %w", id, err)
 	}
 	return nil
+}
+
+// RecordAutoReactionSent keeps the reaction event a claim sent, so a later
+// failure report from the bridge can be traced back to its rule.
+func RecordAutoReactionSent(database *sql.DB, ruleID int64, eventID, reactionEventID string) error {
+	if _, err := database.Exec(`UPDATE auto_reaction_claims SET reaction_event_id = ? WHERE rule_id = ? AND event_id = ?`,
+		reactionEventID, ruleID, eventID); err != nil {
+		return fmt.Errorf("record the reaction auto-reaction %d sent to %s: %w", ruleID, eventID, err)
+	}
+	return nil
+}
+
+// RecordAutoReactionPlatformFailure takes a bridge's report that a reaction
+// never reached the platform. When an auto-reaction sent it, the rule's count
+// gives back the reaction it counted when Matrix took it, and the refusal
+// becomes its last error. It reports whether the reaction was an
+// auto-reaction's; a second report about the same reaction changes nothing.
+func RecordAutoReactionPlatformFailure(database *sql.DB, reactionEventID, refusal string) (bool, error) {
+	if reactionEventID == "" {
+		return false, nil
+	}
+	var ruleID int64
+	var platformError string
+	err := database.QueryRow(`SELECT rule_id, platform_error FROM auto_reaction_claims WHERE reaction_event_id = ?`, reactionEventID).Scan(&ruleID, &platformError)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("find the auto-reaction that sent %s: %w", reactionEventID, err)
+	}
+	if platformError != "" {
+		return true, nil
+	}
+	tx, err := database.Begin()
+	if err != nil {
+		return false, fmt.Errorf("record the refusal of %s: %w", reactionEventID, err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`UPDATE auto_reaction_claims SET platform_error = ? WHERE reaction_event_id = ?`, refusal, reactionEventID); err != nil {
+		return false, fmt.Errorf("record the refusal of %s: %w", reactionEventID, err)
+	}
+	if _, err := tx.Exec(`UPDATE auto_reactions SET reaction_count = MAX(reaction_count - 1, 0), last_error = ?, last_error_at = ? WHERE id = ?`,
+		refusal, time.Now().Unix(), ruleID); err != nil {
+		return false, fmt.Errorf("record the refusal of %s on auto-reaction %d: %w", reactionEventID, ruleID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("record the refusal of %s: %w", reactionEventID, err)
+	}
+	return true, nil
 }
