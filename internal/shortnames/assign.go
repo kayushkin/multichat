@@ -196,6 +196,10 @@ func (a *Assigner) run(ctx context.Context, inputs Inputs, dryRun bool, out *Res
 				result.Refused = append(result.Refused, c.refusal("", "the model proposed no name for it"))
 				continue
 			}
+			if p.Path == "" {
+				result.Refused = append(result.Refused, c.refusal("", "the model gave no name: "+p.Reason))
+				continue
+			}
 			if why := run.check(c, p.Path); why != "" {
 				result.Refused = append(result.Refused, c.refusal(p.Path, why))
 				continue

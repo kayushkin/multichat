@@ -83,6 +83,7 @@ Rules:
 - ` + segmentRule + ` Paths have one segment, except Discord channels, which have two.
 - Never use a path listed as taken, nor a reserved segment as the first segment, nor a discord server short name as the whole path of something that is not that server's channel.
 - The candidates are in popularity order, most messages first. When two want the same name, the earlier one gets the plain name and the later one the longer form. Give every candidate a different path.
+- If nothing tells you who or what a chat is (a placeholder such as "Facebook user"), answer an empty path and say why: the chat waits for a later run, when more may be known.
 - Answer once for every candidate, with its entity_id verbatim, and say why in a few words.`
 
 type serverFacts struct {

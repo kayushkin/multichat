@@ -338,6 +338,7 @@ func TestEveryProposalIsCheckedBeforeItIsWritten(t *testing.T) {
 		"!long:x":     strings.Repeat("a", 41),
 		"!hyphens:x":  "kim--park",
 		"!silent:x":   "-",
+		"!declined:x": "",
 		"!good:x":     "maria",
 	}
 	model := &fakeModel{room: func(c candidateFacts) string { return proposals[c.EntityID] }}
@@ -363,6 +364,7 @@ func TestEveryProposalIsCheckedBeforeItIsWritten(t *testing.T) {
 		"!long:x":     "longer than 40",
 		"!hyphens:x":  "single hyphens",
 		"!silent:x":   "proposed no name",
+		"!declined:x": "gave no name: first name",
 	} {
 		if !strings.Contains(whys[roomID], want) {
 			t.Errorf("%s refused for %q, want %q", roomID, whys[roomID], want)

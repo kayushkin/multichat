@@ -95,20 +95,15 @@ func (r *Router) shortNameInputs() (shortnames.Inputs, error) {
 	if err != nil {
 		return shortnames.Inputs{}, err
 	}
-	status, err := discordbridge.ReadStatus(bridge)
+	channelRooms, err := discordbridge.ServerChannelRooms(bridge)
 	bridge.Close()
 	if err != nil {
 		return shortnames.Inputs{}, err
 	}
 	discordChannelByRoomID := map[string]shortnames.DiscordChannel{}
-	for _, server := range status.BridgedServers {
-		for _, channel := range server.Channels {
-			if channel.MatrixRoomID == "" {
-				continue
-			}
-			discordChannelByRoomID[channel.MatrixRoomID] = shortnames.DiscordChannel{ServerID: server.DiscordServerID,
-				ServerName: server.Name, ChannelName: channel.Name, CategoryName: channel.CategoryName}
-		}
+	for roomID, channel := range channelRooms {
+		discordChannelByRoomID[roomID] = shortnames.DiscordChannel{ServerID: channel.DiscordServerID,
+			ServerName: channel.ServerName, ChannelName: channel.ChannelName, CategoryName: channel.CategoryName}
 	}
 
 	identities, err := r.people.MatrixUserIdentities()
