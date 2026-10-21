@@ -86,7 +86,8 @@ type Result struct {
 	// SkippedWithoutMessages counts rooms and links with no logged message,
 	// left unnamed until they are used so they do not spend a name.
 	SkippedWithoutMessages int `json:"skipped_without_messages"`
-	// SkippedNotChats counts rooms their bridge marks as no chat of their own.
+	// SkippedNotChats counts rooms a bridge carries that are no conversation
+	// (WhatsApp's status broadcast).
 	SkippedNotChats int `json:"skipped_not_chats"`
 	NamedCount      int `json:"named_count"`
 	RefusedCount    int `json:"refused_count"`
@@ -393,7 +394,7 @@ func (run *runState) candidates(inputs Inputs, result *Result) []candidate {
 				named = true
 			}
 			count += inputs.MessageCounts[roomID]
-			if room, ok := roomByID[roomID]; ok && !room.ExcludedFromTimeline {
+			if room, ok := roomByID[roomID]; ok && !room.IsNotAChat() {
 				listed = append(listed, room)
 			}
 		}
@@ -426,7 +427,7 @@ func (run *runState) candidates(inputs Inputs, result *Result) []candidate {
 			result.SkippedWithoutMessages++
 			continue
 		}
-		if room.ExcludedFromTimeline {
+		if room.IsNotAChat() {
 			result.SkippedNotChats++
 			continue
 		}

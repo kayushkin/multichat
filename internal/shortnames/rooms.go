@@ -24,6 +24,17 @@ type DiscordChannel struct {
 	CategoryName string
 }
 
+// whatsAppStatusBroadcastChannelID is the fixed address WhatsApp gives the
+// stream of contacts' status updates. The WhatsApp bridge carries it as a room,
+// but it is no conversation, so it is never named.
+const whatsAppStatusBroadcastChannelID = "status@broadcast"
+
+// IsNotAChat says whether the room is one a bridge carries that is no
+// conversation: today only WhatsApp's status broadcast.
+func (room Room) IsNotAChat() bool {
+	return room.Platform == "whatsapp" && room.BridgeChannelID == whatsAppStatusBroadcastChannelID
+}
+
 // Room is the facts about one Matrix room the model names from.
 type Room struct {
 	RoomID   string
@@ -39,9 +50,9 @@ type Room struct {
 	LastActivity             int64
 	// Discord is set on a Discord server channel only.
 	Discord *DiscordChannel
-	// ExcludedFromTimeline is the bridge's own mark on a room that is no chat
-	// (WhatsApp's status broadcast). Such a room is never named.
-	ExcludedFromTimeline bool
+	// BridgeChannelID is the channel id from the room's m.bridge state; the
+	// pass reads it only for rooms it may name.
+	BridgeChannelID string
 }
 
 // RoomsFromConversations turns GET /conversations rows into the facts the

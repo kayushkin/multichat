@@ -125,17 +125,17 @@ func (r *Router) shortNameInputs() (shortnames.Inputs, error) {
 		Rooms:         shortnames.RoomsFromConversations(conversations, personNameByUserID, discordChannelByRoomID),
 		MessageCounts: counts,
 	}
-	// The pass skips a room with no logged messages before it looks at this
-	// mark, so only the rooms it may name cost a Synapse request.
+	// The pass skips a room with no logged messages before it looks at the
+	// bridge's channel id, so only the rooms it may name cost a Synapse request.
 	for i := range inputs.Rooms {
 		if counts[inputs.Rooms[i].RoomID] == 0 {
 			continue
 		}
-		excluded, err := r.matrix.ExcludedFromTimeline(inputs.Rooms[i].RoomID)
+		channelID, err := r.matrix.BridgeChannelID(inputs.Rooms[i].RoomID)
 		if err != nil {
 			return shortnames.Inputs{}, err
 		}
-		inputs.Rooms[i].ExcludedFromTimeline = excluded
+		inputs.Rooms[i].BridgeChannelID = channelID
 	}
 	for _, link := range links {
 		inputs.Links = append(inputs.Links, link.RoomIDs)

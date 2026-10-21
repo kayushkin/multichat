@@ -811,30 +811,31 @@ func (c *Client) Redact(roomID, eventID string) (string, error) {
 	return resp.EventID, nil
 }
 
-// ExcludedFromTimeline says whether the room's bridge marks it as no chat of
-// its own: the mautrix bridges set com.beeper.exclude_from_timeline on the
-// m.room.topic of a room such as WhatsApp's status@broadcast, which carries
-// contacts' status updates rather than a conversation. A room with no topic
-// is not marked.
-func (c *Client) ExcludedFromTimeline(roomID string) (bool, error) {
-	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/state/m.room.topic"
-	status, data, err := c.requestWithStatus("GET", path, nil)
+// BridgeChannelID is the channel id the room's bridge records in its m.bridge
+// state ("status@broadcast", a WhatsApp group's JID, a Discord channel id),
+// or "" when no m.bridge event names one.
+func (c *Client) BridgeChannelID(roomID string) (string, error) {
+	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state", nil)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	if status == http.StatusNotFound {
-		return false, nil
+	var events []struct {
+		Type    string `json:"type"`
+		Content struct {
+			Channel struct {
+				ID string `json:"id"`
+			} `json:"channel"`
+		} `json:"content"`
 	}
-	if status >= 400 {
-		return false, fmt.Errorf("matrix GET %s: %d %s", path, status, string(data))
+	if err := json.Unmarshal(data, &events); err != nil {
+		return "", fmt.Errorf("state of %s: %w", roomID, err)
 	}
-	var topic struct {
-		ExcludeFromTimeline bool `json:"com.beeper.exclude_from_timeline"`
+	for _, event := range events {
+		if event.Type == "m.bridge" && event.Content.Channel.ID != "" {
+			return event.Content.Channel.ID, nil
+		}
 	}
-	if err := json.Unmarshal(data, &topic); err != nil {
-		return false, fmt.Errorf("m.room.topic of %s: %w", roomID, err)
-	}
-	return topic.ExcludeFromTimeline, nil
+	return "", nil
 }
 
 // bridgeRoomType is com.beeper.room_type from the room's m.bridge state ("dm"

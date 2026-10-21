@@ -463,29 +463,35 @@ func TestASecondRunWhileOneIsGoingIsRefused(t *testing.T) {
 
 func TestARoomWithNoLoggedMessageOrMarkedAsNoChatIsLeftUnnamed(t *testing.T) {
 	store := &fakeStore{namespace: messagesNamespace()}
-	model := &fakeModel{room: lowercaseFirstName}
-	status := directMessage("!status:x", "Status Broadcast")
-	status.ExcludedFromTimeline = true
+	model := &fakeModel{room: func(c candidateFacts) string {
+		if c.Kind == KindGroup {
+			return "adventures"
+		}
+		return lowercaseFirstName(c)
+	}}
+	status := Room{RoomID: "!status:x", Name: "WhatsApp Status Broadcast", Platform: "whatsapp", Kind: KindGroup, MemberCount: 6, BridgeChannelID: "status@broadcast"}
+	// A normal WhatsApp group carries a channel id too, and is named.
+	group := Room{RoomID: "!group:x", Name: "Group Adventures", Platform: "whatsapp", Kind: KindGroup, MemberCount: 20, BridgeChannelID: "120363000000000000@g.us"}
 	inputs := Inputs{
-		Rooms: []Room{directMessage("!used:x", "Kim A"), directMessage("!unused:x", "Maria B"), status,
+		Rooms: []Room{directMessage("!used:x", "Kim A"), directMessage("!unused:x", "Maria B"), status, group,
 			{RoomID: "!quiet-sms:x", Name: "Quiet", Platform: "gmessages", Kind: KindGroup},
 			{RoomID: "!quiet-wa:x", Name: "Quiet", Platform: "whatsapp", Kind: KindGroup}},
 		Links:         [][]string{{"!quiet-sms:x", "!quiet-wa:x"}},
-		MessageCounts: map[string]int{"!used:x": 3, "!status:x": 41},
+		MessageCounts: map[string]int{"!used:x": 3, "!status:x": 41, "!group:x": 2},
 	}
 	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Named) != 1 || result.Named[0].EntityID != "!used:x" {
+	if len(result.Named) != 2 || result.Named[0].EntityID != "!used:x" || result.Named[1].EntityID != "!group:x" {
 		t.Fatalf("named %+v", result.Named)
 	}
 	if result.SkippedWithoutMessages != 2 || result.SkippedNotChats != 1 || result.SkippedCount != 3 {
 		t.Errorf("skipped without messages %d, not chats %d, total %d; want 2 (a room and a link), 1 and 3",
 			result.SkippedWithoutMessages, result.SkippedNotChats, result.SkippedCount)
 	}
-	if len(model.roomCalls) != 1 || len(model.roomCalls[0]) != 1 {
-		t.Errorf("the model was asked about %v, want only !used:x", model.roomCalls)
+	if len(model.roomCalls) != 1 || len(model.roomCalls[0]) != 2 {
+		t.Errorf("the model was asked about %v, want only !used:x and !group:x", model.roomCalls)
 	}
 }
 
