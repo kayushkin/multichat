@@ -811,6 +811,32 @@ func (c *Client) Redact(roomID, eventID string) (string, error) {
 	return resp.EventID, nil
 }
 
+// ExcludedFromTimeline says whether the room's bridge marks it as no chat of
+// its own: the mautrix bridges set com.beeper.exclude_from_timeline on the
+// m.room.topic of a room such as WhatsApp's status@broadcast, which carries
+// contacts' status updates rather than a conversation. A room with no topic
+// is not marked.
+func (c *Client) ExcludedFromTimeline(roomID string) (bool, error) {
+	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/state/m.room.topic"
+	status, data, err := c.requestWithStatus("GET", path, nil)
+	if err != nil {
+		return false, err
+	}
+	if status == http.StatusNotFound {
+		return false, nil
+	}
+	if status >= 400 {
+		return false, fmt.Errorf("matrix GET %s: %d %s", path, status, string(data))
+	}
+	var topic struct {
+		ExcludeFromTimeline bool `json:"com.beeper.exclude_from_timeline"`
+	}
+	if err := json.Unmarshal(data, &topic); err != nil {
+		return false, fmt.Errorf("m.room.topic of %s: %w", roomID, err)
+	}
+	return topic.ExcludeFromTimeline, nil
+}
+
 // bridgeRoomType is com.beeper.room_type from the room's m.bridge state ("dm"
 // for a direct message on the mautrix-go bridges), or "" when no m.bridge
 // event sets it. Each bridge writes m.bridge under a state key of its own

@@ -83,15 +83,20 @@ type Result struct {
 	// counts once, under SkippedLinksAlreadyNamed.
 	SkippedAlreadyNamed      int `json:"skipped_already_named"`
 	SkippedLinksAlreadyNamed int `json:"skipped_links_already_named"`
-	NamedCount               int `json:"named_count"`
-	RefusedCount             int `json:"refused_count"`
-	SkippedCount             int `json:"skipped_count"`
+	// SkippedWithoutMessages counts rooms and links with no logged message,
+	// left unnamed until they are used so they do not spend a name.
+	SkippedWithoutMessages int `json:"skipped_without_messages"`
+	// SkippedNotChats counts rooms their bridge marks as no chat of their own.
+	SkippedNotChats int `json:"skipped_not_chats"`
+	NamedCount      int `json:"named_count"`
+	RefusedCount    int `json:"refused_count"`
+	SkippedCount    int `json:"skipped_count"`
 }
 
 func (result *Result) count() {
 	result.NamedCount = len(result.Named)
 	result.RefusedCount = len(result.Refused)
-	result.SkippedCount = result.SkippedAlreadyNamed + result.SkippedLinksAlreadyNamed
+	result.SkippedCount = result.SkippedAlreadyNamed + result.SkippedLinksAlreadyNamed + result.SkippedWithoutMessages + result.SkippedNotChats
 }
 
 // Assigner runs the pass. One run at a time.
@@ -299,6 +304,9 @@ type runState struct {
 	// firstSegmentOwner says who uses a first segment: a server
 	// ("server:<id>"), or "path" for any other name.
 	firstSegmentOwner map[string]string
+	// directMessageFirstNames are the lowercase first names of the people in
+	// every direct message, which a group may not take as its whole path.
+	directMessageFirstNames map[string]bool
 }
 
 func serverOwner(serverID string) string { return "server:" + serverID }
@@ -307,7 +315,17 @@ const otherNameOwner = "path"
 
 func newRunState(namespace Namespace, existing []ShortName, rooms []Room) *runState {
 	run := &runState{reserved: map[string]bool{}, takenPaths: map[string]bool{}, currentRoomPath: map[string]string{},
-		serverShortName: map[string]string{}, serverName: map[string]string{}, firstSegmentOwner: map[string]string{}}
+		serverShortName: map[string]string{}, serverName: map[string]string{}, firstSegmentOwner: map[string]string{},
+		directMessageFirstNames: map[string]bool{}}
+	for _, room := range rooms {
+		if room.Kind != KindDirectMessage {
+			continue
+		}
+		first, _, _ := strings.Cut(strings.TrimSpace(room.DirectMessagePartnerName), " ")
+		if first = strings.ToLower(first); checkSegment(first) == "" {
+			run.directMessageFirstNames[first] = true
+		}
+	}
 	for _, segment := range namespace.ReservedSegments {
 		run.reserved[segment] = true
 	}
@@ -375,7 +393,7 @@ func (run *runState) candidates(inputs Inputs, result *Result) []candidate {
 				named = true
 			}
 			count += inputs.MessageCounts[roomID]
-			if room, ok := roomByID[roomID]; ok {
+			if room, ok := roomByID[roomID]; ok && !room.ExcludedFromTimeline {
 				listed = append(listed, room)
 			}
 		}
@@ -384,6 +402,10 @@ func (run *runState) candidates(inputs Inputs, result *Result) []candidate {
 			continue
 		}
 		if len(listed) == 0 {
+			continue
+		}
+		if count == 0 {
+			result.SkippedWithoutMessages++
 			continue
 		}
 		// Most messaged first; equal counts keep room id order.
@@ -398,6 +420,14 @@ func (run *runState) candidates(inputs Inputs, result *Result) []candidate {
 		}
 		if run.currentRoomPath[room.RoomID] != "" {
 			result.SkippedAlreadyNamed++
+			continue
+		}
+		if inputs.MessageCounts[room.RoomID] == 0 {
+			result.SkippedWithoutMessages++
+			continue
+		}
+		if room.ExcludedFromTimeline {
+			result.SkippedNotChats++
 			continue
 		}
 		candidates = append(candidates, candidate{room: room, messageCount: inputs.MessageCounts[room.RoomID]})
@@ -447,6 +477,9 @@ func (run *runState) check(c candidate, path string) string {
 	} else {
 		if len(segments) != 1 {
 			return "a direct message or group's path is one segment"
+		}
+		if c.room.Kind == KindGroup && run.directMessageFirstNames[path] {
+			return fmt.Sprintf("%q is the first name of someone you message one to one; a plain first name is kept for a direct message", path)
 		}
 		if owner, used := run.firstSegmentOwner[first]; used && owner != otherNameOwner {
 			return "a Discord server's channels start with it"

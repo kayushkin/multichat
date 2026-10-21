@@ -39,6 +39,9 @@ type Room struct {
 	LastActivity             int64
 	// Discord is set on a Discord server channel only.
 	Discord *DiscordChannel
+	// ExcludedFromTimeline is the bridge's own mark on a room that is no chat
+	// (WhatsApp's status broadcast). Such a room is never named.
+	ExcludedFromTimeline bool
 }
 
 // RoomsFromConversations turns GET /conversations rows into the facts the

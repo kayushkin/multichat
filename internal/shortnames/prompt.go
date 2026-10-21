@@ -77,7 +77,7 @@ var roomSystemPrompt = `You choose short names for the operator's chats. Each be
 
 Rules:
 - A direct message (kind direct_message): the other person's first name, lowercase ("kim"). If that path is taken, first name and surname ("kim-moss"); with no surname known, the first name plus one word that tells this person apart (the platform, a nickname, a place). Use the person's name from direct_message_partner, else the room name. A phone number with no name is named for what the messages are, if room_name tells you; else the digits.
-- A group (kind group): one or two short words for what the group is ("nyc" for a group about New York, "climbing", "family"). One segment.
+- A group (kind group): one or two short words for what the group is ("nyc" for a group about New York, "climbing", "family"). One segment. Never a person's bare first name, even when the group is named after one person: a plain first name is kept for that person's direct message.
 - A Discord server channel (kind discord_channel): exactly "<discord_server_short_name>/<channel>", using the discord_server_short_name given, unchanged. <channel> is the channel's name without emoji and filler words: "#general-chat" -> "general", "🎉-events-and-plans" -> "events".
 - A business or an SMS short code: the business's name ("chase", "uber"), one segment.
 - ` + segmentRule + ` Paths have one segment, except Discord channels, which have two.

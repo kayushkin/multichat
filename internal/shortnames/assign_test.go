@@ -125,6 +125,22 @@ func directMessage(roomID, partner string) Room {
 	return Room{RoomID: roomID, Name: partner, Platform: "whatsapp", Kind: KindDirectMessage, DirectMessagePartnerName: partner, MemberCount: 2}
 }
 
+// everyRoomUsed gives each room with no logged message one, so a test about
+// something else is not cut short by the rule that leaves unused rooms unnamed.
+func everyRoomUsed(inputs Inputs) Inputs {
+	counts := map[string]int{}
+	for roomID, count := range inputs.MessageCounts {
+		counts[roomID] = count
+	}
+	for _, room := range inputs.Rooms {
+		if counts[room.RoomID] == 0 {
+			counts[room.RoomID] = 1
+		}
+	}
+	inputs.MessageCounts = counts
+	return inputs
+}
+
 func lowercaseFirstName(c candidateFacts) string {
 	first, _, _ := strings.Cut(c.DirectMessagePartner, " ")
 	return strings.ToLower(first)
@@ -137,7 +153,7 @@ func TestTheBusiestKatGetsTheBareNameAndTheNextIsRefusedForTheModelToTryAgain(t 
 		Rooms:         []Room{directMessage("!quiet:x", "Kim Moss"), directMessage("!busy:x", "Kim Park")},
 		MessageCounts: map[string]int{"!quiet:x": 5, "!busy:x": 90},
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +189,7 @@ func TestTheModelSeesEveryTakenPathSupersededOnesIncluded(t *testing.T) {
 		return "fake-model", nil
 	})
 	assigner := &Assigner{Store: store, Model: model, ModelRole: "balanced"}
-	result, err := assigner.Run(context.Background(), Inputs{Rooms: []Room{directMessage("!new:x", "Kim Moss")}}, false)
+	result, err := assigner.Run(context.Background(), everyRoomUsed(Inputs{Rooms: []Room{directMessage("!new:x", "Kim Moss")}}), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +206,7 @@ func TestANamedRoomIsNeverAskedAboutOrRenamed(t *testing.T) {
 		{ID: "short_name_000001", Path: "kim", EntityType: EntityTypeMultichatRoom, EntityID: "!kim:x"},
 	}}
 	model := &fakeModel{room: func(c candidateFacts) string { t.Errorf("asked about %s", c.EntityID); return "-" }}
-	result, err := newAssigner(t, store, model).Run(context.Background(), Inputs{Rooms: []Room{directMessage("!kim:x", "Kim Park")}}, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(Inputs{Rooms: []Room{directMessage("!kim:x", "Kim Park")}}), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +233,7 @@ func TestALinkIsOneCandidateUnderItsBusiestRoomWithTheCountsSummed(t *testing.T)
 		Links:         [][]string{{"!sms:x", "!wa:x"}},
 		MessageCounts: map[string]int{"!sms:x": 10, "!wa:x": 30},
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +255,7 @@ func TestALinkWithANamedRoomIsSkippedWhole(t *testing.T) {
 		Links:         [][]string{{"!sms:x", "!wa:x"}},
 		MessageCounts: map[string]int{"!wa:x": 30},
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +303,7 @@ func TestDiscordChannelsShareTheirServersShortName(t *testing.T) {
 		},
 		MessageCounts: map[string]int{"!events:x": 9, "!wrong:x": 8, "!pretend-general:x": 7},
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +336,7 @@ func TestAServerShortNameMustNotBeAnotherNamesFirstSegment(t *testing.T) {
 	model := &fakeModel{server: func(serverFacts) string { return "pretend" },
 		room: func(c candidateFacts) string { t.Errorf("asked about %s", c.EntityID); return "-" }}
 	inputs := Inputs{Rooms: []Room{discordChannel("!c:x", "pretend-id", "Pretend", "general")}}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +362,7 @@ func TestEveryProposalIsCheckedBeforeItIsWritten(t *testing.T) {
 	for roomID := range proposals {
 		rooms = append(rooms, directMessage(roomID, "Someone"))
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), Inputs{Rooms: rooms}, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(Inputs{Rooms: rooms}), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +395,7 @@ func TestADryRunWritesNothingAndStillRefusesDuplicates(t *testing.T) {
 	store := &fakeStore{namespace: messagesNamespace()}
 	model := &fakeModel{room: lowercaseFirstName}
 	inputs := Inputs{Rooms: []Room{directMessage("!a:x", "Kim A"), directMessage("!b:x", "Kim B")}, MessageCounts: map[string]int{"!a:x": 2, "!b:x": 1}}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, true)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +408,7 @@ func TestAConflictIsReportedAndTheRunGoesOn(t *testing.T) {
 	store := &fakeStore{namespace: messagesNamespace(), refuse: map[string]bool{"kim": true}}
 	model := &fakeModel{room: lowercaseFirstName}
 	inputs := Inputs{Rooms: []Room{directMessage("!a:x", "Kim A"), directMessage("!b:x", "Maria B")}, MessageCounts: map[string]int{"!a:x": 2}}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,9 +424,9 @@ func TestCandidatesGoToTheModelInBatchesInPopularityOrder(t *testing.T) {
 	for i := 0; i < BatchSize+5; i++ {
 		roomID := fmt.Sprintf("!room%02d:x", i)
 		inputs.Rooms = append(inputs.Rooms, directMessage(roomID, "Someone"))
-		inputs.MessageCounts[roomID] = i
+		inputs.MessageCounts[roomID] = i + 1
 	}
-	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, true)
+	result, err := newAssigner(t, store, model).Run(context.Background(), everyRoomUsed(inputs), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,15 +448,73 @@ func TestASecondRunWhileOneIsGoingIsRefused(t *testing.T) {
 	inputs := Inputs{Rooms: []Room{directMessage("!a:x", "Kim A")}}
 	done := make(chan error)
 	go func() {
-		_, err := assigner.Run(context.Background(), inputs, true)
+		_, err := assigner.Run(context.Background(), everyRoomUsed(inputs), true)
 		done <- err
 	}()
 	<-model.entered
-	if _, err := assigner.Run(context.Background(), inputs, true); err != ErrRunInProgress {
+	if _, err := assigner.Run(context.Background(), everyRoomUsed(inputs), true); err != ErrRunInProgress {
 		t.Fatalf("second run: %v, want ErrRunInProgress", err)
 	}
 	close(model.block)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestARoomWithNoLoggedMessageOrMarkedAsNoChatIsLeftUnnamed(t *testing.T) {
+	store := &fakeStore{namespace: messagesNamespace()}
+	model := &fakeModel{room: lowercaseFirstName}
+	status := directMessage("!status:x", "Status Broadcast")
+	status.ExcludedFromTimeline = true
+	inputs := Inputs{
+		Rooms: []Room{directMessage("!used:x", "Kim A"), directMessage("!unused:x", "Maria B"), status,
+			{RoomID: "!quiet-sms:x", Name: "Quiet", Platform: "gmessages", Kind: KindGroup},
+			{RoomID: "!quiet-wa:x", Name: "Quiet", Platform: "whatsapp", Kind: KindGroup}},
+		Links:         [][]string{{"!quiet-sms:x", "!quiet-wa:x"}},
+		MessageCounts: map[string]int{"!used:x": 3, "!status:x": 41},
+	}
+	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Named) != 1 || result.Named[0].EntityID != "!used:x" {
+		t.Fatalf("named %+v", result.Named)
+	}
+	if result.SkippedWithoutMessages != 2 || result.SkippedNotChats != 1 || result.SkippedCount != 3 {
+		t.Errorf("skipped without messages %d, not chats %d, total %d; want 2 (a room and a link), 1 and 3",
+			result.SkippedWithoutMessages, result.SkippedNotChats, result.SkippedCount)
+	}
+	if len(model.roomCalls) != 1 || len(model.roomCalls[0]) != 1 {
+		t.Errorf("the model was asked about %v, want only !used:x", model.roomCalls)
+	}
+}
+
+func TestAGroupMayNotTakeAFirstNameThatADirectMessageCouldUse(t *testing.T) {
+	store := &fakeStore{namespace: messagesNamespace()}
+	model := &fakeModel{room: func(c candidateFacts) string {
+		if c.EntityID == "!group:x" {
+			return "mara"
+		}
+		return "-"
+	}}
+	inputs := Inputs{
+		Rooms:         []Room{{RoomID: "!group:x", Name: "Mara", Platform: "gmessages", Kind: KindGroup, MemberCount: 3}, directMessage("!dm:x", "Mara Rowan")},
+		MessageCounts: map[string]int{"!group:x": 5, "!dm:x": 1},
+	}
+	result, err := newAssigner(t, store, model).Run(context.Background(), inputs, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Named) != 0 {
+		t.Fatalf("a group took a first name: %+v", result.Named)
+	}
+	var groupRefusal Refusal
+	for _, refusal := range result.Refused {
+		if refusal.EntityID == "!group:x" {
+			groupRefusal = refusal
+		}
+	}
+	if !strings.Contains(groupRefusal.Why, "kept for a direct message") {
+		t.Errorf("group refusal = %+v", groupRefusal)
 	}
 }
