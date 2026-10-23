@@ -6,7 +6,7 @@
 //	<out>/<server id>/images/…             each image attachment, with -images
 //	<out>/<server id>/images.jsonl         which message each image came from
 //
-// A channel whose history is complete gets <channel id>.done and is skipped on
+// -channel limits the fetch to named channel ids. A channel whose history is complete gets <channel id>.done and is skipped on
 // the next run. The account's login is read from the bridge database, held in
 // memory, and sent only to discord.com.
 //
@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +46,8 @@ func main() {
 	discordDatabasePath := flag.String("discord-db", "", "the mautrix-discord bridge database (the unit's DISCORD_DB)")
 	var servers serverList
 	flag.Var(&servers, "server", "a bridged Discord server id; repeat for more")
+	var onlyChannels serverList
+	flag.Var(&onlyChannels, "channel", "fetch only this channel id of the servers; repeat for more (default: every text channel)")
 	out := flag.String("out", "", "where to write the history")
 	pause := flag.Duration("pause", 3*time.Second, "wait before every request to Discord")
 	images := flag.Bool("images", false, "also save each image attachment")
@@ -68,13 +71,13 @@ func main() {
 	fetcher := &discordhistory.Fetcher{APIBaseURL: discordemoji.DiscordAPIBaseURL, Token: token,
 		Client: &http.Client{Timeout: time.Minute}, Pause: *pause, MaximumRateLimitWaits: 10}
 	for _, server := range servers {
-		if err := fetchServer(bridgeDatabase, fetcher, server, *out, *images); err != nil {
+		if err := fetchServer(bridgeDatabase, fetcher, server, *out, *images, onlyChannels); err != nil {
 			log.Fatalf("server %s: %v", server, err)
 		}
 	}
 }
 
-func fetchServer(bridgeDatabase *sql.DB, fetcher *discordhistory.Fetcher, server, out string, images bool) error {
+func fetchServer(bridgeDatabase *sql.DB, fetcher *discordhistory.Fetcher, server, out string, images bool, onlyChannels []string) error {
 	rows, err := bridgeDatabase.Query(`SELECT dcid, name FROM portal WHERE dc_guild_id = ? AND type IN (0, 5) ORDER BY name`, server)
 	if err != nil {
 		return err
@@ -87,11 +90,14 @@ func fetchServer(bridgeDatabase *sql.DB, fetcher *discordhistory.Fetcher, server
 			rows.Close()
 			return err
 		}
+		if len(onlyChannels) > 0 && !slices.Contains(onlyChannels, c.id) {
+			continue
+		}
 		channels = append(channels, c)
 	}
 	rows.Close()
 	if len(channels) == 0 {
-		return fmt.Errorf("the bridge has no text channels for this server; bridge it first (guilds bridge %s --entire)", server)
+		return fmt.Errorf("the bridge has no matching text channels for this server; bridge it first (guilds bridge %s --entire), and check -channel", server)
 	}
 	directory := filepath.Join(out, server)
 	if err := os.MkdirAll(filepath.Join(directory, "images"), 0o700); err != nil {
