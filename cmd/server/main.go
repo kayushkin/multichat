@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,7 +220,7 @@ func main() {
 
 	http.Handle("/api/", http.StripPrefix("/api", router))
 
-	addr := fmt.Sprintf(":%d", loaded.ListenPort)
+	addr := net.JoinHostPort(loaded.ListenHost, strconv.Itoa(loaded.ListenPort))
 	fmt.Printf("MultiChat server listening on %s\n", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)

@@ -31,6 +31,7 @@ const ServiceName = "multichat"
 // MULTICHAT_URL is not. PORT, NATS_URL, LLM_BRIDGE_URL and the API keys are
 // declared and not owned: other services read the same names.
 var OwnedEnvironmentVariablePrefixes = []string{
+	"MULTICHAT_LISTEN",
 	"MULTICHAT_DB",
 	"MULTICHAT_TOKEN",
 	"SYNAPSE_URL",
@@ -47,6 +48,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 
 // Keys of the server's settings, as GET /api/settings names them.
 const (
+	SettingListenHost                       = "listen_host"
 	SettingListenPort                       = "listen_port"
 	SettingDatabasePath                     = "database_path"
 	SettingAPIToken                         = "api_token"
@@ -75,6 +77,9 @@ const (
 // absolute database path; these defaults exist so a bare run from the checkout
 // behaves as it always did.
 const (
+	// DefaultListenHost is loopback: nginx, dash's /api/multichat proxy and
+	// every MULTICHAT_URL reach it on this host.
+	DefaultListenHost   = "127.0.0.1"
 	DefaultListenPort   = 8402
 	DefaultDatabasePath = "multichat.db"
 	// DefaultShortNamerModelRole is model-store's "balanced" role. Naming a
@@ -92,8 +97,10 @@ const (
 // parse, so a secret of any other type could reach a log through its own error.
 func SettingDefinitions() []servicesettings.Definition {
 	return []servicesettings.Definition{
+		{Key: SettingListenHost, EnvironmentVariable: "MULTICHAT_LISTEN_HOST", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultListenHost,
+			Description: "The interface the HTTP server listens on. The default is loopback, because nginx, dash and every MULTICHAT_URL are on this host; an empty value or 0.0.0.0 listens on every interface."},
 		{Key: SettingListenPort, EnvironmentVariable: "PORT", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeInteger, Default: fmt.Sprint(DefaultListenPort),
-			Description: "The port the HTTP server listens on, on every interface. Changing it moves the service: nginx's chat.kayushkin.com vhost, dash's /api/multichat proxy and every MULTICHAT_URL must be told the new address."},
+			Description: "The port the HTTP server listens on, on the interface MULTICHAT_LISTEN_HOST names. Changing it moves the service: nginx's chat.kayushkin.com vhost, dash's /api/multichat proxy and every MULTICHAT_URL must be told the new address."},
 		{Key: SettingDatabasePath, EnvironmentVariable: "MULTICHAT_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultDatabasePath,
 			Description: "The SQLite file that holds contacts, tags, loads, inbound rules and dispatches. The default is relative to the working directory, so the unit pins it absolutely. Changing it starts the service on whatever database is there, or a new empty one that answers every route as if nothing were lost."},
 		{Key: SettingAPIToken, EnvironmentVariable: "MULTICHAT_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
@@ -148,6 +155,7 @@ func NewSettingsRegistry(environment servicesettings.Environment) (*servicesetti
 
 // Config is what the server starts with.
 type Config struct {
+	ListenHost   string
 	ListenPort   int
 	DatabasePath string
 
@@ -197,6 +205,7 @@ func (c Config) MatrixConfigured() bool {
 // An error names the variable and never its value.
 func Load(registry *servicesettings.Registry) (Config, error) {
 	loaded := Config{
+		ListenHost:                       registry.String(SettingListenHost),
 		ListenPort:                       registry.Integer(SettingListenPort),
 		DatabasePath:                     registry.String(SettingDatabasePath),
 		APIToken:                         registry.String(SettingAPIToken),

@@ -38,12 +38,13 @@ func mustLoadFrom(t *testing.T, variables map[string]string) Config {
 // The registry gives the server what os.Getenv gave it before 2026-09-21: the
 // same defaults with nothing set, and the operator's values when they are.
 func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
-	want := Config{ListenPort: 8402, DatabasePath: "multichat.db", ShortNamerModelRole: "balanced"}
+	want := Config{ListenHost: "127.0.0.1", ListenPort: 8402, DatabasePath: "multichat.db", ShortNamerModelRole: "balanced"}
 	if got := mustLoadFrom(t, nil); got != want {
 		t.Errorf("Load with nothing set = %+v, want %+v", got, want)
 	}
 
 	want = Config{
+		ListenHost:                       "192.0.2.1",
 		ListenPort:                       9402,
 		DatabasePath:                     "/srv/multichat.db",
 		APIToken:                         "an-api-token",
@@ -68,6 +69,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		ShortNamerModelRole:              "efficient",
 	}
 	got := mustLoadFrom(t, map[string]string{
+		"MULTICHAT_LISTEN_HOST":           "192.0.2.1",
 		"PORT":                            "9402",
 		"MULTICHAT_DB":                    "/srv/multichat.db",
 		"MULTICHAT_TOKEN":                 "an-api-token",
@@ -106,7 +108,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 22; got != want {
+	if got, want := len(SettingDefinitions()), 23; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }
