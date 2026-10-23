@@ -6,6 +6,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -90,4 +92,45 @@ func MessageCountsByRoom(database *sql.DB) (map[string]int, error) {
 		counts[roomID] = count
 	}
 	return counts, rows.Err()
+}
+
+// messageRefPrefix starts every message ref. The six-digit floor keeps a ref
+// apart from a bare number and matches kanban-store's `message_\d{6,}`.
+const messageRefPrefix = "message_"
+
+// MessageRef renders a message log row id as the ref other stores cite.
+func MessageRef(id int64) string { return fmt.Sprintf("%s%06d", messageRefPrefix, id) }
+
+// ParseMessageRef reads a ref back to a row id. It refuses anything that
+// MessageRef would not have written.
+func ParseMessageRef(ref string) (int64, bool) {
+	digits, found := strings.CutPrefix(ref, messageRefPrefix)
+	if !found || len(digits) < 6 {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || id <= 0 || MessageRef(id) != ref {
+		return 0, false
+	}
+	return id, true
+}
+
+// GetLoggedMessage reads one row of the message log by its id.
+func GetLoggedMessage(database *sql.DB, id int64) (LoggedMessage, error) {
+	rows, err := database.Query(`SELECT `+loggedMessageColumns+` FROM message_log WHERE id = ?`, id)
+	if err != nil {
+		return LoggedMessage{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return LoggedMessage{}, err
+		}
+		return LoggedMessage{}, sql.ErrNoRows
+	}
+	message, err := scanLoggedMessage(rows)
+	if err != nil {
+		return LoggedMessage{}, err
+	}
+	return message, rows.Err()
 }

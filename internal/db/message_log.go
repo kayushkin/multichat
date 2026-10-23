@@ -87,7 +87,12 @@ func createMessageLogSchema(database *sql.DB) error {
 type LoggedMessage struct {
 	// ID is the log's own row id: the stable key of a row. EventID is ""
 	// for archive rows.
-	ID                 int64  `json:"id"`
+	ID int64 `json:"id"`
+	// Ref is ID as other stores cite it: message_000123. GET
+	// /message-log/{ref} answers the row, and kanban-store's entity-type
+	// registry claims the pattern, so a ref in a journal entry or a chat is a
+	// chip.
+	Ref                string `json:"ref"`
 	EventID            string `json:"event_id"`
 	Source             string `json:"source"`
 	DiscordMessageID   string `json:"discord_message_id"`
@@ -250,6 +255,7 @@ func scanLoggedMessage(rows *sql.Rows) (LoggedMessage, error) {
 		&m.RedactionEventID, &m.RedactedByUserID); err != nil {
 		return LoggedMessage{}, fmt.Errorf("scan message log: %w", err)
 	}
+	m.Ref = MessageRef(m.ID)
 	m.EventID = eventID.String
 	m.DiscordMessageID = discordMessageID.String
 	if redactedAt.Valid {

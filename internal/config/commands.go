@@ -90,3 +90,31 @@ func ReactionBackfillCommandSettingDefinitions() []servicesettings.Definition {
 func NewReactionBackfillCommandSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
 	return servicesettings.New(ReactionBackfillCommandName, nil, ReactionBackfillCommandSettingDefinitions(), environment)
 }
+
+// RoomBackfillCommandName is multichat-backfill-room's name in its settings
+// errors.
+const RoomBackfillCommandName = "multichat-backfill-room"
+
+// Keys of multichat-backfill-room's settings.
+const (
+	RoomBackfillSettingSynapseURL  = "synapse_url"
+	RoomBackfillSettingMatrixToken = "matrix_token"
+)
+
+// RoomBackfillCommandSettingDefinitions declares every environment variable
+// multichat-backfill-room reads: the server's Synapse address and token, from
+// the server's environment file. The database and rooms are flags.
+func RoomBackfillCommandSettingDefinitions() []servicesettings.Definition {
+	return []servicesettings.Definition{
+		{Key: RoomBackfillSettingSynapseURL, EnvironmentVariable: "SYNAPSE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString, Required: true,
+			Description: "The Synapse homeserver the rooms' history is read from."},
+		{Key: RoomBackfillSettingMatrixToken, EnvironmentVariable: "MATRIX_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString, Required: true,
+			Description: "The access token of the Matrix account multichat reads as (@admin)."},
+	}
+}
+
+// NewRoomBackfillCommandSettingsRegistry reads the command's settings from
+// environment. It owns no prefix, so only CheckRequired can refuse.
+func NewRoomBackfillCommandSettingsRegistry(environment servicesettings.Environment) (*servicesettings.Registry, error) {
+	return servicesettings.New(RoomBackfillCommandName, nil, RoomBackfillCommandSettingDefinitions(), environment)
+}

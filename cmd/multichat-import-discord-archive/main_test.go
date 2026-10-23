@@ -72,7 +72,7 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 	if oldest.ID >= newest.ID {
 		t.Errorf("ids should follow send order: %d then %d", oldest.ID, newest.ID)
 	}
-	want := db.LoggedMessage{ID: newest.ID, DiscordMessageID: "2", Source: db.MessageLogSourceDiscordArchive,
+	want := db.LoggedMessage{ID: newest.ID, Ref: db.MessageRef(newest.ID), DiscordMessageID: "2", Source: db.MessageLogSourceDiscordArchive,
 		RoomID: "!general:chat.example", RoomName: "#general", Platform: "discord", NetworkID: "500",
 		NetworkName: "Riverside social", ChannelID: "600", ChannelName: "#general",
 		SenderUserID: "@discord_12:chat.example", SenderDisplayName: "Arrow", Body: "hi <:this:899>",

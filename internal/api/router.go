@@ -200,6 +200,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
 	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
+	r.mux.HandleFunc("/message-log/", r.loggedMessageHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
 	r.mux.HandleFunc("/emoji", r.emojiHandler)
 	r.mux.HandleFunc("/emoji/discord/refresh", r.refreshDiscordEmojiHandler)

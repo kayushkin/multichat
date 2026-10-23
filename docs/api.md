@@ -653,6 +653,12 @@ A Discord sticker is a row with `message_type` `m.sticker`, `body` the sticker's
 
 `cmd/multichat-import-discord-archive -db … -discord-db … -archive file.jsonl` adds a Discord history fetch (one raw Discord API message object per line) as archive rows: only messages sent before `message_log_started_at`, so nothing overlaps the live log, and a second run inserts nothing. The room, server and channel come from the bridge database's `portal` and `guild` rows for the message's `channel_id`; the sender is the bridge puppet `@discord_<author.id>:<homeserver>`, named `author.global_name`, else `author.username`. `channel_external_url` and `message_type` are "" on archive rows.
 
+### GET /message-log/{ref}
+
+One logged message by its `ref`, `message_` and the row id in at least six digits (`message_026563`), which every message in `GET /message-log` carries. It answers the same `MessageLogPage` as the list, with one message, its edits and its current reactions. A ref in any other shape is a 400 and an unknown one a 404. This is the route kanban-store's entity type `message` points at, so a `message_…` ref in a journal entry, a timeline or a chat is a chip.
+
+`cmd/multichat-backfill-room -db … -room '!…' [-room '!…']` logs the whole history Synapse holds for each room, through the sync worker's `logEvent`, so every message there gets a row and a ref, including messages from before `message_log_started_at`. It skips `com.beeper.message_send_status` events, whose replay would count an auto-reaction's failure twice. Running it again adds nothing. It reads `SYNAPSE_URL` and `MATRIX_TOKEN` from the server's environment file.
+
 ### GET /discord/status
 
 What the Discord bridge is doing, read-only: it reads the mautrix-discord database at `DISCORD_DB` (opened `?mode=ro`), Synapse's `joined_rooms` for `@admin`, and the message log. It never calls Discord and never reads the Discord token — `logged_in` is a SQL `discord_token IS NOT NULL`.

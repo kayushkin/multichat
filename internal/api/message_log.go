@@ -1,14 +1,62 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
+
+// loggedMessageHandler serves GET /message-log/{ref}: one logged message by
+// its ref (message_000123), with its edits and current reactions. This is the
+// route a message chip resolves through.
+func (r *Router) loggedMessageHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != "GET" {
+		r.writeError(w, 405, "Method not allowed")
+		return
+	}
+	ref := strings.TrimPrefix(req.URL.Path, "/message-log/")
+	id, ok := db.ParseMessageRef(ref)
+	if !ok {
+		r.writeError(w, 400, "a message ref is message_ and at least six digits, as GET /message-log answers in ref")
+		return
+	}
+	message, err := db.GetLoggedMessage(r.db, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		r.writeError(w, 404, "no logged message "+ref)
+		return
+	}
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	// An archive row has no event id, and EditsOf of "" would be every row
+	// that edits nothing.
+	edits := map[string][]db.LoggedMessage{}
+	if message.EventID != "" {
+		if edits, err = db.EditsOf(r.db, []string{message.EventID}); err != nil {
+			r.writeError(w, 500, err.Error())
+			return
+		}
+	}
+	own, err := r.ownSenders()
+	if err != nil {
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	reactions, err := db.MessageLogReactions(r.db, []db.LoggedMessage{message}, own)
+	if err != nil {
+		r.writeError(w, 500, err.Error())
+		return
+	}
+	r.writeJSON(w, db.MessageLogPage{Messages: []db.LoggedMessage{message}, Edits: edits, Reactions: reactions})
+}
 
 // maxMessageLogLimit caps one page of the message log; older pages are read
 // with before=.
