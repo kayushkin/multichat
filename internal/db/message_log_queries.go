@@ -134,3 +134,23 @@ func GetLoggedMessage(database *sql.DB, id int64) (LoggedMessage, error) {
 	}
 	return message, rows.Err()
 }
+
+// EarliestLiveMessageInRoom is when the first message the live sync logged in
+// a room was sent, and false when it has logged none there. An archive import
+// keeps only what came before it, so a room bridged after the log began keeps
+// the history between the two.
+func EarliestLiveMessageInRoom(database *sql.DB, roomID string) (time.Time, bool, error) {
+	var earliest sql.NullString
+	if err := database.QueryRow(`SELECT MIN(sent_at) FROM message_log WHERE room_id = ? AND source = ?`,
+		roomID, MessageLogSourceMatrix).Scan(&earliest); err != nil {
+		return time.Time{}, false, err
+	}
+	if !earliest.Valid {
+		return time.Time{}, false, nil
+	}
+	parsed, err := parseStoredTime(earliest.String)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return parsed, true, nil
+}

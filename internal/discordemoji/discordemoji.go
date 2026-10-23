@@ -445,3 +445,11 @@ func readDiscordLogin(bridgeDatabase *sql.DB) (discordLogin, error) {
 	}
 	return logins[0], nil
 }
+
+// ReadDiscordLogin reads the bridge's one logged-in Discord account: its user
+// id and its login. The login must be held in memory only, for the calls that
+// need it, and never logged, stored or answered.
+func ReadDiscordLogin(bridgeDatabase *sql.DB) (userID, token string, err error) {
+	login, err := readDiscordLogin(bridgeDatabase)
+	return login.discordUserID, login.token, err
+}

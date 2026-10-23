@@ -41,6 +41,13 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 	if _, err := database.Exec(`INSERT INTO matrix_sync_state (key, value) VALUES ('message_log_started_at', '2026-09-28T17:15:17.945511378Z')`); err != nil {
 		t.Fatal(err)
 	}
+	// The live sync has logged the room from 17:15:17; the archive keeps only
+	// what came before.
+	if err := db.LogMessage(database, db.LoggedMessage{EventID: "$live", RoomID: "!general:chat.example", Platform: "discord",
+		SenderUserID: "@discord_11:chat.example", Body: "the first live message",
+		SentAt: time.Date(2026, 9, 28, 17, 15, 17, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
 	archive := filepath.Join(directory, "archive.jsonl")
 	lines := []string{ // newest first, as a history fetch lists them
 		`{"id":"3","channel_id":"600","content":"after the live log began","timestamp":"2026-09-28T17:20:00+00:00","author":{"id":"11","username":"late","global_name":null}}`,
@@ -64,7 +71,16 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 		t.Fatalf("second run = %+v, %v", again, err)
 	}
 
-	messages, err := db.ListLoggedMessages(database, db.MessageLogFilter{Limit: 10})
+	messages, err := db.ListLoggedMessages(database, db.MessageLogFilter{RoomID: "!general:chat.example", Limit: 10})
+	if err == nil {
+		kept := messages[:0]
+		for _, m := range messages {
+			if m.Source == db.MessageLogSourceDiscordArchive {
+				kept = append(kept, m)
+			}
+		}
+		messages = kept
+	}
 	if err != nil || len(messages) != 2 {
 		t.Fatalf("messages = %+v, %v", messages, err)
 	}
@@ -83,5 +99,36 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 	}
 	if oldest.SenderDisplayName != "joiner" {
 		t.Errorf("an empty global_name falls to the username: %+v", oldest)
+	}
+}
+
+// A server bridged after the log began has no live rows in its rooms, so the
+// whole fetch is kept, the weeks after message_log_started_at included.
+func TestARoomTheLiveLogNeverSawKeepsItsWholeHistory(t *testing.T) {
+	directory := t.TempDir()
+	bridge, err := sql.Open("sqlite3", filepath.Join(directory, "bridge.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bridge.Exec(bridgeSchema); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Initialize(filepath.Join(directory, "multichat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`INSERT INTO matrix_sync_state (key, value) VALUES ('message_log_started_at', '2026-09-28T17:15:17.945511378Z')`); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(directory, "archive.jsonl")
+	lines := `{"id":"9","channel_id":"600","content":"long after the log began","timestamp":"2026-10-20T10:00:00+00:00","author":{"id":"11","username":"a","global_name":null}}
+{"id":"8","channel_id":"600","content":"years before","timestamp":"2019-01-01T10:00:00+00:00","author":{"id":"12","username":"b","global_name":null}}
+`
+	if err := os.WriteFile(archive, []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := importArchive(database, bridge, archive)
+	if err != nil || result != (importResult{Read: 2, Inserted: 2}) {
+		t.Fatalf("import = %+v, %v; want both kept", result, err)
 	}
 }

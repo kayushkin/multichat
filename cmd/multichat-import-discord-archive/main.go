@@ -3,11 +3,13 @@
 // live sync began.
 //
 // The input is JSONL: one raw Discord API message object per line. Each
-// message sent before message_log_started_at becomes a row with source
-// "discord-archive", its Discord message id, body = the Discord content
-// (format "discord-markdown") and content_json = the whole Discord object.
-// Messages from that moment on are skipped, because the live log already
-// has them. Running it twice inserts nothing the second time.
+// message sent before the first message the live sync logged in its room
+// becomes a row with source "discord-archive", its Discord message id, body =
+// the Discord content (format "discord-markdown") and content_json = the whole
+// Discord object. Messages from that moment on are skipped, because the live
+// log already has them; in a room the live log has nothing from (a server
+// bridged since), every message is kept. Running it twice inserts nothing the
+// second time.
 //
 // The Matrix room, server and channel come from the mautrix-discord bridge
 // database, looked up by the Discord channel id.
@@ -95,10 +97,12 @@ type importResult struct {
 
 func importArchive(database, bridgeDatabase *sql.DB, archivePath string) (importResult, error) {
 	var result importResult
-	liveLogStartedAt, err := db.RecordedMessageLogStartedAt(database)
-	if err != nil {
-		return result, err
+	// Each room's cutoff: when its first live-logged message was sent.
+	type cutoff struct {
+		at    time.Time
+		known bool
 	}
+	cutoffs := map[string]cutoff{}
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return result, err
@@ -129,7 +133,16 @@ func importArchive(database, bridgeDatabase *sql.DB, archivePath string) (import
 		if err != nil {
 			return result, fmt.Errorf("line %d (message %s): %w", line, message.ID, err)
 		}
-		if !row.SentAt.Before(liveLogStartedAt) {
+		roomCutoff, seen := cutoffs[row.RoomID]
+		if !seen {
+			at, known, err := db.EarliestLiveMessageInRoom(database, row.RoomID)
+			if err != nil {
+				return result, err
+			}
+			roomCutoff = cutoff{at, known}
+			cutoffs[row.RoomID] = roomCutoff
+		}
+		if roomCutoff.known && !row.SentAt.Before(roomCutoff.at) {
 			result.AfterLiveLog++
 			continue
 		}
