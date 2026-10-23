@@ -37,6 +37,7 @@ var OwnedEnvironmentVariablePrefixes = []string{
 	"SYNAPSE_URL",
 	"MATRIX_TOKEN",
 	"TELEGRAM_DB",
+	"TELEGRAM_SELF_USER_ID",
 	"META_DB",
 	"DISCORD_DB",
 	"WHATSAPP_DB",
@@ -55,6 +56,7 @@ const (
 	SettingSynapseURL                       = "synapse_url"
 	SettingMatrixToken                      = "matrix_token"
 	SettingTelegramBridgeDatabasePath       = "telegram_bridge_database_path"
+	SettingTelegramSelfUserID               = "telegram_self_user_id"
 	SettingMetaBridgeDatabasePath           = "meta_bridge_database_path"
 	SettingDiscordBridgeDatabasePath        = "discord_bridge_database_path"
 	SettingWhatsAppBridgeDatabasePath       = "whatsapp_bridge_database_path"
@@ -110,7 +112,9 @@ func SettingDefinitions() []servicesettings.Definition {
 		{Key: SettingMatrixToken, EnvironmentVariable: "MATRIX_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The Matrix access token the service reads and sends as. Changing it changes who every message is sent from."},
 		{Key: SettingTelegramBridgeDatabasePath, EnvironmentVariable: "TELEGRAM_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "The mautrix-telegram bridge's SQLite file, opened read-only for phone-number lookups and to find our own Telegram puppet. Unset leaves both out."},
+			Description: "The mautrix-telegram bridge's SQLite file, opened read-only for phone-number lookups. Unset leaves them out."},
+		{Key: SettingTelegramSelfUserID, EnvironmentVariable: "TELEGRAM_SELF_USER_ID", Kind: msg.ServiceSettingKindBehaviour, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Our own numeric Telegram user id, so our Telegram puppet counts as us and not as someone we talk to. The bridge database does not record which puppet is the logged-in user. Unset leaves our Telegram puppet looking like another person."},
 		{Key: SettingMetaBridgeDatabasePath, EnvironmentVariable: "META_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
 		{Key: SettingDiscordBridgeDatabasePath, EnvironmentVariable: "DISCORD_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
@@ -167,6 +171,7 @@ type Config struct {
 	MatrixToken string
 
 	TelegramBridgeDatabasePath       string
+	TelegramSelfUserID               string
 	MetaBridgeDatabasePath           string
 	DiscordBridgeDatabasePath        string
 	WhatsAppBridgeDatabasePath       string
@@ -212,6 +217,7 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		SynapseURL:                       registry.String(SettingSynapseURL),
 		MatrixToken:                      registry.String(SettingMatrixToken),
 		TelegramBridgeDatabasePath:       registry.String(SettingTelegramBridgeDatabasePath),
+		TelegramSelfUserID:               registry.String(SettingTelegramSelfUserID),
 		MetaBridgeDatabasePath:           registry.String(SettingMetaBridgeDatabasePath),
 		DiscordBridgeDatabasePath:        registry.String(SettingDiscordBridgeDatabasePath),
 		WhatsAppBridgeDatabasePath:       registry.String(SettingWhatsAppBridgeDatabasePath),

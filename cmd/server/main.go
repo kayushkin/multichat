@@ -74,43 +74,66 @@ func main() {
 	// Build self-identity map from bridge DBs
 	matrix.SelfUserIDs["@admin:chat.kayushkin.com"] = true
 	serverName := "chat.kayushkin.com"
-	// Telegram bridge — get own puppet ID
-	if tgDBPath != "" {
-		if tgDB, err := sql.Open("sqlite3", tgDBPath+"?mode=ro"); err == nil {
-			var tgID int64
-			tgDB.QueryRow("SELECT id FROM puppet WHERE displayname LIKE '%Slava%' LIMIT 1").Scan(&tgID)
-			if tgID != 0 {
-				matrix.SelfUserIDs[fmt.Sprintf("@telegram_%d:%s", tgID, serverName)] = true
-			}
-			tgDB.Close()
-		}
+	// Telegram — the bridge does not record which puppet is us, so the id is a setting.
+	if loaded.TelegramSelfUserID != "" {
+		matrix.SelfUserIDs[fmt.Sprintf("@telegram_%s:%s", loaded.TelegramSelfUserID, serverName)] = true
 	}
-	// WhatsApp — phone number is the ID
-	matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_15550100001:%s", serverName)] = true
-	// WhatsApp now names people by LID, us included; the bridge's whatsmeow
-	// device row holds ours as "<lid>:<device>@lid".
+	// WhatsApp names people by phone number or by LID, us included; the bridge's
+	// whatsmeow device row holds ours as "<number>:<device>@s.whatsapp.net" and
+	// "<lid>:<device>@lid".
 	if whatsAppDBPath := loaded.WhatsAppBridgeDatabasePath; whatsAppDBPath != "" {
 		whatsAppDB, err := sql.Open("sqlite3", "file:"+whatsAppDBPath+"?mode=ro")
 		if err != nil {
 			log.Fatalf("open WHATSAPP_DB %s: %v", whatsAppDBPath, err)
 		}
-		rows, err := whatsAppDB.Query(`SELECT lid FROM whatsmeow_device WHERE lid IS NOT NULL AND lid != ''`)
+		rows, err := whatsAppDB.Query(`SELECT jid, COALESCE(lid, '') FROM whatsmeow_device`)
 		if err != nil {
-			log.Fatalf("read own WhatsApp LID from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
+			log.Fatalf("read own WhatsApp ids from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
 		}
 		for rows.Next() {
-			var deviceLID string
-			if err := rows.Scan(&deviceLID); err != nil {
-				log.Fatalf("read own WhatsApp LID from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
+			var deviceJID, deviceLID string
+			if err := rows.Scan(&deviceJID, &deviceLID); err != nil {
+				log.Fatalf("read own WhatsApp ids from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
 			}
-			lid, _, _ := strings.Cut(strings.TrimSuffix(deviceLID, "@lid"), ":")
-			matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_lid-%s:%s", lid, serverName)] = true
+			phoneNumber, _, _ := strings.Cut(strings.TrimSuffix(deviceJID, "@s.whatsapp.net"), ":")
+			matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_%s:%s", phoneNumber, serverName)] = true
+			if deviceLID != "" {
+				lid, _, _ := strings.Cut(strings.TrimSuffix(deviceLID, "@lid"), ":")
+				matrix.SelfUserIDs[fmt.Sprintf("@whatsapp_lid-%s:%s", lid, serverName)] = true
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Fatalf("read own WhatsApp ids from WHATSAPP_DB %s: %v", whatsAppDBPath, err)
 		}
 		rows.Close()
 		whatsAppDB.Close()
 	}
-	// Signal
-	matrix.SelfUserIDs[fmt.Sprintf("@signal_15550100001:%s", serverName)] = true
+	// Signal — the bridge names us by our account uuid, and older puppets by phone number.
+	if signalDBPath := loaded.SignalBridgeDatabasePath; signalDBPath != "" {
+		signalDB, err := sql.Open("sqlite3", "file:"+signalDBPath+"?mode=ro")
+		if err != nil {
+			log.Fatalf("open SIGNAL_DB %s: %v", signalDBPath, err)
+		}
+		rows, err := signalDB.Query(`SELECT id, remote_name FROM user_login`)
+		if err != nil {
+			log.Fatalf("read own Signal ids from SIGNAL_DB %s: %v", signalDBPath, err)
+		}
+		for rows.Next() {
+			var accountID, phoneNumber string
+			if err := rows.Scan(&accountID, &phoneNumber); err != nil {
+				log.Fatalf("read own Signal ids from SIGNAL_DB %s: %v", signalDBPath, err)
+			}
+			matrix.SelfUserIDs[fmt.Sprintf("@signal_%s:%s", accountID, serverName)] = true
+			if phoneNumber != "" {
+				matrix.SelfUserIDs[fmt.Sprintf("@signal_%s:%s", strings.TrimPrefix(phoneNumber, "+"), serverName)] = true
+			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Fatalf("read own Signal ids from SIGNAL_DB %s: %v", signalDBPath, err)
+		}
+		rows.Close()
+		signalDB.Close()
+	}
 	// Meta — login IDs from bridge DB
 	if metaDBPath != "" {
 		if metaDB, err := sql.Open("sqlite3", metaDBPath+"?mode=ro"); err == nil {

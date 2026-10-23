@@ -51,6 +51,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		SynapseURL:                       "http://synapse.example:1",
 		MatrixToken:                      "a-matrix-token",
 		TelegramBridgeDatabasePath:       "/srv/telegram.db",
+		TelegramSelfUserID:               "1000000001",
 		MetaBridgeDatabasePath:           "/srv/meta.db",
 		DiscordBridgeDatabasePath:        "/srv/discord.db",
 		WhatsAppBridgeDatabasePath:       "/srv/whatsapp.db",
@@ -76,6 +77,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"SYNAPSE_URL":                     "http://synapse.example:1",
 		"MATRIX_TOKEN":                    "a-matrix-token",
 		"TELEGRAM_DB":                     "/srv/telegram.db",
+		"TELEGRAM_SELF_USER_ID":           "1000000001",
 		"META_DB":                         "/srv/meta.db",
 		"DISCORD_DB":                      "/srv/discord.db",
 		"WHATSAPP_DB":                     "/srv/whatsapp.db",
@@ -108,7 +110,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 23; got != want {
+	if got, want := len(SettingDefinitions()), 24; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }
@@ -296,8 +298,7 @@ func TestEveryEnvironmentVariableTheCodeReadsIsDeclared(t *testing.T) {
 	const repositoryRoot = "../.."
 
 	filesRead := 0
-	// Only cmd/ and internal/: the root also holds untracked build output and
-	// .openclaw/, whose Go is not this module's.
+	// Only cmd/ and internal/: the root also holds untracked build output.
 	for _, top := range []string{"cmd", "internal"} {
 		err := filepath.WalkDir(filepath.Join(repositoryRoot, top), func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
