@@ -6,6 +6,10 @@
 //	<out>/<server id>/images/…             each image attachment, with -images
 //	<out>/<server id>/images.jsonl         which message each image came from
 //
+// -direct-message fetches a DM or group DM the account is in, by channel id,
+// into <out>/direct-messages/<channel id>.jsonl (and its images beside it);
+// it needs no server and no bridged room.
+//
 // -channel limits the fetch to named channel ids. A channel whose history is complete gets <channel id>.done and is skipped on
 // the next run. The account's login is read from the bridge database, held in
 // memory, and sent only to discord.com.
@@ -35,24 +39,26 @@ import (
 	"github.com/kayushkin/multichat/internal/discordhistory"
 )
 
-type serverList []string
+type discordIDList []string
 
-func (s *serverList) String() string      { return strings.Join(*s, ",") }
-func (s *serverList) Set(id string) error { *s = append(*s, id); return nil }
+func (s *discordIDList) String() string      { return strings.Join(*s, ",") }
+func (s *discordIDList) Set(id string) error { *s = append(*s, id); return nil }
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
 func main() {
 	discordDatabasePath := flag.String("discord-db", "", "the mautrix-discord bridge database (the unit's DISCORD_DB)")
-	var servers serverList
+	var servers discordIDList
 	flag.Var(&servers, "server", "a bridged Discord server id; repeat for more")
-	var onlyChannels serverList
+	var onlyChannels discordIDList
+	var directMessages discordIDList
+	flag.Var(&directMessages, "direct-message", "a DM or group DM channel id to fetch; repeat for more")
 	flag.Var(&onlyChannels, "channel", "fetch only this channel id of the servers; repeat for more (default: every text channel)")
 	out := flag.String("out", "", "where to write the history")
 	pause := flag.Duration("pause", 3*time.Second, "wait before every request to Discord")
 	images := flag.Bool("images", false, "also save each image attachment")
 	flag.Parse()
-	if *discordDatabasePath == "" || len(servers) == 0 || *out == "" || *pause < time.Second {
+	if *discordDatabasePath == "" || len(servers)+len(directMessages) == 0 || *out == "" || *pause < time.Second {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -75,14 +81,28 @@ func main() {
 			log.Fatalf("server %s: %v", server, err)
 		}
 	}
+	if len(directMessages) > 0 {
+		var channels []channel
+		for _, id := range directMessages {
+			channels = append(channels, channel{id: id, name: id})
+		}
+		if err := fetchChannels(fetcher, directMessagesFolder, channels, *out, *images); err != nil {
+			log.Fatalf("direct messages: %v", err)
+		}
+	}
 }
+
+// directMessagesFolder is where DMs and group DMs go under -out, in place of
+// a server id.
+const directMessagesFolder = "direct-messages"
+
+type channel struct{ id, name string }
 
 func fetchServer(bridgeDatabase *sql.DB, fetcher *discordhistory.Fetcher, server, out string, images bool, onlyChannels []string) error {
 	rows, err := bridgeDatabase.Query(`SELECT dcid, name FROM portal WHERE dc_guild_id = ? AND type IN (0, 5) ORDER BY name`, server)
 	if err != nil {
 		return err
 	}
-	type channel struct{ id, name string }
 	var channels []channel
 	for rows.Next() {
 		var c channel
@@ -99,7 +119,15 @@ func fetchServer(bridgeDatabase *sql.DB, fetcher *discordhistory.Fetcher, server
 	if len(channels) == 0 {
 		return fmt.Errorf("the bridge has no matching text channels for this server; bridge it first (guilds bridge %s --entire), and check -channel", server)
 	}
-	directory := filepath.Join(out, server)
+	return fetchChannels(fetcher, server, channels, out, images)
+}
+
+// fetchChannels writes each channel's history to <out>/<folder>/<channel id>.jsonl,
+// skipping a channel already marked done. folder is a server id, or
+// directMessagesFolder.
+func fetchChannels(fetcher *discordhistory.Fetcher, folder string, channels []channel, out string, images bool) error {
+	server := folder
+	directory := filepath.Join(out, folder)
 	if err := os.MkdirAll(filepath.Join(directory, "images"), 0o700); err != nil {
 		return err
 	}
