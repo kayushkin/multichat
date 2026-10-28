@@ -212,7 +212,7 @@ echo "==> Vetting..."
 echo "    vet clean"
 
 # A misspelled owned variable (MULTICHAT_DB_PATH, MATRIX_TOKENS, ...), a PORT
-# that is not a number, or NATS_URL without the Matrix client or LLM_BRIDGE_URL
+# that is not a number, or NATS_URL without the Matrix client
 # stops the new binary at boot. Ask before anything is installed: build the
 # registry from the running service's own environment. The test prints a
 # verdict, never a value -- that environment holds the Matrix token and the

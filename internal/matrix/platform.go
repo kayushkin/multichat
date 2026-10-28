@@ -4,7 +4,7 @@ import "strings"
 
 // KnownPlatforms is every platform a bridge puppet can come in through, in
 // the order the bridges were added. It is the served vocabulary for anything
-// that filters by platform (inbound rules, the MCP contact search), so nothing
+// that filters by platform (the message log, the MCP contact search), so nothing
 // builds a filter from observed values. "gmessagesweb" is repo
 // gmessages-web-bridge, which reads Google Messages for web in Chrome on the
 // Mac; "gmessages" is mautrix-gmessages, unpaired since 2026-10-01. Their

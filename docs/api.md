@@ -608,40 +608,9 @@ The `user_id` comes from `GET /contacts/unified` (`identities[].user_id`). `~/bi
 
 ---
 
-## Inbound rules
+## Inbound messages
 
-What happens when a person messages us. The server long-polls Synapse `/sync` (when `NATS_URL` is set), publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`), and applies these rules to that stream as durable consumer `multichat-inbound-dispatcher`. A match starts an **autonomous** session on an llm-bridge-server instance by publishing `bridge.inbound` (`messages.BridgeInbound`), the same path the scheduler's agent jobs use. Our own sends and our own platform puppets are never published.
-
-With no rules, nothing happens — there is no default.
-
-### GET /inbound-rules
-
-All rules, enabled or not.
-
-### POST /inbound-rules
-
-```json
-{
-  "name": "Alex on WhatsApp mentioning the invoice",
-  "platform": "whatsapp",
-  "sender_user_id": "@whatsapp_15551234567:chat.kayushkin.com",
-  "body_pattern": "(?i)invoice",
-  "direct_messages_only": true,
-  "instance_id": "inst-cc-local",
-  "agent_id": "",
-  "prompt_template": "{{.SenderDisplayName}} wrote on {{.Platform}}: {{.Body}}\n\nDraft a reply and save it to noteboard; do not send anything."
-}
-```
-
-Every filter is optional and an empty one matches anything: `platform` (one of `GET /inbound-platforms`), `sender_user_id` (exact puppet id), `body_pattern` (RE2 against the body), `direct_messages_only` (default **true**). `instance_id` is required and is **checked with llm-bridge-server on write** — `400` when it knows no such instance, `502` when it cannot answer, nothing stored either way. `prompt_template` is required, a Go `text/template` over `Body`, `SenderUserID`, `SenderDisplayName`, `Platform`, `RoomID`, `RoomName`, `EventID`, `MessageType`, `IsDirectMessage`, `Timestamp`; a template that does not parse, or that names a field outside that list, is `400` — it is rendered against an empty message on write, so it cannot fail for the first time when a person writes in. Unknown JSON fields are `400`. Responds `201` with the stored rule; new rules are enabled.
-
-### GET /inbound-rules/{id}, PATCH /inbound-rules/{id}, DELETE /inbound-rules/{id}
-
-PATCH merges the fields sent onto the stored row and re-validates the whole rule (`{"enabled": false}` is the off switch). DELETE answers `204`.
-
-### GET /inbound-dispatches?limit=100
-
-What the rules did, newest first: `rule_id`, `event_id`, `room_id`, `sender_user_id`, `bus_session_id` (the id llm-bridge-adapter maps to a bridge session), and `error` when the session could not be started (instance disabled, bus down). One row per rule per message — the `(rule_id, event_id)` pair is unique, which is how a JetStream redelivery is absorbed.
+The server long-polls Synapse `/sync` (when `NATS_URL` is set) and publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`). Our own sends and our own platform puppets are never published. multichat starts no agent session itself: a session started by a chat message is a scheduler job with an `event_trigger` on `messaging.inbound` (see the scheduler's AGENTS.md, "Event triggers"). The `inbound-rules`, `inbound-dispatches` and `inbound-prompt-fields` routes went on 2026-10-28.
 
 ### GET /message-log
 
@@ -716,17 +685,13 @@ mautrix-discord relays a Matrix reaction with an `mxc://` key only when its `dis
 
 ### GET /inbound-platforms
 
-The platform vocabulary a rule may name: `["whatsapp","telegram","signal","meta"]`.
-
-### GET /inbound-prompt-fields
-
-The fields a `prompt_template` may reference, read off the struct the dispatcher renders with: `[{"name":"Body","type":"string"}, …]`. An editor asks this instead of carrying the list.
+The platform vocabulary a filter may name, `matrix.KnownPlatforms`: `["whatsapp","telegram","signal","meta","discord","slack","gmessages","gmessagesweb"]`.
 
 ### TypeScript types
 
-`./generate-ts.sh` renders `internal/db/inbound.go` (`InboundRule`, `InboundDispatch`, `InboundPromptField`) and `internal/db/message_log.go` (`LoggedMessage`, `MessageReactionGroup`, `MessageLogPage`, and the source and format constants) to `ts/db.ts`, and `internal/discordbridge/status.go` (`DiscordBridgeStatus` and its parts) to `ts/discord_status.ts`, published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`, entry `ts/index.ts`). bridge-ui's Inbound rules and Discord pages import them; multichat's own frontend does not.
+`./generate-ts.sh` renders the Go wire types named in `tygo.yaml` — among them `internal/db/message_log.go` (`LoggedMessage`, `MessageReactionGroup`, `MessageLogPage`, and the source and format constants) to `ts/db.ts`, and `internal/discordbridge/status.go` (`DiscordBridgeStatus` and its parts) to `ts/discord_status.ts` — published source-only as `@kayushkin/multichat-types` (`file:../multichat/ts`, entry `ts/index.ts`). bridge-ui imports them; multichat has no frontend of its own.
 
-⚠️ A session started this way runs with nobody at the keyboard. The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so such a session **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
+⚠️ The `multichat` MCP tool's `send_message` is gated `ask` at global scope in permission-store, so a session nobody is watching, such as one a scheduler event trigger starts, **cannot reply to the person** — by design. It can read, draft, and write to noteboard or kanban; a human sends.
 
 
 ## Short names

@@ -1,7 +1,7 @@
 # TypeScript types generated from multichat's Go wire types. The Go structs
 # are the source of truth; ts/ is a render of them. Regenerate with
-# ./generate-ts.sh after changing a wire type. Rendered: the inbound-rule
-# records (bridge-ui's Inbound rules page), the message log, the Discord
+# ./generate-ts.sh after changing a wire type. Rendered: the message log,
+# the auto-reaction rules, the Discord
 # bridge status (bridge-ui's Discord page), conversation links and
 # conversation visibility (its Conversations page) and the awaiting-reply
 # list (its Waiting on you page); ts/index.ts re-exports them all.
@@ -14,7 +14,6 @@ packages:
       "time.Time": "string"
     optional_type: "null"
     include_files:
-      - "inbound.go"
       - "message_log.go"
       - "emoji.go"
       - "conversation_links.go"

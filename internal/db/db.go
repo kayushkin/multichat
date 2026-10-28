@@ -2,10 +2,14 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	_ "github.com/mattn/go-sqlite3"
 )
+
+// ErrNotFound is returned when a row does not exist.
+var ErrNotFound = errors.New("not found")
 
 // Initialize creates and configures the SQLite database
 func Initialize(dbPath string) (*sql.DB, error) {
@@ -24,7 +28,11 @@ func Initialize(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create schema: %v", err)
 	}
 
-	if err := createInboundSchema(db); err != nil {
+	if err := createSyncStateSchema(db); err != nil {
+		return nil, err
+	}
+
+	if err := dropInboundRuleTables(db); err != nil {
 		return nil, err
 	}
 

@@ -125,20 +125,19 @@ func TestAPortThatIsNotAWholeNumberIsRefused(t *testing.T) {
 	}
 }
 
-// NATS_URL turns inbound on, which needs the Matrix client and llm-bridge-server
-// beside it. main refused the start without them before 2026-09-21; Load does
-// now, so deploy.sh's live-environment check asks it before the stop.
+// NATS_URL turns inbound on, which needs the Matrix client beside it. main
+// refused the start without it before 2026-09-21; Load does now, so
+// deploy.sh's live-environment check asks it before the stop.
 func TestInboundWithoutWhatItNeedsIsRefused(t *testing.T) {
 	complete := map[string]string{
-		"NATS_URL":       "nats://nats.example:1",
-		"SYNAPSE_URL":    "http://synapse.example:1",
-		"MATRIX_TOKEN":   "a-matrix-token",
-		"LLM_BRIDGE_URL": "http://bridge.example:1",
+		"NATS_URL":     "nats://nats.example:1",
+		"SYNAPSE_URL":  "http://synapse.example:1",
+		"MATRIX_TOKEN": "a-matrix-token",
 	}
 	if _, err := loadFrom(complete); err != nil {
 		t.Fatalf("inbound with everything it needs: %v", err)
 	}
-	for _, missing := range []string{"SYNAPSE_URL", "MATRIX_TOKEN", "LLM_BRIDGE_URL"} {
+	for _, missing := range []string{"SYNAPSE_URL", "MATRIX_TOKEN"} {
 		variables := map[string]string{}
 		for name, value := range complete {
 			if name != missing {

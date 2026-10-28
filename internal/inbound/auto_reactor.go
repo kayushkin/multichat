@@ -12,7 +12,7 @@ import (
 )
 
 // AutoReactorConsumerName is the auto-reactor's own JetStream durable on
-// messaging.inbound, beside the rule dispatcher's, so each sees every message.
+// messaging.inbound, so it sees every message whoever else consumes the subject.
 const AutoReactorConsumerName = "multichat-auto-reactor"
 
 // ReactionSender posts a reaction as our Matrix account. *matrix.Client is one.

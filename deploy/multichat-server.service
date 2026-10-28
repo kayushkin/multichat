@@ -36,11 +36,10 @@ Environment=SHORT_NAME_STORE_URL=http://127.0.0.1:8325
 Environment=AUTH_STORE_URL=http://127.0.0.1:8303
 Environment=DISCORD_EMOJI_BOT_CREDENTIAL_ID=cred_22fe3b634452cd7482719afd
 
-# Inbound messaging. With NATS_URL set the server long-polls Synapse /sync,
-# publishes every message a person sends us as messaging.inbound (JetStream)
-# and applies the inbound_rules table, which starts agent sessions on
-# llm-bridge-server instances -- so LLM_BRIDGE_URL is required alongside it,
-# and the server refuses to start with one and not the other.
+# Inbound messaging. With NATS_URL set the server long-polls Synapse /sync and
+# publishes every message a person sends us as messaging.inbound (JetStream);
+# scheduler jobs with an event_trigger on that subject start agent sessions.
+# LLM_BRIDGE_URL is where the short-name pass asks a model to name chats.
 Environment=NATS_URL=nats://localhost:4222
 Environment=LLM_BRIDGE_URL=http://localhost:8160
 

@@ -1,5 +1,5 @@
 // Package inbound turns messages people send us on bridged platforms into
-// bus events and, through rules, into agent sessions.
+// bus events, and reacts to some of them.
 //
 // Two loops run in the server process:
 //
@@ -11,13 +11,14 @@
 //     person sent as messages.MessagingInbound on messaging.inbound
 //     (JetStream, stream MESSAGING). Our own sends and our own platform
 //     puppets are dropped here, so no consumer ever sees itself.
-//   - Dispatcher is a durable consumer of that subject that applies the
-//     inbound_rules table and, for each match, asks llm-bridge-adapter to
-//     start an autonomous session by publishing messages.BridgeInbound.
+//   - AutoReactor is a durable consumer of that subject that applies the
+//     auto_reactions table (auto_reactor.go).
 //
 // They are joined by the bus rather than a function call so that any other
 // service can consume messaging.inbound with its own durable name, and so
-// that a dispatch survives a restart of this process.
+// that a message survives a restart of this process. Agent sessions started
+// by a message are scheduler jobs with an event_trigger on
+// messaging.inbound; scheduler reads the subject with a durable of its own.
 package inbound
 
 import (
@@ -84,7 +85,7 @@ func (w *SyncWorker) Run() {
 	if since == "" {
 		// First run ever: take the token and drop the history it comes with.
 		// Everything before this moment was already read in the UI; replaying
-		// it as "new" would fire every rule on old messages.
+		// it as "new" would hand every consumer old messages.
 		initial, err := w.Matrix.Sync("", 0)
 		if err != nil {
 			log.Fatalf("inbound sync: initial sync: %v", err)
@@ -146,7 +147,7 @@ func (w *SyncWorker) publishBatch(resp *matrix.SyncResponse) error {
 	for roomID, events := range resp.Rooms {
 		for _, event := range events {
 			// Only messages go on the bus. Reactions and stickers are logged
-			// but not published: neither carries text a rule could match
+			// but not published: neither carries text a consumer could match
 			// (a sticker's body is only its name), and a sticker must not
 			// start a session the way a written message can.
 			if event.Type != "m.room.message" {

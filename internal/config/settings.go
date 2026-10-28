@@ -104,7 +104,7 @@ func SettingDefinitions() []servicesettings.Definition {
 		{Key: SettingListenPort, EnvironmentVariable: "PORT", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeInteger, Default: fmt.Sprint(DefaultListenPort),
 			Description: "The port the HTTP server listens on, on the interface MULTICHAT_LISTEN_HOST names. Changing it moves the service: nginx's chat.kayushkin.com vhost, dash's /api/multichat proxy and every MULTICHAT_URL must be told the new address."},
 		{Key: SettingDatabasePath, EnvironmentVariable: "MULTICHAT_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultDatabasePath,
-			Description: "The SQLite file that holds contacts, tags, loads, inbound rules and dispatches. The default is relative to the working directory, so the unit pins it absolutely. Changing it starts the service on whatever database is there, or a new empty one that answers every route as if nothing were lost."},
+			Description: "The SQLite file that holds contacts, tags, loads, the message log and the auto-reaction rules. The default is relative to the working directory, so the unit pins it absolutely. Changing it starts the service on whatever database is there, or a new empty one that answers every route as if nothing were lost."},
 		{Key: SettingAPIToken, EnvironmentVariable: "MULTICHAT_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The bearer token every route except /auth/login and /health asks for. Unset turns authentication OFF on an API published at chat.kayushkin.com; deploy.sh refuses to deploy without it and asserts a 401 afterwards."},
 		{Key: SettingSynapseURL, EnvironmentVariable: "SYNAPSE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
@@ -134,11 +134,11 @@ func SettingDefinitions() []servicesettings.Definition {
 		{Key: SettingAuthStoreToken, EnvironmentVariable: "AUTH_STORE_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The bearer auth-store asks of the emoji refresh. Unset makes the refresh a 503."},
 		{Key: SettingNATSURL, EnvironmentVariable: "NATS_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "Where NATS answers. Set, it turns inbound on: the sync worker publishes messaging.inbound and the dispatcher applies the inbound rules. It needs the Matrix client and LLM_BRIDGE_URL beside it, and the service refuses to start without them. Unset, inbound is off."},
+			Description: "Where NATS answers. Set, it turns inbound on: the sync worker publishes messaging.inbound and the auto-reactor applies the auto-reaction rules. It needs the Matrix client beside it, and the service refuses to start without it. Unset, inbound is off."},
 		{Key: SettingLLMBridgeServerURL, EnvironmentVariable: "LLM_BRIDGE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "Where llm-bridge-server answers. An inbound rule's instance is checked there when the rule is written and again when it fires."},
+			Description: "Where llm-bridge-server answers. POST /short-names/assign asks a model there, through POST /oneshot, to name chats. Unset makes that route a 503."},
 		{Key: SettingLLMBridgeServiceToken, EnvironmentVariable: "LLMBRIDGE_SERVICE_TOKEN", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "The token llm-bridge-server asks of every caller. Without it an instance check is a 401, which reads as an unknown instance to whoever is saving a rule."},
+			Description: "The token llm-bridge-server asks of every caller. Without it the short-name pass's POST /oneshot is a 401."},
 		{Key: SettingOpenAIAPIKey, EnvironmentVariable: "OPENAI_API_KEY", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The OpenAI key the /ai/summarize, /ai/escalation-scan and /ai/auto-tag routes spend. Unset, those routes answer 500 \"No AI API key configured\", except summarize, which then tries ANTHROPIC_API_KEY."},
 		{Key: SettingAnthropicAPIKey, EnvironmentVariable: "ANTHROPIC_API_KEY", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
@@ -186,8 +186,11 @@ type Config struct {
 	AuthStoreToken              string
 
 	// NATSURL is empty when inbound is off. When it is set, the Matrix client
-	// is configured and LLMBridgeServerURL is set too.
-	NATSURL               string
+	// is configured.
+	NATSURL string
+
+	// LLMBridgeServerURL and LLMBridgeServiceToken reach llm-bridge-server's
+	// POST /oneshot for the short-name pass.
 	LLMBridgeServerURL    string
 	LLMBridgeServiceToken string
 
@@ -237,9 +240,6 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 	}
 	if loaded.NATSURL != "" && !loaded.MatrixConfigured() {
 		return Config{}, fmt.Errorf("NATS_URL is set but the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN); inbound needs both")
-	}
-	if loaded.NATSURL != "" && loaded.LLMBridgeServerURL == "" {
-		return Config{}, fmt.Errorf("NATS_URL is set but LLM_BRIDGE_URL is not; inbound rules dispatch to llm-bridge-server instances")
 	}
 	return loaded, nil
 }

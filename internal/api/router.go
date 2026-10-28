@@ -19,7 +19,6 @@ import (
 	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/discordemoji"
-	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
 	"github.com/kayushkin/multichat/internal/shortnames"
 )
@@ -45,12 +44,10 @@ type Router struct {
 	discordNitroChecker   discordemoji.NitroChecker
 	discordServerSweeper  *discordemoji.ServerSweeper
 
-	// llmBridgeURL is where inbound rules have their instance_id checked
-	// (llm-bridge-server owns instance ids). Empty means a rule cannot be
-	// written: the write answers 502 naming the missing setting.
-	llmBridgeURL          string
-	llmBridgeServiceToken string
-	httpClient            *http.Client
+	// llmBridgeURL is where the short-name pass asks a model to name chats.
+	// Empty makes POST /short-names/assign a 503 naming the missing setting.
+	llmBridgeURL string
+	httpClient   *http.Client
 
 	// apiToken is the bearer every route but /auth/login and /health asks
 	// for. Empty turns authentication off: see ServeHTTP.
@@ -92,13 +89,12 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 			Signal:         loaded.SignalBridgeDatabasePath,
 			Telegram:       loaded.TelegramBridgeDatabasePath,
 		},
-		llmBridgeURL:          strings.TrimRight(loaded.LLMBridgeServerURL, "/"),
-		llmBridgeServiceToken: loaded.LLMBridgeServiceToken,
-		httpClient:            &http.Client{Timeout: 10 * time.Second},
-		apiToken:              loaded.APIToken,
-		openAIAPIKey:          loaded.OpenAIAPIKey,
-		anthropicAPIKey:       loaded.AnthropicAPIKey,
-		settings:              settings,
+		llmBridgeURL:    strings.TrimRight(loaded.LLMBridgeServerURL, "/"),
+		httpClient:      &http.Client{Timeout: 10 * time.Second},
+		apiToken:        loaded.APIToken,
+		openAIAPIKey:    loaded.OpenAIAPIKey,
+		anthropicAPIKey: loaded.AnthropicAPIKey,
+		settings:        settings,
 	}
 	r.discordEmojiRefresher = discordemoji.Refresher{
 		HTTPClient:        r.httpClient,
@@ -119,7 +115,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		Store: shortnames.StoreClient{BaseURL: loaded.ShortNameStoreURL, HTTPClient: r.httpClient},
 		Model: shortnames.OneShotModel{
 			BridgeURL:          r.llmBridgeURL,
-			ServiceTokenHeader: inbound.BridgeServiceTokenHeader,
+			ServiceTokenHeader: shortnames.BridgeServiceTokenHeader,
 			ServiceToken:       loaded.LLMBridgeServiceToken,
 			ModelRole:          loaded.ShortNamerModelRole,
 			MaxTokens:          shortNamerMaxTokens,
@@ -194,11 +190,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/awaiting-reply/clears", r.awaitingReplyClearsHandler)
 	r.mux.HandleFunc("/auto-reactions", r.autoReactionsHandler)
 	r.mux.HandleFunc("/auto-reactions/", r.autoReactionHandler)
-	r.mux.HandleFunc("/inbound-rules", r.inboundRulesHandler)
-	r.mux.HandleFunc("/inbound-rules/", r.inboundRuleHandler)
-	r.mux.HandleFunc("/inbound-dispatches", r.inboundDispatchesHandler)
 	r.mux.HandleFunc("/inbound-platforms", r.inboundPlatformsHandler)
-	r.mux.HandleFunc("/inbound-prompt-fields", r.inboundPromptFieldsHandler)
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	r.mux.HandleFunc("/message-log/", r.loggedMessageHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)

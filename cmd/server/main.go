@@ -221,10 +221,12 @@ func main() {
 		}()
 	}
 
-	// Inbound: /sync -> messaging.inbound -> rules -> agent sessions. Gated on
-	// NATS_URL because the bus is the contract; with it set, a bus that cannot
-	// be reached is fatal rather than a silent "inbound disabled". config.Load
-	// has already refused NATS_URL without the Matrix client or LLM_BRIDGE_URL.
+	// Inbound: /sync -> messaging.inbound. Scheduler jobs with an
+	// event_trigger on that subject start agent sessions from it; the
+	// auto-reactor reacts to it here. Gated on NATS_URL because the bus is the
+	// contract; with it set, a bus that cannot be reached is fatal rather than
+	// a silent "inbound disabled". config.Load has already refused NATS_URL
+	// without the Matrix client.
 	if natsURL := loaded.NATSURL; natsURL != "" {
 		busClient, err := bus.Connect(bus.Options{URL: natsURL, Name: "multichat"})
 		if err != nil {
@@ -236,9 +238,8 @@ func main() {
 		log.Printf("NATS connected: %s", natsURL)
 		go (&inbound.SyncWorker{Matrix: matrixClient, Database: database, Bus: busClient}).Run()
 		go (&inbound.AutoReactor{Database: database, Bus: busClient, Matrix: matrixClient}).Run()
-		go (&inbound.Dispatcher{Database: database, Bus: busClient, LLMBridgeURL: strings.TrimRight(loaded.LLMBridgeServerURL, "/"), LLMBridgeServiceToken: loaded.LLMBridgeServiceToken, HTTPClient: &http.Client{Timeout: 10 * time.Second}}).Run()
 	} else {
-		log.Println("NATS_URL not set: inbound messaging (sync worker, rule dispatcher, auto-reactor) is off")
+		log.Println("NATS_URL not set: inbound messaging (sync worker, auto-reactor) is off")
 	}
 
 	http.Handle("/api/", http.StripPrefix("/api", router))

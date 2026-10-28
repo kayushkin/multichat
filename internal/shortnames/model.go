@@ -19,6 +19,11 @@ type Model interface {
 	Propose(ctx context.Context, systemPrompt, prompt string, schema map[string]any, out any) (answeredBy string, err error)
 }
 
+// BridgeServiceTokenHeader is where llm-bridge-server reads an internal
+// service's token. The token itself is the llm_bridge_service_token setting
+// (LLMBRIDGE_SERVICE_TOKEN), which the caller hands in.
+const BridgeServiceTokenHeader = "X-LLM-Bridge-Service-Token"
+
 // OneShotModel calls llm-bridge-server's POST /oneshot with a model-store
 // role, so which model a role means is changed in model-store and never here.
 //
