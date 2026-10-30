@@ -198,6 +198,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	r.mux.HandleFunc("/message-log/", r.loggedMessageHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
+	r.mux.HandleFunc("/google-messages/phone-numbers", r.googleMessagesPhoneNumbersHandler)
 	r.mux.HandleFunc("/discord/direct-messages/open", r.openDiscordDirectMessageHandler)
 	r.mux.HandleFunc("/emoji", r.emojiHandler)
 	r.mux.HandleFunc("/emoji/discord/refresh", r.refreshDiscordEmojiHandler)

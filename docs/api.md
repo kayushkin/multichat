@@ -628,6 +628,10 @@ One logged message by its `ref`, `message_` and the row id in at least six digit
 
 `cmd/multichat-backfill-room -db … -room '!…' [-room '!…']` logs the whole history Synapse holds for each room, through the sync worker's `logEvent`, so every message there gets a row and a ref, including messages from before `message_log_started_at`. It skips `com.beeper.message_send_status` events, whose replay would count an auto-reaction's failure twice. Running it again adds nothing. It reads `SYNAPSE_URL` and `MATRIX_TOKEN` from the server's environment file.
 
+### GET /google-messages/phone-numbers
+
+Every mautrix-gmessages puppet the bridge's database (`GMESSAGES_DB`, table `ghost`) gives a phone number, as `[{"user_id":"@gmessages_1.5:chat.example","phone_number":"+12025550101"}]`, sorted by user id; the number is as the bridge wrote it (E.164). `GMESSAGES_DB` unset is a 503. message-store's importer reads it to find the phone archive's thread for a Google Messages room. dash does not proxy it.
+
 ### GET /discord/status
 
 What the Discord bridge is doing, read-only: it reads the mautrix-discord database at `DISCORD_DB` (opened `?mode=ro`), Synapse's `joined_rooms` for `@admin`, and the message log. It never calls Discord and never reads the Discord token — `logged_in` is a SQL `discord_token IS NOT NULL`.
