@@ -252,6 +252,10 @@ type Conversation struct {
 	// message room, and "" in any other room: a group, a server channel, or a
 	// DM whose bridge does not say it is one (Telegram).
 	DirectMessagePartnerUserID string `json:"direct_message_partner_user_id,omitempty"`
+	// DiscordChannelID is the Discord channel a Discord room carries, from the
+	// bridge database, and "" in any other room. Other stores record Discord
+	// chats by this id, so it is how they find the room.
+	DiscordChannelID string `json:"discord_channel_id,omitempty"`
 	// Visibility is the operator's choice for the room — "hidden", "shown",
 	// or "auto" to follow the auto-hide rule — and Hidden the result. The
 	// API fills both from multichat's own database; the Matrix read leaves
@@ -447,12 +451,22 @@ type listedRoom struct {
 	bridgeRoomType string
 }
 
-// finish applies what the bridge databases say now: directMessageRoomIDs
-// names DM rooms whose bridge does not mark them in m.bridge (Discord); the
-// mautrix-go bridges mark theirs with com.beeper.room_type "dm".
-func (room listedRoom) finish(metaPlatforms MetaPlatformMap, directMessageRoomIDs map[string]bool) Conversation {
+// DiscordPortal is what the Discord bridge's database says about one of its
+// rooms: the channel it carries, and whether that is a one-to-one DM.
+type DiscordPortal struct {
+	ChannelID     string
+	DirectMessage bool
+}
+
+// finish applies what the bridge databases say now: discordPortals gives each
+// Discord room its channel and names its DMs, which the Discord bridge does
+// not mark in m.bridge; the mautrix-go bridges mark theirs with
+// com.beeper.room_type "dm".
+func (room listedRoom) finish(metaPlatforms MetaPlatformMap, discordPortals map[string]DiscordPortal) Conversation {
 	conv := room.conversation
-	if len(conv.Members) == 1 && (directMessageRoomIDs[conv.RoomID] || room.bridgeRoomType == "dm") {
+	portal, isDiscordRoom := discordPortals[conv.RoomID]
+	conv.DiscordChannelID = portal.ChannelID
+	if len(conv.Members) == 1 && ((isDiscordRoom && portal.DirectMessage) || room.bridgeRoomType == "dm") {
 		conv.DirectMessagePartnerUserID = conv.Members[0].UserID
 	}
 	// Resolve meta → facebook/instagram

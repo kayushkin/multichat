@@ -52,10 +52,11 @@ type conversationCache struct {
 
 // ListConversations returns the rooms the user has joined, newest activity
 // first, from the cache that /sync keeps current. The first call waits for
-// the first read of every room. directMessageRoomIDs names DM rooms whose
-// bridge does not mark them in m.bridge (Discord); the mautrix-go bridges mark
-// theirs with com.beeper.room_type "dm".
-func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, directMessageRoomIDs map[string]bool) ([]Conversation, error) {
+// the first read of every room. discordPortals, from the Discord bridge's
+// database, gives each Discord room its channel id and names its DMs, which
+// that bridge does not mark in m.bridge; the mautrix-go bridges mark theirs
+// with com.beeper.room_type "dm".
+func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, discordPortals map[string]DiscordPortal) ([]Conversation, error) {
 	c.KeepConversationsCurrent()
 	cache := &c.conversations
 	<-cache.ready
@@ -67,7 +68,7 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, directMessageR
 	}
 	convos := make([]Conversation, 0, len(cache.rooms))
 	for _, room := range cache.rooms {
-		convos = append(convos, room.finish(metaPlatforms, directMessageRoomIDs))
+		convos = append(convos, room.finish(metaPlatforms, discordPortals))
 	}
 	sort.Slice(convos, func(i, j int) bool {
 		return convos[i].LastActivity > convos[j].LastActivity

@@ -12,7 +12,6 @@ import (
 
 	"github.com/kayushkin/multichat/internal/contactlinks"
 	"github.com/kayushkin/multichat/internal/db"
-	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/matrix"
 	"github.com/kayushkin/multichat/internal/people"
 )
@@ -351,19 +350,11 @@ func (r *Router) peopleWeTalkWith() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	var discordDirectMessageRoomIDs map[string]bool
-	if r.discordDBPath != "" {
-		bridge, err := discordbridge.Open(r.discordDBPath)
-		if err != nil {
-			return nil, err
-		}
-		discordDirectMessageRoomIDs, err = discordbridge.DirectMessageRoomIDs(bridge)
-		bridge.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read Discord DM rooms from DISCORD_DB: %w", err)
-		}
+	discordPortals, err := r.discordPortals()
+	if err != nil {
+		return nil, err
 	}
-	conversations, err := r.matrix.ListConversations(r.loadMetaPlatforms(), discordDirectMessageRoomIDs)
+	conversations, err := r.matrix.ListConversations(r.loadMetaPlatforms(), discordPortals)
 	if err != nil {
 		return nil, err
 	}

@@ -515,20 +515,30 @@ func (r *Router) listConversations() ([]matrix.Conversation, error) {
 		}
 	}
 
-	var discordDirectMessageRoomIDs map[string]bool
-	if r.discordDBPath != "" {
-		bridge, err := discordbridge.Open(r.discordDBPath)
-		if err != nil {
-			return nil, err
-		}
-		discordDirectMessageRoomIDs, err = discordbridge.DirectMessageRoomIDs(bridge)
-		bridge.Close()
-		if err != nil {
-			return nil, fmt.Errorf("read Discord DM rooms from DISCORD_DB: %w", err)
-		}
+	discordPortals, err := r.discordPortals()
+	if err != nil {
+		return nil, err
 	}
 
-	return r.matrix.ListConversations(metaPlatforms, discordDirectMessageRoomIDs)
+	return r.matrix.ListConversations(metaPlatforms, discordPortals)
+}
+
+// discordPortals reads the Discord bridge's rooms from DISCORD_DB: each
+// room's channel, and which are DMs. nil when no bridge database is set.
+func (r *Router) discordPortals() (map[string]matrix.DiscordPortal, error) {
+	if r.discordDBPath == "" {
+		return nil, nil
+	}
+	bridge, err := discordbridge.Open(r.discordDBPath)
+	if err != nil {
+		return nil, err
+	}
+	defer bridge.Close()
+	portals, err := discordbridge.PortalsByRoomID(bridge)
+	if err != nil {
+		return nil, fmt.Errorf("read Discord rooms from DISCORD_DB: %w", err)
+	}
+	return portals, nil
 }
 
 func (r *Router) newConversationHandler(w http.ResponseWriter, req *http.Request) {
