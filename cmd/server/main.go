@@ -15,6 +15,7 @@ import (
 	"github.com/kayushkin/multichat/internal/api"
 	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/db"
+	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
 	_ "github.com/mattn/go-sqlite3"
@@ -168,6 +169,19 @@ func main() {
 		}
 		rows.Close()
 		discordDB.Close()
+
+		// Live Discord rows in the message log carry the Discord message id
+		// the bridge mapped their event to, copied before a delete on
+		// Discord removes the bridge's row.
+		bridgeDB, err := discordbridge.Open(discordDBPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		recorder := discordbridge.DiscordMessageIDRecorder{Multichat: database, Bridge: bridgeDB, Every: 15 * time.Second, RecentWindow: time.Hour}
+		if err := recorder.BackfillAll(); err != nil {
+			log.Fatalf("copy Discord message ids from DISCORD_DB %s: %v", discordDBPath, err)
+		}
+		go recorder.Run()
 	}
 	// Google Messages names each phone-side participant "<id_prefix>.<participant id>",
 	// and a login's metadata lists which participant ids are us.

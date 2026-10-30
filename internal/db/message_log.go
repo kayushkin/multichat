@@ -23,7 +23,7 @@ import (
 const messageLogColumnDefinitions = `(
 	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 	event_id             TEXT UNIQUE,                    -- Matrix event id; NULL for archive rows
-	discord_message_id   TEXT UNIQUE,                    -- Discord message id; set for archive rows only
+	discord_message_id   TEXT UNIQUE,                    -- Discord message id; set for archive rows only (live rows: discord_message_parts)
 	source               TEXT NOT NULL,                  -- "matrix" or "discord-archive"
 	room_id              TEXT NOT NULL,
 	room_name            TEXT NOT NULL,
@@ -77,6 +77,9 @@ func createMessageLogSchema(database *sql.DB) error {
 	if _, err := database.Exec(messageLogSchema); err != nil {
 		return fmt.Errorf("message log schema: %w", err)
 	}
+	if _, err := database.Exec(discordMessagePartsSchema); err != nil {
+		return fmt.Errorf("Discord message parts schema: %w", err)
+	}
 	if _, err := database.Exec(reactionLogSchema); err != nil {
 		return fmt.Errorf("reaction log schema: %w", err)
 	}
@@ -92,9 +95,12 @@ type LoggedMessage struct {
 	// /message-log/{ref} answers the row, and kanban-store's entity-type
 	// registry claims the pattern, so a ref in a journal entry or a chat is a
 	// chip.
-	Ref                string `json:"ref"`
-	EventID            string `json:"event_id"`
-	Source             string `json:"source"`
+	Ref     string `json:"ref"`
+	EventID string `json:"event_id"`
+	Source  string `json:"source"`
+	// DiscordMessageID is the Discord message the row is, or for a live
+	// Discord row the message it is part of (its text or one attachment;
+	// several rows can share it); "" when unknown or not Discord.
 	DiscordMessageID   string `json:"discord_message_id"`
 	RoomID             string `json:"room_id"`
 	RoomName           string `json:"room_name"`
@@ -239,7 +245,10 @@ func MessageLogHasEvent(database *sql.DB, eventID string) (bool, error) {
 	return true, nil
 }
 
-const loggedMessageColumns = `id, event_id, discord_message_id, source, room_id, room_name, platform, network_id,
+// loggedMessageColumns reads discord_message_id from the row for an archive
+// row and from discord_message_parts for a live Discord row.
+const loggedMessageColumns = `id, event_id, COALESCE(discord_message_id,
+	(SELECT p.discord_message_id FROM discord_message_parts p WHERE p.event_id = message_log.event_id)), source, room_id, room_name, platform, network_id,
 	network_name, channel_id, channel_name, channel_external_url, sender_user_id, sender_display_name, message_type,
 	body, format, formatted_body, media_url, media_mimetype, reply_to_event_id, content_json, replaces_event_id,
 	sent_at, logged_at, redacted_at, redaction_event_id, redacted_by_user_id`
