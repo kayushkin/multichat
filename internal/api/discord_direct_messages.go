@@ -81,13 +81,40 @@ func (r *Router) discordDirectMessageRoom(puppetUserID string) (roomID string, o
 	}); err != nil {
 		return "", false, fmt.Errorf("the Discord bridge did not take %s for channel %s: %w", roomID, portal.ChannelID, err)
 	}
-	// The command is ours, not a message to the person; it goes from the
-	// thread. The bridge sent it before the room carried the DM, so Discord
-	// never saw it.
-	if _, err := r.matrix.Redact(roomID, commandEventID); err != nil {
-		return "", false, fmt.Errorf("redact the bridge command in %s: %w", roomID, err)
+	// The command and the bot's answer to it are not messages to the person;
+	// they go from the thread, so the chat opens on what was said. Both came
+	// before the room carried the DM, so Discord never saw them.
+	page, err := r.matrix.GetMessagePage(roomID, 20, "")
+	if err != nil {
+		return "", false, fmt.Errorf("read the bridge's answer in %s: %w", roomID, err)
+	}
+	for _, eventID := range bridgeCommandAndAnswer(page.Messages, commandEventID, bridgeConfig.BotUserID) {
+		if _, err := r.matrix.Redact(roomID, eventID); err != nil {
+			return "", false, fmt.Errorf("redact %s in %s: %w", eventID, roomID, err)
+		}
 	}
 	return roomID, true, nil
+}
+
+// bridgeCommandAndAnswer returns the bridge command and every message the bot
+// sent after it, from a room's messages oldest first.
+func bridgeCommandAndAnswer(messages []matrix.Message, commandEventID, botUserID string) []string {
+	eventIDs := []string{}
+	afterCommand := false
+	for _, message := range messages {
+		if message.EventID == commandEventID {
+			afterCommand = true
+			eventIDs = append(eventIDs, message.EventID)
+			continue
+		}
+		if afterCommand && message.Sender == botUserID {
+			eventIDs = append(eventIDs, message.EventID)
+		}
+	}
+	if !afterCommand {
+		eventIDs = append(eventIDs, commandEventID)
+	}
+	return eventIDs
 }
 
 // waitFor asks done every half second until it says yes, fails, or
