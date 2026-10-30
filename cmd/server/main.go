@@ -18,6 +18,7 @@ import (
 	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/inbound"
 	"github.com/kayushkin/multichat/internal/matrix"
+	"github.com/kayushkin/multichat/internal/people"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -211,6 +212,22 @@ func main() {
 	// gmessages-web-bridge sends the operator's own texts, the ones sent from
 	// the phone, as one puppet: its SelfPuppetLocalpart.
 	matrix.SelfUserIDs[fmt.Sprintf("@gmessagesweb_self:%s", serverName)] = true
+	// Every account people-store gives the user's person is the user's too:
+	// a bridge can miss one (people.OperatorAccounts says how).
+	if loaded.PeopleStoreURL != "" {
+		identities, err := (people.Client{BaseURL: loaded.PeopleStoreURL, HTTPClient: &http.Client{Timeout: 30 * time.Second}}).MatrixUserIdentities()
+		if err != nil {
+			log.Fatalf("read the user's own accounts from people-store: %v", err)
+		}
+		personID, accounts, err := people.OperatorAccounts(identities, matrix.SelfUserIDs)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, account := range accounts {
+			matrix.SelfUserIDs[account] = true
+		}
+		log.Printf("people-store gives the user's own accounts to %q, with %d bridge accounts", personID, len(accounts))
+	}
 	log.Printf("Self user IDs: %d identities", len(matrix.SelfUserIDs))
 	for id := range matrix.SelfUserIDs {
 		log.Printf("  %s", id)
@@ -220,6 +237,20 @@ func main() {
 	if matrixClient != nil {
 		// Read every room now, so the first GET /conversations does not wait.
 		matrixClient.KeepConversationsCurrent()
+	}
+	if matrixClient != nil {
+		// Rooms of one Google conversation, one per bridge, are one entry.
+		go func() {
+			for {
+				result, err := router.LinkGoogleMessagesTwins()
+				if err != nil {
+					log.Printf("Google Messages links: pass failed: %v", err)
+				} else if result.Linked > 0 || result.LeftApart > 0 {
+					log.Printf("Google Messages links: %d conversations carried by two rooms; linked %d, left %d apart", result.Conversations, result.Linked, result.LeftApart)
+				}
+				time.Sleep(10 * time.Minute)
+			}
+		}()
 	}
 	if matrixClient != nil && loaded.PeopleStoreURL != "" {
 		go func() {

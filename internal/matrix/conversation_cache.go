@@ -70,6 +70,7 @@ func (c *Client) ListConversations(metaPlatforms MetaPlatformMap, discordPortals
 	for _, room := range cache.rooms {
 		convos = append(convos, room.finish(metaPlatforms, discordPortals))
 	}
+	nameGoogleMessagesGroups(convos)
 	sort.Slice(convos, func(i, j int) bool {
 		return convos[i].LastActivity > convos[j].LastActivity
 	})

@@ -256,6 +256,10 @@ type Conversation struct {
 	// bridge database, and "" in any other room. Other stores record Discord
 	// chats by this id, so it is how they find the room.
 	DiscordChannelID string `json:"discord_channel_id,omitempty"`
+	// GoogleMessagesConversationID is Google's id for the conversation a
+	// Google Messages room carries (either bridge), from its m.bridge, and ""
+	// in any other room. The two bridges' rooms for one conversation share it.
+	GoogleMessagesConversationID string `json:"google_messages_conversation_id,omitempty"`
 	// Visibility is the operator's choice for the room — "hidden", "shown",
 	// or "auto" to follow the auto-hide rule — and Hidden the result. The
 	// API fills both from multichat's own database; the Matrix read leaves
@@ -446,8 +450,9 @@ type MetaPlatformMap map[string]string
 // are applied by finish.
 type listedRoom struct {
 	conversation Conversation
-	// bridgeRoomType is m.bridge's com.beeper.room_type, read only for rooms
-	// with one other member, where it decides whether the room is a DM.
+	// bridgeRoomType is m.bridge's com.beeper.room_type, read for rooms with
+	// one other member, where it decides whether the room is a DM, and for
+	// Google Messages rooms, whose m.bridge channel is also read.
 	bridgeRoomType string
 }
 
@@ -566,11 +571,14 @@ func (c *Client) conversationOf(roomID string) (room listedRoom, listed bool, er
 	}
 
 	room = listedRoom{conversation: conv}
-	if len(conv.Members) == 1 {
-		room.bridgeRoomType, err = c.bridgeRoomType(roomID)
+	isGoogleMessages := conv.Platform == "gmessages" || conv.Platform == "gmessagesweb"
+	if len(conv.Members) == 1 || isGoogleMessages {
+		var channelID string
+		room.bridgeRoomType, channelID, err = c.bridgeRoomTypeAndChannel(roomID)
 		if err != nil {
 			return listedRoom{}, false, fmt.Errorf("m.bridge state of %s: %w", roomID, err)
 		}
+		room.conversation.GoogleMessagesConversationID = GoogleMessagesConversationID(conv.Platform, channelID)
 	}
 
 	// Fetch latest message for sorting + preview
@@ -852,29 +860,39 @@ func (c *Client) BridgeChannelID(roomID string) (string, error) {
 	return "", nil
 }
 
-// bridgeRoomType is com.beeper.room_type from the room's m.bridge state ("dm"
-// for a direct message on the mautrix-go bridges), or "" when no m.bridge
-// event sets it. Each bridge writes m.bridge under a state key of its own
+// bridgeRoomTypeAndChannel reads com.beeper.room_type from the room's m.bridge
+// state ("dm" for a direct message on the mautrix-go bridges and the Google
+// Messages for web bridge) and its channel id, each "" when no m.bridge event
+// sets it. Each bridge writes m.bridge under a state key of its own
 // ("chat.kayushkin.com/whatsapp", "fi.mau.discord://…"), so the whole state is
 // read rather than one key guessed.
-func (c *Client) bridgeRoomType(roomID string) (string, error) {
+func (c *Client) bridgeRoomTypeAndChannel(roomID string) (roomType, channelID string, err error) {
 	data, err := c.request("GET", "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/state", nil)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var events []struct {
 		Type    string `json:"type"`
 		Content struct {
 			RoomType string `json:"com.beeper.room_type"`
+			Channel  struct {
+				ID string `json:"id"`
+			} `json:"channel"`
 		} `json:"content"`
 	}
 	if err := json.Unmarshal(data, &events); err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, event := range events {
-		if event.Type == "m.bridge" && event.Content.RoomType != "" {
-			return event.Content.RoomType, nil
+		if event.Type != "m.bridge" {
+			continue
+		}
+		if event.Content.RoomType != "" {
+			roomType = event.Content.RoomType
+		}
+		if event.Content.Channel.ID != "" {
+			channelID = event.Content.Channel.ID
 		}
 	}
-	return "", nil
+	return roomType, channelID, nil
 }
