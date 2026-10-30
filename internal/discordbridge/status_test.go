@@ -131,6 +131,8 @@ func throwawayBridge(t *testing.T) *sql.DB {
 		portal("555", 1, "", "", "!dm:x", "Pal"),
 		portal("556", 1, "", "", "", "Pal we never opened"),
 		portal("557", 3, "", "", "!group-dm:x", "Three of us"),
+		`UPDATE portal SET other_user_id = '42' WHERE dcid = '555'`,
+		`UPDATE portal SET other_user_id = '43' WHERE dcid = '556'`,
 		`INSERT INTO message (dcid, dc_attachment_id, dc_chan_id, dc_chan_receiver, dc_sender, timestamp, dc_edit_timestamp, dc_thread_id, mxid) VALUES
 			('m1', '', '1001', '', '7', 1790000000000, 0, '', '$m1'),
 			('m2', '', '1001', '', '7', 1790000060000, 0, '', '$m2')`,

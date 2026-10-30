@@ -32,6 +32,9 @@ type Router struct {
 	// discordDBPath is the mautrix-discord SQLite file GET /discord/status
 	// reads; empty makes that route a 503 naming DISCORD_DB.
 	discordDBPath string
+	// discordConfigPath is the bridge's config.yaml, read for its bot's id and
+	// command prefix when a send has to open a room for a Discord DM.
+	discordConfigPath string
 	// people reaches people-store, which owns every person and the accounts
 	// attached to them; bridgeDatabases are where the phone-number matcher
 	// reads numbers.
@@ -76,13 +79,14 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 		panic("multichat: a settings registry is required; GET /settings describes the service from it")
 	}
 	r := &Router{
-		db:            db,
-		matrix:        matrixClient,
-		mux:           http.NewServeMux(),
-		tgDBPath:      loaded.TelegramBridgeDatabasePath,
-		metaDBPath:    loaded.MetaBridgeDatabasePath,
-		discordDBPath: loaded.DiscordBridgeDatabasePath,
-		people:        people.Client{BaseURL: loaded.PeopleStoreURL, HTTPClient: &http.Client{Timeout: 10 * time.Second}},
+		db:                db,
+		matrix:            matrixClient,
+		mux:               http.NewServeMux(),
+		tgDBPath:          loaded.TelegramBridgeDatabasePath,
+		metaDBPath:        loaded.MetaBridgeDatabasePath,
+		discordDBPath:     loaded.DiscordBridgeDatabasePath,
+		discordConfigPath: loaded.DiscordBridgeConfigPath,
+		people:            people.Client{BaseURL: loaded.PeopleStoreURL, HTTPClient: &http.Client{Timeout: 10 * time.Second}},
 		bridgeDatabases: contactlinks.BridgeDatabases{
 			GoogleMessages: loaded.GoogleMessagesBridgeDatabasePath,
 			WhatsApp:       loaded.WhatsAppBridgeDatabasePath,
@@ -194,6 +198,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/message-log", r.messageLogHandler)
 	r.mux.HandleFunc("/message-log/", r.loggedMessageHandler)
 	r.mux.HandleFunc("/discord/status", r.discordStatusHandler)
+	r.mux.HandleFunc("/discord/direct-messages/open", r.openDiscordDirectMessageHandler)
 	r.mux.HandleFunc("/emoji", r.emojiHandler)
 	r.mux.HandleFunc("/emoji/discord/refresh", r.refreshDiscordEmojiHandler)
 	r.mux.HandleFunc("/emoji/favorites", r.emojiFavoritesHandler)

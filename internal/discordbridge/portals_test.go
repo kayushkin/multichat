@@ -28,3 +28,25 @@ func TestPortalsByRoomIDGiveEachRoomItsChannelAndMarkOneToOneDMs(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectMessagePortalWithFindsTheDMAndItsRoom(t *testing.T) {
+	bridge := throwawayBridge(t)
+	cases := []struct {
+		discordUserID string
+		want          DirectMessagePortal
+		found         bool
+	}{
+		{"42", DirectMessagePortal{ChannelID: "555", RoomID: "!dm:x"}, true},
+		{"43", DirectMessagePortal{ChannelID: "556"}, true},
+		{"44", DirectMessagePortal{}, false},
+	}
+	for _, c := range cases {
+		got, found, err := DirectMessagePortalWith(bridge, c.discordUserID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want || found != c.found {
+			t.Errorf("DirectMessagePortalWith(%q) = %+v, %v; want %+v, %v", c.discordUserID, got, found, c.want, c.found)
+		}
+	}
+}

@@ -59,6 +59,7 @@ const (
 	SettingTelegramSelfUserID               = "telegram_self_user_id"
 	SettingMetaBridgeDatabasePath           = "meta_bridge_database_path"
 	SettingDiscordBridgeDatabasePath        = "discord_bridge_database_path"
+	SettingDiscordBridgeConfigPath          = "discord_bridge_config_path"
 	SettingWhatsAppBridgeDatabasePath       = "whatsapp_bridge_database_path"
 	SettingGoogleMessagesBridgeDatabasePath = "google_messages_bridge_database_path"
 	SettingSignalBridgeDatabasePath         = "signal_bridge_database_path"
@@ -119,6 +120,8 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
 		{Key: SettingDiscordBridgeDatabasePath, EnvironmentVariable: "DISCORD_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-discord bridge's SQLite file. Read to find our own Discord puppet, so our own Discord messages are not taken for someone else's, to answer GET /discord/status and to list the bridged servers whose emoji GET /emoji offers. Written in one place: reacting with a custom emoji the bridge has not seen adds it to the bridge's discord_file table, so the service needs write access to the file. The daily Nitro check reads the account's Discord login from its user table for one GET /users/@me. Unset leaves the puppet out and makes /discord/status and the emoji routes a 503."},
+		{Key: SettingDiscordBridgeConfigPath, EnvironmentVariable: "DISCORD_CONFIG", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "The mautrix-discord bridge's config.yaml, read for its bot's Matrix user id and its command prefix. Sending to a Discord DM the bridge has made no room for opens one by asking the bot to bridge a new room to that DM's channel. Unset makes such a send a 409 that says the DM has no room yet."},
 		{Key: SettingWhatsAppBridgeDatabasePath, EnvironmentVariable: "WHATSAPP_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-whatsapp bridge's SQLite file, opened read-only at start to find our own WhatsApp LID puppet (@whatsapp_lid-…), which sits in every WhatsApp room beside the other people. Unset leaves it out, so every WhatsApp room counts us as one of its members and no WhatsApp DM names its partner."},
 		{Key: SettingGoogleMessagesBridgeDatabasePath, EnvironmentVariable: "GMESSAGES_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
@@ -174,6 +177,7 @@ type Config struct {
 	TelegramSelfUserID               string
 	MetaBridgeDatabasePath           string
 	DiscordBridgeDatabasePath        string
+	DiscordBridgeConfigPath          string
 	WhatsAppBridgeDatabasePath       string
 	GoogleMessagesBridgeDatabasePath string
 	SignalBridgeDatabasePath         string
@@ -223,6 +227,7 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		TelegramSelfUserID:               registry.String(SettingTelegramSelfUserID),
 		MetaBridgeDatabasePath:           registry.String(SettingMetaBridgeDatabasePath),
 		DiscordBridgeDatabasePath:        registry.String(SettingDiscordBridgeDatabasePath),
+		DiscordBridgeConfigPath:          registry.String(SettingDiscordBridgeConfigPath),
 		WhatsAppBridgeDatabasePath:       registry.String(SettingWhatsAppBridgeDatabasePath),
 		GoogleMessagesBridgeDatabasePath: registry.String(SettingGoogleMessagesBridgeDatabasePath),
 		SignalBridgeDatabasePath:         registry.String(SettingSignalBridgeDatabasePath),

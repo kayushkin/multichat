@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -9,7 +10,9 @@ import (
 //
 // Sends body to one person, identified by their bridge puppet id, in the
 // direct-message room we already share with them; a room is created only
-// when none exists. This is the route for anything that wants to "message X
+// when none exists. A Discord person's room is the one the Discord bridge
+// records for the DM, opened through the bridge bot when it has none
+// (discordDirectMessageRoom); a Discord DM the bridge does not know is a 409. This is the route for anything that wants to "message X
 // on WhatsApp" without knowing room ids: it is what /conversations/new never
 // was — that one creates a fresh room on every call.
 func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Request) {
@@ -37,12 +40,26 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 		r.writeError(w, 400, "body is required")
 		return
 	}
-	roomID, err := r.matrix.FindDirectMessageRoom(body.UserID)
-	if err != nil {
-		r.writeError(w, 502, "find direct message room: "+err.Error())
-		return
-	}
+	var roomID string
+	var err error
 	createdRoom := false
+	if isDiscordPuppet(body.UserID) && r.discordDBPath != "" {
+		roomID, createdRoom, err = r.discordDirectMessageRoom(body.UserID)
+		if errors.Is(err, errDiscordDirectMessageHasNoRoom) {
+			r.writeError(w, 409, err.Error())
+			return
+		}
+		if err != nil {
+			r.writeError(w, 502, "find the Discord direct message room: "+err.Error())
+			return
+		}
+	} else {
+		roomID, err = r.matrix.FindDirectMessageRoom(body.UserID)
+		if err != nil {
+			r.writeError(w, 502, "find direct message room: "+err.Error())
+			return
+		}
+	}
 	if roomID == "" {
 		roomID, err = r.matrix.CreateDM(body.UserID)
 		if err != nil {
