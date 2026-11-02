@@ -114,7 +114,7 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The Matrix access token the service reads and sends as. Changing it changes who every message is sent from."},
 		{Key: SettingTelegramBridgeDatabasePath, EnvironmentVariable: "TELEGRAM_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-telegram bridge's SQLite file, opened read-only for phone-number lookups. Unset leaves them out."},
-		{Key: SettingTelegramSelfUserID, EnvironmentVariable: "TELEGRAM_SELF_USER_ID", Kind: msg.ServiceSettingKindBehaviour, ValueType: msg.ServiceSettingValueTypeString,
+		{Key: SettingTelegramSelfUserID, EnvironmentVariable: "TELEGRAM_SELF_USER_ID", Kind: msg.ServiceSettingKindBehavior, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "Our own numeric Telegram user id, so our Telegram puppet counts as us and not as someone we talk to. The bridge database does not record which puppet is the logged-in user. Unset leaves our Telegram puppet looking like another person."},
 		{Key: SettingMetaBridgeDatabasePath, EnvironmentVariable: "META_DB", Kind: msg.ServiceSettingKindPath, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The mautrix-meta bridge's SQLite file, opened read-only to tell Facebook from Instagram rooms and to find our own Meta logins. Unset leaves both out."},
@@ -148,7 +148,7 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The Anthropic key /ai/summarize uses when OPENAI_API_KEY is unset. Nothing else reads it."},
 		{Key: SettingShortNameStoreURL, EnvironmentVariable: "SHORT_NAME_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "Where short-name-store answers. POST /short-names/assign reads the names in namespace messages there and writes the new ones there. Unset makes that route a 503."},
-		{Key: SettingShortNamerModelRole, EnvironmentVariable: "SHORT_NAMER_MODEL_ROLE", Kind: msg.ServiceSettingKindBehaviour, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultShortNamerModelRole,
+		{Key: SettingShortNamerModelRole, EnvironmentVariable: "SHORT_NAMER_MODEL_ROLE", Kind: msg.ServiceSettingKindBehavior, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultShortNamerModelRole,
 			Description: "The model-store role POST /short-names/assign asks llm-bridge-server's POST /oneshot for when it has a model propose short names. Changing it changes which model picks names, and names are permanent once written."},
 	}
 }
