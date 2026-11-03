@@ -657,7 +657,7 @@ A server is bridged when its `bridging_mode` is not 0 (mautrix-discord's `GuildB
 
 ## Emoji
 
-The custom emoji of every Discord server the bridge bridges, and the operator's favourite emoji and emoji settings (`internal/api/emoji.go`, `internal/discordemoji`, `internal/db/emoji.go`). The records are rendered to TypeScript (`EmojiCatalog`, `DiscordCustomEmoji`, `EmojiSettings`).
+The custom emoji of every Discord server the bridge bridges, and the operator's favorite emoji and emoji settings (`internal/api/emoji.go`, `internal/discordemoji`, `internal/db/emoji.go`). The records are rendered to TypeScript (`EmojiCatalog`, `DiscordCustomEmoji`, `EmojiSettings`).
 
 ### GET /emoji
 
@@ -677,11 +677,11 @@ Starts the server sweep now rather than with the next day's first Nitro check (t
 
 ### PUT /emoji/favorites
 
-`{"favorite_keys": ["🔥", "discord-emoji:123"]}` replaces the favourites, in that order. A key that is not a unicode emoji or a `discord-emoji:<id>` in the catalog or among the seen emoji, a repeated key, a missing `favorite_keys` or an unknown field is a 400 and changes nothing. Answers `{"favorite_keys": [...]}`.
+`{"favorite_keys": ["🔥", "discord-emoji:123"]}` replaces the favorites, in that order. A key that is not a unicode emoji or a `discord-emoji:<id>` in the catalog or among the seen emoji, a repeated key, a missing `favorite_keys` or an unknown field is a 400 and changes nothing. Answers `{"favorite_keys": [...]}`.
 
 ### PUT /emoji/settings
 
-`{"skin_tone": "🏽", "quick_reaction_count": 5}`, both required. `skin_tone` is "" or one of the five modifiers U+1F3FB–U+1F3FF; `quick_reaction_count` is how many favourites the quick-react bar under a message shows, 0–12. Out of range or an unknown field is a 400. (Whether other servers' emoji are offered was a setting here until 2026-09-29; the Nitro check decides it now.) Answers the settings.
+`{"skin_tone": "🏽", "quick_reaction_count": 5}`, both required. `skin_tone` is "" or one of the five modifiers U+1F3FB–U+1F3FF; `quick_reaction_count` is how many favorites the quick-react bar under a message shows, 0–12. Out of range or an unknown field is a 400. (Whether other servers' emoji are offered was a setting here until 2026-09-29; the Nitro check decides it now.) Answers the settings.
 
 ### Teaching the bridge an emoji
 

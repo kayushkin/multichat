@@ -64,7 +64,7 @@ func (r *Router) emojiCatalog() (db.EmojiCatalog, error) {
 }
 
 // emojiHandler serves GET /emoji: every bridged Discord server's custom emoji
-// as last fetched, and the operator's favourite emoji and emoji settings.
+// as last fetched, and the operator's favorite emoji and emoji settings.
 // Nothing here calls Discord; POST /emoji/discord/refresh does.
 func (r *Router) emojiHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "GET" {
@@ -118,7 +118,7 @@ func (r *Router) refreshDiscordEmojiHandler(w http.ResponseWriter, req *http.Req
 }
 
 // emojiFavoritesHandler serves PUT /emoji/favorites {"favorite_keys": [...]}:
-// replace the favourites with these, in this order.
+// replace the favorites with these, in this order.
 func (r *Router) emojiFavoritesHandler(w http.ResponseWriter, req *http.Request) {
 	if req.Method != "PUT" {
 		r.writeError(w, 405, "Method not allowed")

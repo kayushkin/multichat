@@ -133,7 +133,7 @@ export interface ConversationVisibilitySettings {
 /**
  * DiscordEmojiReactionKeyPrefix starts the key of a custom Discord emoji in
  * multichat: "discord-emoji:<discord emoji id>". It is the key an archive
- * row's reactions carry, the key a favourite is stored under, and a key
+ * row's reactions carry, the key a favorite is stored under, and a key
  * POST /conversations/{room_id}/reactions accepts.
  */
 export const DiscordEmojiReactionKeyPrefix = "discord-emoji:";
@@ -183,7 +183,7 @@ export type SkinTone = string;
 export interface EmojiSettings {
   skin_tone: SkinTone;
   /**
-   * QuickReactionCount is how many favourites the quick-react bar under a
+   * QuickReactionCount is how many favorites the quick-react bar under a
    * message shows, 0 to MaxQuickReactionCount.
    */
   quick_reaction_count: number /* int */;
@@ -236,7 +236,7 @@ export const MaxQuickReactionCount = 12;
  * EmojiCatalog is everything a picker needs: every bridged server's custom
  * emoji, the emoji the bridge has seen from other servers, when each server
  * was last refreshed, whether the account has Nitro, and the operator's
- * favourites and settings.
+ * favorites and settings.
  */
 export interface EmojiCatalog {
   discord_custom_emoji: DiscordCustomEmoji[];

@@ -70,7 +70,7 @@ func parseStoredTime(value string) (time.Time, error) {
 			return t.UTC(), nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("unrecognised stored time %q", value)
+	return time.Time{}, fmt.Errorf("unrecognized stored time %q", value)
 }
 
 // MessageCountsByRoom counts the logged messages of every room, edits left

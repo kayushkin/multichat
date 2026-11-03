@@ -30,7 +30,7 @@ func TestEmojiFavoritesKeepTheirOrderAndRefuseUnknownCustomEmoji(t *testing.T) {
 		}
 	}
 	if keys, _ := EmojiFavoriteKeys(database); len(keys) != 3 {
-		t.Fatalf("a refused write changed the favourites: %v", keys)
+		t.Fatalf("a refused write changed the favorites: %v", keys)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestReplaceDiscordServerEmojiDropsDeletedEmoji(t *testing.T) {
 	}
 }
 
-// A seen emoji can be a favourite without being in the catalog.
-func TestASeenEmojiCanBeAFavourite(t *testing.T) {
+// A seen emoji can be a favorite without being in the catalog.
+func TestASeenEmojiCanBeAFavorite(t *testing.T) {
 	database, err := Initialize(filepath.Join(t.TempDir(), "multichat.db"))
 	if err != nil {
 		t.Fatal(err)

@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// MULTICHAT_DB pins the database to an absolute path. Left unset it falls back
-	// to the relative "multichat.db" this has always used, so behaviour is unchanged
+	// to the relative "multichat.db" this has always used, so behavior is unchanged
 	// for anyone running the binary by hand from the repo.
 	//
 	// It exists because a RELATIVE database path makes the process's working

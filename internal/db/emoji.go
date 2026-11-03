@@ -1,7 +1,7 @@
 package db
 
 // The emoji records: the custom emoji of every bridged Discord server, as
-// Discord listed them at the last refresh, and the operator's favourite emoji
+// Discord listed them at the last refresh, and the operator's favorite emoji
 // and emoji settings. Rendered to TypeScript (tygo.yaml) for bridge-ui's
 // pickers and Emoji page.
 
@@ -15,7 +15,7 @@ import (
 
 // DiscordEmojiReactionKeyPrefix starts the key of a custom Discord emoji in
 // multichat: "discord-emoji:<discord emoji id>". It is the key an archive
-// row's reactions carry, the key a favourite is stored under, and a key
+// row's reactions carry, the key a favorite is stored under, and a key
 // POST /conversations/{room_id}/reactions accepts.
 const DiscordEmojiReactionKeyPrefix = "discord-emoji:"
 
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS discord_custom_emoji_refreshes (
 	refreshed_at         DATETIME NOT NULL
 );
 
--- The operator's favourite emoji, in the order they chose. emoji_key is a
+-- The operator's favorite emoji, in the order they chose. emoji_key is a
 -- unicode emoji or "discord-emoji:<id>".
 CREATE TABLE IF NOT EXISTS emoji_favorites (
 	emoji_key  TEXT PRIMARY KEY,
@@ -121,7 +121,7 @@ var SkinTones = []SkinTone{"", "🏻", "🏼", "🏽", "🏾", "🏿"}
 // EmojiSettings are the operator's emoji settings.
 type EmojiSettings struct {
 	SkinTone SkinTone `json:"skin_tone"`
-	// QuickReactionCount is how many favourites the quick-react bar under a
+	// QuickReactionCount is how many favorites the quick-react bar under a
 	// message shows, 0 to MaxQuickReactionCount.
 	QuickReactionCount int `json:"quick_reaction_count"`
 }
@@ -164,7 +164,7 @@ const MaxQuickReactionCount = 12
 // EmojiCatalog is everything a picker needs: every bridged server's custom
 // emoji, the emoji the bridge has seen from other servers, when each server
 // was last refreshed, whether the account has Nitro, and the operator's
-// favourites and settings.
+// favorites and settings.
 type EmojiCatalog struct {
 	DiscordCustomEmoji []DiscordCustomEmoji `json:"discord_custom_emoji"`
 	// DiscordSeenEmoji are custom emoji the bridge has relayed from Discord
@@ -266,29 +266,29 @@ func DiscordEmojiRefreshes(database *sql.DB) ([]DiscordServerEmojiRefresh, error
 	return out, rows.Err()
 }
 
-// EmojiFavoriteKeys returns the favourites in order.
+// EmojiFavoriteKeys returns the favorites in order.
 func EmojiFavoriteKeys(database *sql.DB) ([]string, error) {
 	rows, err := database.Query(`SELECT emoji_key FROM emoji_favorites ORDER BY position`)
 	if err != nil {
-		return nil, fmt.Errorf("list favourite emoji: %w", err)
+		return nil, fmt.Errorf("list favorite emoji: %w", err)
 	}
 	defer rows.Close()
 	out := []string{}
 	for rows.Next() {
 		var key string
 		if err := rows.Scan(&key); err != nil {
-			return nil, fmt.Errorf("scan favourite emoji: %w", err)
+			return nil, fmt.Errorf("scan favorite emoji: %w", err)
 		}
 		out = append(out, key)
 	}
 	return out, rows.Err()
 }
 
-// ErrInvalidEmojiKey is returned for a favourite that is neither a unicode
+// ErrInvalidEmojiKey is returned for a favorite that is neither a unicode
 // emoji nor a custom emoji in the catalog.
 var ErrInvalidEmojiKey = errors.New("invalid emoji key")
 
-// ReplaceEmojiFavorites stores keys as the favourites, in that order. Each is
+// ReplaceEmojiFavorites stores keys as the favorites, in that order. Each is
 // a unicode emoji (short text, no spaces) or "discord-emoji:<id>" of an emoji
 // in the catalog or in seenDiscordEmojiIDs (the emoji the bridge has seen); a
 // repeated key is refused rather than dropped.
@@ -320,11 +320,11 @@ func ReplaceEmojiFavorites(database *sql.DB, keys []string, seenDiscordEmojiIDs 
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(`DELETE FROM emoji_favorites`); err != nil {
-		return fmt.Errorf("clear favourite emoji: %w", err)
+		return fmt.Errorf("clear favorite emoji: %w", err)
 	}
 	for position, key := range keys {
 		if _, err := tx.Exec(`INSERT INTO emoji_favorites (emoji_key, position) VALUES (?, ?)`, key, position); err != nil {
-			return fmt.Errorf("store favourite emoji %q: %w", key, err)
+			return fmt.Errorf("store favorite emoji %q: %w", key, err)
 		}
 	}
 	return tx.Commit()

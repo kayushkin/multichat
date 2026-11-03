@@ -86,7 +86,7 @@ const (
 	DefaultListenPort   = 8402
 	DefaultDatabasePath = "multichat.db"
 	// DefaultShortNamerModelRole is model-store's "balanced" role. Naming a
-	// chat is a short judgement over a page of facts, and the pass runs
+	// chat is a short judgment over a page of facts, and the pass runs
 	// hourly, so the strongest and dearest role buys little.
 	DefaultShortNamerModelRole = "balanced"
 )

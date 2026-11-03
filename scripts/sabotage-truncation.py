@@ -164,7 +164,7 @@ CASES = [
            "\treturn \"SABOTAGE\"")]),
     Case("CONTROL known-negative: <= 0 rewritten as < 1, identical for ints",
          [("\tif maxBytes <= 0 {", "\tif maxBytes < 1 {")],
-         expected_unnoticed="a behavioural no-op; it must NOT be caught"),
+         expected_unnoticed="a behavioral no-op; it must NOT be caught"),
 ]
 
 if __name__ == "__main__":

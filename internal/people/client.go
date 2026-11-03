@@ -67,7 +67,7 @@ type Link struct {
 	Move     bool   `json:"move,omitempty"`
 }
 
-// MatrixUserLink is the link of one bridge account, labelled with its platform.
+// MatrixUserLink is the link of one bridge account, labeled with its platform.
 func MatrixUserLink(userID, platform, linkedBy, reason string) Link {
 	return Link{Kind: IdentityKindMatrixUser, Value: userID, Label: platform, LinkedBy: linkedBy, Reason: reason}
 }
