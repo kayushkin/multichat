@@ -60,6 +60,33 @@ type Result struct {
 	Oldest   string // the oldest message id read
 }
 
+// FetchMessage reads one known message without paging through the channel's
+// complete history. It returns the raw Discord API object for archive import.
+func (f *Fetcher) FetchMessage(channelID, messageID string) ([]byte, error) {
+	if channelID == "" || messageID == "" {
+		return nil, fmt.Errorf("fetch a Discord message: channel id and message id are required")
+	}
+	query := url.Values{"around": {messageID}, "limit": {"1"}}
+	body, err := f.get(strings.TrimRight(f.APIBaseURL, "/")+"/channels/"+url.PathEscape(channelID)+"/messages?"+query.Encode(), true)
+	if err != nil {
+		return nil, err
+	}
+	var messages []json.RawMessage
+	if err := json.Unmarshal(body, &messages); err != nil {
+		return nil, fmt.Errorf("Discord message %s in channel %s is not a message list: %w", messageID, channelID, err)
+	}
+	for _, raw := range messages {
+		var message message
+		if err := json.Unmarshal(raw, &message); err != nil {
+			return nil, fmt.Errorf("Discord message %s in channel %s is invalid: %w", messageID, channelID, err)
+		}
+		if message.ID == messageID {
+			return raw, nil
+		}
+	}
+	return nil, fmt.Errorf("Discord did not return message %s in channel %s", messageID, channelID)
+}
+
 func (f *Fetcher) sleep(d time.Duration) {
 	if f.Sleep != nil {
 		f.Sleep(d)

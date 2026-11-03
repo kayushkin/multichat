@@ -59,18 +59,17 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := importArchive(database, bridge, archive)
+	result, err := importArchive(database, bridge, archive, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result != (importResult{Read: 3, Inserted: 2, AfterLiveLog: 1}) {
 		t.Fatalf("first run = %+v", result)
 	}
-	again, err := importArchive(database, bridge, archive)
+	again, err := importArchive(database, bridge, archive, nil)
 	if err != nil || again != (importResult{Read: 3, AlreadyLogged: 2, AfterLiveLog: 1}) {
 		t.Fatalf("second run = %+v, %v", again, err)
 	}
-
 	messages, err := db.ListLoggedMessages(database, db.MessageLogFilter{RoomID: "!general:chat.example", Limit: 10})
 	if err == nil {
 		kept := messages[:0]
@@ -100,6 +99,10 @@ func TestImportAddsArchiveRowsBeforeTheLiveLogOnce(t *testing.T) {
 	if oldest.SenderDisplayName != "joiner" {
 		t.Errorf("an empty global_name falls to the username: %+v", oldest)
 	}
+	recovered, err := importArchive(database, bridge, archive, map[string]bool{"3": true})
+	if err != nil || recovered != (importResult{Read: 3, Inserted: 1, AlreadyLogged: 2}) {
+		t.Fatalf("explicit gap recovery = %+v, %v", recovered, err)
+	}
 }
 
 // A server bridged after the log began has no live rows in its rooms, so the
@@ -127,7 +130,7 @@ func TestARoomTheLiveLogNeverSawKeepsItsWholeHistory(t *testing.T) {
 	if err := os.WriteFile(archive, []byte(lines), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := importArchive(database, bridge, archive)
+	result, err := importArchive(database, bridge, archive, nil)
 	if err != nil || result != (importResult{Read: 2, Inserted: 2}) {
 		t.Fatalf("import = %+v, %v; want both kept", result, err)
 	}

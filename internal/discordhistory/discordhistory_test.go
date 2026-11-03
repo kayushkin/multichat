@@ -95,6 +95,23 @@ func TestStopBeforeEndsTheFetchAtAMessageAlreadyHeld(t *testing.T) {
 	}
 }
 
+func TestFetchMessageGetsOnlyTheNamedMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/channels/600/messages" || r.URL.Query().Get("around") != "700" || r.URL.Query().Get("limit") != "1" || r.Header.Get("Authorization") != "user-login" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Write([]byte(`[{"id":"700","channel_id":"600","content":"one"}]`))
+	}))
+	defer server.Close()
+
+	fetcher := &Fetcher{APIBaseURL: server.URL, Token: "user-login", Client: server.Client(), Sleep: func(time.Duration) {}}
+	raw, err := fetcher.FetchMessage("600", "700")
+	if err != nil || string(raw) != `{"id":"700","channel_id":"600","content":"one"}` {
+		t.Fatalf("FetchMessage = %s, %v", raw, err)
+	}
+}
+
 func TestAChannelTheAccountCannotReadIsErrNoAccessAndTooManyRateLimitsStop(t *testing.T) {
 	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"message":"Missing Access"}`, http.StatusForbidden)

@@ -12,7 +12,9 @@
 // second time.
 //
 // The Matrix room, server and channel come from the mautrix-discord bridge
-// database, looked up by the Discord channel id.
+// database, looked up by the Discord channel id. By default it keeps only
+// history from before the live log began; -include-message names confirmed
+// gaps that must be recovered after that cutoff.
 //
 //	multichat-import-discord-archive -db ~/repos/multichat/multichat.db \
 //	  -discord-db ~/multichat/discord-data/mautrix-discord.db -archive messages.raw.jsonl
@@ -34,6 +36,14 @@ import (
 	"github.com/kayushkin/multichat/internal/discordbridge"
 	"github.com/kayushkin/multichat/internal/matrix"
 )
+
+type stringList []string
+
+func (list *stringList) String() string { return strings.Join(*list, ",") }
+func (list *stringList) Set(value string) error {
+	*list = append(*list, value)
+	return nil
+}
 
 // discordMessage is the part of a Discord API message object the import reads.
 type discordMessage struct {
@@ -60,6 +70,8 @@ func main() {
 	databasePath := flag.String("db", "", "multichat's SQLite database (the unit's MULTICHAT_DB)")
 	discordDatabasePath := flag.String("discord-db", "", "the mautrix-discord bridge database (the unit's DISCORD_DB)")
 	archivePath := flag.String("archive", "", "JSONL file of raw Discord message objects")
+	var includeAfterLiveLog stringList
+	flag.Var(&includeAfterLiveLog, "include-message", "Discord message id to import even when it falls after the live-log cutoff; repeat only for confirmed gaps")
 	flag.Parse()
 	if *databasePath == "" || *discordDatabasePath == "" || *archivePath == "" {
 		flag.Usage()
@@ -83,7 +95,11 @@ func main() {
 	}
 	defer bridgeDatabase.Close()
 
-	result, err := importArchive(database, bridgeDatabase, *archivePath)
+	allowedAfterLiveLog := make(map[string]bool, len(includeAfterLiveLog))
+	for _, messageID := range includeAfterLiveLog {
+		allowedAfterLiveLog[messageID] = true
+	}
+	result, err := importArchive(database, bridgeDatabase, *archivePath, allowedAfterLiveLog)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,7 +111,10 @@ type importResult struct {
 	Read, Inserted, AlreadyLogged, AfterLiveLog int
 }
 
-func importArchive(database, bridgeDatabase *sql.DB, archivePath string) (importResult, error) {
+// importArchive keeps history that predates the live log by default. A caller
+// may name confirmed missing message ids to recover a small gap after the
+// cutoff without widening the archive import to every later message.
+func importArchive(database, bridgeDatabase *sql.DB, archivePath string, allowedAfterLiveLog map[string]bool) (importResult, error) {
 	var result importResult
 	// Each room's cutoff: when its first live-logged message was sent.
 	type cutoff struct {
@@ -142,7 +161,7 @@ func importArchive(database, bridgeDatabase *sql.DB, archivePath string) (import
 			roomCutoff = cutoff{at, known}
 			cutoffs[row.RoomID] = roomCutoff
 		}
-		if roomCutoff.known && !row.SentAt.Before(roomCutoff.at) {
+		if roomCutoff.known && !row.SentAt.Before(roomCutoff.at) && !allowedAfterLiveLog[row.DiscordMessageID] {
 			result.AfterLiveLog++
 			continue
 		}

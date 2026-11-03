@@ -46,19 +46,42 @@ func (s *discordIDList) Set(id string) error { *s = append(*s, id); return nil }
 
 var unsafeName = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
+type messageTarget struct{ channelID, messageID string }
+
+type messageTargetList []messageTarget
+
+func (targets *messageTargetList) String() string {
+	values := make([]string, 0, len(*targets))
+	for _, target := range *targets {
+		values = append(values, target.channelID+":"+target.messageID)
+	}
+	return strings.Join(values, ",")
+}
+
+func (targets *messageTargetList) Set(value string) error {
+	channelID, messageID, found := strings.Cut(value, ":")
+	if !found || channelID == "" || messageID == "" || strings.Contains(messageID, ":") {
+		return fmt.Errorf("want channel_id:message_id")
+	}
+	*targets = append(*targets, messageTarget{channelID: channelID, messageID: messageID})
+	return nil
+}
+
 func main() {
 	discordDatabasePath := flag.String("discord-db", "", "the mautrix-discord bridge database (the unit's DISCORD_DB)")
 	var servers discordIDList
 	flag.Var(&servers, "server", "a bridged Discord server id; repeat for more")
 	var onlyChannels discordIDList
 	var directMessages discordIDList
+	var messages messageTargetList
 	flag.Var(&directMessages, "direct-message", "a DM or group DM channel id to fetch; repeat for more")
+	flag.Var(&messages, "message", "a known channel_id:message_id to fetch without paging the channel; repeat for more")
 	flag.Var(&onlyChannels, "channel", "fetch only this channel id of the servers; repeat for more (default: every text channel)")
 	out := flag.String("out", "", "where to write the history")
 	pause := flag.Duration("pause", 3*time.Second, "wait before every request to Discord")
 	images := flag.Bool("images", false, "also save each image attachment")
 	flag.Parse()
-	if *discordDatabasePath == "" || len(servers)+len(directMessages) == 0 || *out == "" || *pause < time.Second {
+	if *discordDatabasePath == "" || len(servers)+len(directMessages)+len(messages) == 0 || *out == "" || *pause < time.Second {
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -90,6 +113,33 @@ func main() {
 			log.Fatalf("direct messages: %v", err)
 		}
 	}
+	if len(messages) > 0 {
+		if err := fetchMessages(fetcher, messages, *out); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func fetchMessages(fetcher *discordhistory.Fetcher, messages []messageTarget, out string) error {
+	if err := os.MkdirAll(out, 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(filepath.Join(out, "recovered.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	for _, target := range messages {
+		raw, err := fetcher.FetchMessage(target.channelID, target.messageID)
+		if err != nil {
+			return fmt.Errorf("message %s in channel %s: %w", target.messageID, target.channelID, err)
+		}
+		if _, err := file.Write(append(raw, '\n')); err != nil {
+			return err
+		}
+		fmt.Printf("channel %s: recovered message %s\n", target.channelID, target.messageID)
+	}
+	return nil
 }
 
 // directMessagesFolder is where DMs and group DMs go under -out, in place of
