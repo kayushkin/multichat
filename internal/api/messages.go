@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/kayushkin/multichat/internal/botaccounts"
 )
 
-// sendDirectMessageHandler — POST /messages/send {"user_id":…,"body":…}.
+// sendDirectMessageHandler — POST /messages/send {"user_id":…,"body":…},
+// or {"account_id":…,"user_id" or "channel_id":…,"body":…} to send as one of
+// our bot accounts (sendAsBot).
 //
 // Sends body to one person, identified by their bridge puppet id, in the
 // direct-message room we already share with them; a room is created only
@@ -20,16 +24,28 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 		r.writeError(w, 405, "Method not allowed")
 		return
 	}
-	if r.matrix == nil {
-		r.writeError(w, 503, "Matrix client not configured")
+	var body struct {
+		AccountID string `json:"account_id"`
+		UserID    string `json:"user_id"`
+		ChannelID string `json:"channel_id"`
+		Body      string `json:"body"`
+	}
+	decoder := json.NewDecoder(req.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil {
+		r.writeError(w, 400, "invalid JSON: "+err.Error())
 		return
 	}
-	var body struct {
-		UserID string `json:"user_id"`
-		Body   string `json:"body"`
+	if body.AccountID != "" {
+		r.sendAsBot(w, body.AccountID, body.UserID, body.ChannelID, body.Body)
+		return
 	}
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-		r.writeError(w, 400, "invalid JSON: "+err.Error())
+	if body.ChannelID != "" {
+		r.writeError(w, 400, "channel_id goes with account_id: it names a bot's channel; the operator's own account sends by user_id")
+		return
+	}
+	if r.matrix == nil {
+		r.writeError(w, 503, "Matrix client not configured")
 		return
 	}
 	if body.UserID == "" {
@@ -78,4 +94,42 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 		"event_id":     eventID,
 		"created_room": createdRoom,
 	})
+}
+
+// sendAsBot sends body as one of our bot accounts, to the direct message with
+// a platform user id or to a channel id, and answers the platform's message
+// ids (more than one when the body is longer than one message).
+func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, body string) {
+	if r.bots == nil {
+		r.writeError(w, 503, "multichat holds no bot accounts: MESSAGE_STORE_URL is not set")
+		return
+	}
+	if (userID == "") == (channelID == "") {
+		r.writeError(w, 400, "a send as a bot names exactly one of user_id (the person's platform user id, such as a Discord user id) and channel_id")
+		return
+	}
+	if body == "" {
+		r.writeError(w, 400, "body is required")
+		return
+	}
+	result, err := r.bots.Send(accountID, userID, channelID, body)
+	if errors.Is(err, botaccounts.ErrUnknownAccount) {
+		r.writeError(w, 404, err.Error()+"; GET /accounts lists them")
+		return
+	}
+	if errors.Is(err, botaccounts.ErrNotConnected) {
+		r.writeError(w, 503, err.Error())
+		return
+	}
+	if err != nil {
+		if len(result.MessageIDs) > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(502)
+			json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "account_id": result.AccountID, "channel_id": result.ChannelID, "message_ids": result.MessageIDs})
+			return
+		}
+		r.writeError(w, 502, err.Error())
+		return
+	}
+	r.writeJSON(w, result)
 }

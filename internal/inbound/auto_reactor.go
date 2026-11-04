@@ -53,6 +53,12 @@ func (a *AutoReactor) Run() {
 // rule was made. A reaction the
 // homeserver refuses is kept on its rule and does not stop the others.
 func (a *AutoReactor) React(inbound messages.MessagingInbound) error {
+	// A message to one of our bot accounts came from the platform, not
+	// through Matrix: there is no room to react in as our account, and the
+	// rules name Matrix senders and rooms.
+	if inbound.ReceivingAccountID != "" {
+		return nil
+	}
 	rules, err := db.EnabledAutoReactionsFor(a.Database, inbound.SenderUserID, inbound.RoomID)
 	if err != nil {
 		return err

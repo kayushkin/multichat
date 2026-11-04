@@ -68,6 +68,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		OpenAIAPIKey:                     "an-openai-key",
 		AnthropicAPIKey:                  "an-anthropic-key",
 		ShortNameStoreURL:                "http://short-name-store.example:1",
+		MessageStoreURL:                  "http://message-store.example:1",
 		ShortNamerModelRole:              "efficient",
 	}
 	got := mustLoadFrom(t, map[string]string{
@@ -95,6 +96,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"OPENAI_API_KEY":                  "an-openai-key",
 		"ANTHROPIC_API_KEY":               "an-anthropic-key",
 		"SHORT_NAME_STORE_URL":            "http://short-name-store.example:1",
+		"MESSAGE_STORE_URL":               "http://message-store.example:1",
 		"SHORT_NAMER_MODEL_ROLE":          "efficient",
 	})
 	if got != want {
@@ -112,7 +114,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 25; got != want {
+	if got, want := len(SettingDefinitions()), 26; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }
@@ -362,5 +364,24 @@ func TestEveryEnvironmentVariableTheCodeReadsIsDeclared(t *testing.T) {
 	}
 	if filesRead < 10 {
 		t.Fatalf("the scan read %d files; it is not looking at the service", filesRead)
+	}
+}
+
+func TestBotAccountsNeedAuthStoreBesideMessageStore(t *testing.T) {
+	complete := map[string]string{"MESSAGE_STORE_URL": "http://message-store.example:1", "AUTH_STORE_URL": "http://auth-store.example:1", "AUTH_STORE_TOKEN": "an-auth-store-token"}
+	if _, err := loadFrom(complete); err != nil {
+		t.Fatalf("bot accounts with what they need: %v", err)
+	}
+	for _, missing := range []string{"AUTH_STORE_URL", "AUTH_STORE_TOKEN"} {
+		variables := map[string]string{}
+		for name, value := range complete {
+			if name != missing {
+				variables[name] = value
+			}
+		}
+		_, err := loadFrom(variables)
+		if err == nil || !strings.Contains(err.Error(), "MESSAGE_STORE_URL is set") || strings.Contains(err.Error(), "an-auth-store-token") {
+			t.Errorf("MESSAGE_STORE_URL without %s = %v, want a refusal that quotes no token", missing, err)
+		}
 	}
 }

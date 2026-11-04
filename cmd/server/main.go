@@ -13,6 +13,7 @@ import (
 	"github.com/kayushkin/bus"
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/api"
+	"github.com/kayushkin/multichat/internal/botaccounts"
 	"github.com/kayushkin/multichat/internal/config"
 	"github.com/kayushkin/multichat/internal/db"
 	"github.com/kayushkin/multichat/internal/discordbridge"
@@ -272,8 +273,9 @@ func main() {
 	// contract; with it set, a bus that cannot be reached is fatal rather than
 	// a silent "inbound disabled". config.Load has already refused NATS_URL
 	// without the Matrix client.
+	var busClient *bus.Client
 	if natsURL := loaded.NATSURL; natsURL != "" {
-		busClient, err := bus.Connect(bus.Options{URL: natsURL, Name: "multichat"})
+		busClient, err = bus.Connect(bus.Options{URL: natsURL, Name: "multichat"})
 		if err != nil {
 			log.Fatalf("NATS: %v", err)
 		}
@@ -285,6 +287,30 @@ func main() {
 		go (&inbound.AutoReactor{Database: database, Bus: busClient, Matrix: matrixClient}).Run()
 	} else {
 		log.Println("NATS_URL not set: inbound messaging (sync worker, auto-reactor) is off")
+	}
+
+	// Bot accounts: message-store's accounts of kind bot, each with a
+	// gateway connection of its own. Their direct messages go on
+	// messaging.inbound beside the Matrix ones; POST /messages/send with an
+	// account_id sends as one.
+	if loaded.MessageStoreURL != "" {
+		httpClient := &http.Client{Timeout: 30 * time.Second}
+		bots := &botaccounts.Manager{
+			Accounts:     botaccounts.MessageStoreAccounts{BaseURL: loaded.MessageStoreURL, HTTPClient: httpClient},
+			Tokens:       botaccounts.AuthStoreTokens{BaseURL: loaded.AuthStoreURL, Token: loaded.AuthStoreToken, HTTPClient: httpClient},
+			NewGateway:   botaccounts.NewDiscordGateway,
+			RefreshEvery: 10 * time.Minute, RetryEvery: 30 * time.Second, RetryAtMost: 10 * time.Minute,
+			PublishAttempts: 5, Sleep: time.Sleep, Now: time.Now,
+		}
+		if busClient != nil {
+			bots.Publisher = busClient
+		} else {
+			log.Println("bot accounts: NATS_URL not set, so what people send the bots is logged and not published")
+		}
+		router.SetBotAccounts(bots)
+		go bots.Run()
+	} else {
+		log.Println("MESSAGE_STORE_URL not set: multichat holds no bot accounts")
 	}
 
 	http.Handle("/api/", http.StripPrefix("/api", router))

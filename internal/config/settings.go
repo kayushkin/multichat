@@ -74,6 +74,7 @@ const (
 	SettingAnthropicAPIKey                  = "anthropic_api_key"
 	SettingShortNameStoreURL                = "short_name_store_url"
 	SettingShortNamerModelRole              = "short_namer_model_role"
+	SettingMessageStoreURL                  = "message_store_url"
 )
 
 // The values in force with nothing set. The shipped unit sets the port and an
@@ -146,6 +147,8 @@ func SettingDefinitions() []servicesettings.Definition {
 			Description: "The OpenAI key the /ai/summarize, /ai/escalation-scan and /ai/auto-tag routes spend. Unset, those routes answer 500 \"No AI API key configured\", except summarize, which then tries ANTHROPIC_API_KEY."},
 		{Key: SettingAnthropicAPIKey, EnvironmentVariable: "ANTHROPIC_API_KEY", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The Anthropic key /ai/summarize uses when OPENAI_API_KEY is unset. Nothing else reads it."},
+		{Key: SettingMessageStoreURL, EnvironmentVariable: "MESSAGE_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Where message-store answers. Its accounts of kind bot are the bot accounts multichat connects: each Discord bot's direct messages go on messaging.inbound (with NATS_URL set) and POST /messages/send with account_id sends as it. The bot tokens come from auth-store (AUTH_STORE_URL, AUTH_STORE_TOKEN). Unset, multichat holds no bot accounts."},
 		{Key: SettingShortNameStoreURL, EnvironmentVariable: "SHORT_NAME_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "Where short-name-store answers. POST /short-names/assign reads the names in namespace messages there and writes the new ones there. Unset makes that route a 503."},
 		{Key: SettingShortNamerModelRole, EnvironmentVariable: "SHORT_NAMER_MODEL_ROLE", Kind: msg.ServiceSettingKindBehavior, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultShortNamerModelRole,
@@ -204,6 +207,9 @@ type Config struct {
 	// ShortNameStoreURL is empty when the short-name pass cannot run.
 	ShortNameStoreURL   string
 	ShortNamerModelRole string
+
+	// MessageStoreURL is empty when multichat holds no bot accounts.
+	MessageStoreURL string
 }
 
 // MatrixConfigured reports whether both halves of the Matrix client are set.
@@ -242,6 +248,10 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		AnthropicAPIKey:                  registry.String(SettingAnthropicAPIKey),
 		ShortNameStoreURL:                registry.String(SettingShortNameStoreURL),
 		ShortNamerModelRole:              registry.String(SettingShortNamerModelRole),
+		MessageStoreURL:                  registry.String(SettingMessageStoreURL),
+	}
+	if loaded.MessageStoreURL != "" && (loaded.AuthStoreURL == "" || loaded.AuthStoreToken == "") {
+		return Config{}, fmt.Errorf("MESSAGE_STORE_URL is set but AUTH_STORE_URL or AUTH_STORE_TOKEN is not; the bot accounts need auth-store for their tokens")
 	}
 	if loaded.NATSURL != "" && !loaded.MatrixConfigured() {
 		return Config{}, fmt.Errorf("NATS_URL is set but the Matrix client is not configured (SYNAPSE_URL and MATRIX_TOKEN); inbound needs both")

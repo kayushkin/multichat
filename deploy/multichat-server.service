@@ -28,6 +28,11 @@ Environment=SIGNAL_DB=%h/multichat/signal-data/mautrix-signal.db
 Environment=PEOPLE_STORE_URL=http://127.0.0.1:8321
 # POST /api/short-names/assign reads and writes chat short names here.
 Environment=SHORT_NAME_STORE_URL=http://127.0.0.1:8325
+# Bot accounts: message-store's accounts of kind bot. Each Discord bot gets a
+# gateway connection here, its direct messages go on messaging.inbound, and
+# POST /api/messages/send with account_id sends as it. Tokens come from
+# auth-store (AUTH_STORE_URL below, AUTH_STORE_TOKEN in the EnvironmentFile).
+Environment=MESSAGE_STORE_URL=http://127.0.0.1:8337
 
 # Custom Discord emoji. POST /emoji/discord/refresh lists each bridged server's
 # emoji with a Discord bot token it resolves from auth-store by credential id:

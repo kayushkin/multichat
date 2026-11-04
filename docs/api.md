@@ -606,11 +606,28 @@ Send a text message to **one person**, identified by their bridge puppet id, in 
 
 The `user_id` comes from `GET /contacts/unified` (`identities[].user_id`). `~/bin/multichat-send` wraps this route for the shell and the scheduler, resolving a display name + platform to that id and refusing anything ambiguous.
 
+**As one of our bot accounts:** name the bot's message-store account id as `account_id`, and exactly one of `user_id` (the person's platform user id, such as a Discord user id, not a Matrix puppet id) or `channel_id` (a channel the bot can post in, such as its DM channel with the person). The body is split at Discord's 2000-character limit, at a blank line, a line end or a space, and mentions nobody.
+
+```json
+{ "account_id": "message_account_000002", "user_id": "700000000000000007", "body": "running 10 min late" }
+```
+```json
+{ "account_id": "message_account_000002", "channel_id": "800000000000000008", "message_ids": ["900000000000000009"] }
+```
+
+**Errors:** `400` both or neither of `user_id`/`channel_id`, no `body`, `channel_id` without `account_id`, or any unknown field; `404` an `account_id` that is not one of our bots; `502` Discord refused (when a long body was cut and some parts went out, the answer also lists their `message_ids`); `503` no bot accounts (`MESSAGE_STORE_URL` unset) or the bot's connection has not opened yet.
+
+### GET /accounts
+
+Every account multichat can send as: `own_accounts`, the operator's own, one per platform with the Matrix puppet ids that are the operator there (a send names no `account_id`; a bridge login's state is `scripts/bridge-status.sh`'s to tell); and `bot_accounts`, each bot message-store lists (`id`, `platform`, `handle`, `display_name`, `credential_id`) with its connection: `state` (`connecting`, `connected`, `disconnected` — discordgo reconnects by itself — or `failed`, retried with a growing wait), `state_since`, `last_error`, `messages_received`, `last_received_at` and `publish_failures` (messages the bus never took after five tries; each is logged with its id). `bot_accounts_configured` is false when `MESSAGE_STORE_URL` is unset.
+
 ---
 
 ## Inbound messages
 
 The server long-polls Synapse `/sync` (when `NATS_URL` is set) and publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`). Our own sends and our own platform puppets are never published. multichat starts no agent session itself: a session started by a chat message is a scheduler job with an `event_trigger` on `messaging.inbound` (see the scheduler's AGENTS.md, "Event triggers"). The `inbound-rules`, `inbound-dispatches` and `inbound-prompt-fields` routes went on 2026-10-28.
+
+Each bot account publishes there too: every direct message a person (not a bot) sends the bot, with `receiving_account_id` (the bot's message-store account id), `receiving_account_name`, `platform_channel_id`, `platform_message_id`, `sender_platform_user_id`, `sender_display_name`, `body`, `attachments` (`url`, `filename`, `content_type`, `size_bytes`) and `is_direct_message` true. Such a message has no Matrix room, so `room_id` and `sender_user_id` are empty, and its `event_id` is `<platform>:<platform_message_id>`. Reply with `POST /messages/send` naming `account_id` and `channel_id`. The auto-reactor leaves these alone.
 
 ### GET /message-log
 

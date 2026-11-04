@@ -24,6 +24,9 @@ import (
 )
 
 type Router struct {
+	// bots is nil when multichat holds no bot accounts (MESSAGE_STORE_URL
+	// unset); POST /messages/send with an account_id is then a 503.
+	bots       BotAccounts
 	db         *sql.DB
 	matrix     *matrix.Client
 	mux        *http.ServeMux
@@ -189,6 +192,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
+	r.mux.HandleFunc("/accounts", r.accountsHandler)
 	r.mux.HandleFunc("/awaiting-reply", r.awaitingReplyHandler)
 	r.mux.HandleFunc("/awaiting-reply/settings", r.awaitingReplySettingsHandler)
 	r.mux.HandleFunc("/awaiting-reply/clears", r.awaitingReplyClearsHandler)
