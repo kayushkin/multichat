@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS awaiting_reply_settings (
 	max_message_age_days   INTEGER NOT NULL,
 	clear_when_opened      INTEGER NOT NULL,
 	clear_when_replied     INTEGER NOT NULL,
-	updated_at             DATETIME NOT NULL
+	updated_at             DATETIME NOT NULL,
+	count_every_known_person INTEGER NOT NULL DEFAULT 0,
+	any_size_person_tags     TEXT NOT NULL DEFAULT '[]'  -- JSON array of people-store tags
 );
 CREATE TABLE IF NOT EXISTS awaiting_reply_room_clears (
 	room_id         TEXT PRIMARY KEY,
@@ -35,6 +37,23 @@ func createAwaitingReplySchema(database *sql.DB) error {
 	if _, err := database.Exec(awaitingReplySchema); err != nil {
 		return fmt.Errorf("create awaiting reply schema: %w", err)
 	}
+	// Added 2026-11-07: count everyone people-store knows, and let people
+	// with chosen people-store tags count in groups of any size.
+	for _, column := range []struct{ name, definition string }{
+		{"count_every_known_person", "INTEGER NOT NULL DEFAULT 0"},
+		{"any_size_person_tags", "TEXT NOT NULL DEFAULT '[]'"},
+	} {
+		present, err := tableHasColumn(database, "awaiting_reply_settings", column.name)
+		if err != nil {
+			return err
+		}
+		if present {
+			continue
+		}
+		if _, err := database.Exec(`ALTER TABLE awaiting_reply_settings ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return fmt.Errorf("add awaiting_reply_settings.%s: %w", column.name, err)
+		}
+	}
 	return nil
 }
 
@@ -43,9 +62,17 @@ type AwaitingReplySettings struct {
 	// TagIDs are multichat tags. A person counts when any of their accounts
 	// carries one; a room counts when it carries one itself.
 	TagIDs []int64 `json:"tag_ids"`
+	// CountEveryKnownPerson counts a message from any account people-store
+	// links to a person, tagged or not. An account no person owns (a short
+	// code, an unknown number, a bot) still counts only on its own tag.
+	CountEveryKnownPerson bool `json:"count_every_known_person"`
 	// MaxGroupMemberCount is the largest group that counts, the operator
 	// included. A direct message has 2. Discord server channels never count.
 	MaxGroupMemberCount int `json:"max_group_member_count"`
+	// AnySizePersonTags are people-store tags. A message from a person with
+	// one counts in a group of any size, though still not in a Discord
+	// server channel: the operator's work group chats, say.
+	AnySizePersonTags []string `json:"any_size_person_tags"`
 	// MaxMessageAgeDays leaves out messages older than this many days.
 	MaxMessageAgeDays int `json:"max_message_age_days"`
 	// ClearWhenOpened lets opening a conversation in dash clear it.
@@ -62,6 +89,7 @@ type AwaitingReplySettings struct {
 var DefaultAwaitingReplySettings = AwaitingReplySettings{
 	TagIDs:              []int64{},
 	MaxGroupMemberCount: 5,
+	AnySizePersonTags:   []string{},
 	MaxMessageAgeDays:   30,
 	ClearWhenOpened:     true,
 	ClearWhenReplied:    true,
@@ -73,14 +101,15 @@ var ErrInvalidAwaitingReplySettings = errors.New("invalid awaiting reply setting
 // ReadAwaitingReplySettings returns the saved settings, or the defaults
 // before the first save.
 func ReadAwaitingReplySettings(database *sql.DB) (AwaitingReplySettings, error) {
-	var tagIDsJSON string
+	var tagIDsJSON, anySizePersonTagsJSON string
 	var settings AwaitingReplySettings
-	err := database.QueryRow(`SELECT tag_ids, max_group_member_count, max_message_age_days, clear_when_opened, clear_when_replied, updated_at
-		FROM awaiting_reply_settings WHERE id = 1`).Scan(&tagIDsJSON, &settings.MaxGroupMemberCount, &settings.MaxMessageAgeDays,
-		&settings.ClearWhenOpened, &settings.ClearWhenReplied, &settings.UpdatedAt)
+	err := database.QueryRow(`SELECT tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied, updated_at
+		FROM awaiting_reply_settings WHERE id = 1`).Scan(&tagIDsJSON, &settings.CountEveryKnownPerson, &settings.MaxGroupMemberCount, &anySizePersonTagsJSON,
+		&settings.MaxMessageAgeDays, &settings.ClearWhenOpened, &settings.ClearWhenReplied, &settings.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		defaults := DefaultAwaitingReplySettings
 		defaults.TagIDs = []int64{}
+		defaults.AnySizePersonTags = []string{}
 		return defaults, nil
 	}
 	if err != nil {
@@ -88,6 +117,9 @@ func ReadAwaitingReplySettings(database *sql.DB) (AwaitingReplySettings, error) 
 	}
 	if err := json.Unmarshal([]byte(tagIDsJSON), &settings.TagIDs); err != nil {
 		return AwaitingReplySettings{}, fmt.Errorf("awaiting reply settings tag_ids %q: %w", tagIDsJSON, err)
+	}
+	if err := json.Unmarshal([]byte(anySizePersonTagsJSON), &settings.AnySizePersonTags); err != nil {
+		return AwaitingReplySettings{}, fmt.Errorf("awaiting reply settings any_size_person_tags %q: %w", anySizePersonTagsJSON, err)
 	}
 	return settings, nil
 }
@@ -99,6 +131,22 @@ func SaveAwaitingReplySettings(database *sql.DB, settings AwaitingReplySettings,
 	if settings.TagIDs == nil {
 		return AwaitingReplySettings{}, fmt.Errorf("%w: tag_ids is required (use [] for none)", ErrInvalidAwaitingReplySettings)
 	}
+	if settings.AnySizePersonTags == nil {
+		return AwaitingReplySettings{}, fmt.Errorf("%w: any_size_person_tags is required (use [] for none)", ErrInvalidAwaitingReplySettings)
+	}
+	personTags := []string{}
+	seenPersonTags := map[string]bool{}
+	for _, tag := range settings.AnySizePersonTags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			return AwaitingReplySettings{}, fmt.Errorf("%w: any_size_person_tags holds an empty tag", ErrInvalidAwaitingReplySettings)
+		}
+		if !seenPersonTags[tag] {
+			seenPersonTags[tag] = true
+			personTags = append(personTags, tag)
+		}
+	}
+	settings.AnySizePersonTags = personTags
 	if settings.MaxGroupMemberCount < 2 {
 		return AwaitingReplySettings{}, fmt.Errorf("%w: max_group_member_count must be at least 2 (a direct message), got %d", ErrInvalidAwaitingReplySettings, settings.MaxGroupMemberCount)
 	}
@@ -127,12 +175,18 @@ func SaveAwaitingReplySettings(database *sql.DB, settings AwaitingReplySettings,
 	if err != nil {
 		return AwaitingReplySettings{}, err
 	}
-	if _, err := database.Exec(`INSERT INTO awaiting_reply_settings (id, tag_ids, max_group_member_count, max_message_age_days, clear_when_opened, clear_when_replied, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET tag_ids = excluded.tag_ids, max_group_member_count = excluded.max_group_member_count,
+	anySizePersonTagsJSON, err := json.Marshal(settings.AnySizePersonTags)
+	if err != nil {
+		return AwaitingReplySettings{}, err
+	}
+	if _, err := database.Exec(`INSERT INTO awaiting_reply_settings (id, tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET tag_ids = excluded.tag_ids, count_every_known_person = excluded.count_every_known_person,
+			max_group_member_count = excluded.max_group_member_count, any_size_person_tags = excluded.any_size_person_tags,
 			max_message_age_days = excluded.max_message_age_days, clear_when_opened = excluded.clear_when_opened,
 			clear_when_replied = excluded.clear_when_replied, updated_at = excluded.updated_at`,
-		string(tagIDsJSON), settings.MaxGroupMemberCount, settings.MaxMessageAgeDays, settings.ClearWhenOpened, settings.ClearWhenReplied, settings.UpdatedAt); err != nil {
+		string(tagIDsJSON), settings.CountEveryKnownPerson, settings.MaxGroupMemberCount, string(anySizePersonTagsJSON),
+		settings.MaxMessageAgeDays, settings.ClearWhenOpened, settings.ClearWhenReplied, settings.UpdatedAt); err != nil {
 		return AwaitingReplySettings{}, fmt.Errorf("save awaiting reply settings: %w", err)
 	}
 	return settings, nil

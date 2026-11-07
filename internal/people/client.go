@@ -39,9 +39,10 @@ type Client struct {
 
 // Person is the part of people-store's person multichat reads.
 type Person struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
-	DeletedAt   int64  `json:"deleted_at"`
+	ID          string   `json:"id"`
+	DisplayName string   `json:"display_name"`
+	Tags        []string `json:"tags"`
+	DeletedAt   int64    `json:"deleted_at"`
 }
 
 // Identity is one people-store identity.

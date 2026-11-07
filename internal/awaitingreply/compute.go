@@ -1,10 +1,13 @@
 // Package awaitingreply works out which conversations hold a message the
 // operator has not answered from someone they tagged.
 //
-// It counts people, not accounts: a person (a people-store id) counts when
-// any of their chat accounts carries one of the chosen tags, and then every
-// account of theirs counts. An account no person owns counts on its own tag.
-// A room carrying a chosen tag counts every message in it but the
+// It counts people, not accounts. In a direct message or a small group, a
+// person (a people-store id) counts when the settings count everyone
+// people-store knows, or when any of their chat accounts carries one of the
+// chosen multichat tags; then every account of theirs counts. An account no
+// person owns counts only on its own tag. In a bigger group only a person
+// with one of the chosen people-store tags counts (work colleagues, say).
+// A room carrying a chosen multichat tag counts every message in it but the
 // operator's, whatever its size and even as a Discord server channel.
 package awaitingreply
 
@@ -34,8 +37,11 @@ type Inputs struct {
 	// TaggedAccounts carry a chosen tag; TaggedRooms carry one themselves.
 	TaggedAccounts map[string]bool
 	TaggedRooms    map[string]bool
-	// AccountPersons maps an account to the person who owns it.
+	// AccountPersons maps an account to the person who owns it, for every
+	// person who is not deleted.
 	AccountPersons map[string]string
+	// PersonTags are each person's people-store tags.
+	PersonTags map[string][]string
 	// PersonNames maps a person id to their display name.
 	PersonNames map[string]string
 	// Messages are the logged messages from counted accounts or in tagged
@@ -71,6 +77,29 @@ func CountedAccounts(taggedAccounts map[string]bool, accountPersons map[string]s
 	return counted
 }
 
+// CountedAccountSets returns the accounts whose messages count in a direct
+// message or small group, and the ones that count in a group of any size.
+func (in Inputs) CountedAccountSets() (smallRoomAccounts, anySizeAccounts map[string]bool) {
+	smallRoomAccounts = CountedAccounts(in.TaggedAccounts, in.AccountPersons)
+	anySizeTags := map[string]bool{}
+	for _, tag := range in.Settings.AnySizePersonTags {
+		anySizeTags[tag] = true
+	}
+	anySizeAccounts = map[string]bool{}
+	for account, person := range in.AccountPersons {
+		if in.Settings.CountEveryKnownPerson {
+			smallRoomAccounts[account] = true
+		}
+		for _, tag := range in.PersonTags[person] {
+			if anySizeTags[tag] {
+				anySizeAccounts[account] = true
+				smallRoomAccounts[account] = true
+			}
+		}
+	}
+	return smallRoomAccounts, anySizeAccounts
+}
+
 // IsDiscordServerChannel reports whether a logged message came from a channel
 // of a Discord server. Only there does the bridge set a network: a direct or
 // group message on Discord has none. Other platforms set one for things that
@@ -82,34 +111,42 @@ func IsDiscordServerChannel(message db.LoggedMessage) bool {
 
 // Compute works out the waiting and cleared lists.
 func Compute(in Inputs) Overview {
-	counted := CountedAccounts(in.TaggedAccounts, in.AccountPersons)
+	smallRoomAccounts, anySizeAccounts := in.CountedAccountSets()
 	oldestCounted := in.Now.Add(-time.Duration(in.Settings.MaxMessageAgeDays) * 24 * time.Hour)
 
-	byRoom := map[string][]db.LoggedMessage{}
-	excludedRooms := map[string]bool{}
+	serverChannels := map[string]bool{}
 	for _, message := range in.Messages {
 		if IsDiscordServerChannel(message) {
-			excludedRooms[message.RoomID] = true
+			serverChannels[message.RoomID] = true
 		}
+	}
+	byRoom := map[string][]db.LoggedMessage{}
+	for _, message := range in.Messages {
 		if in.OwnUserIDs[message.SenderUserID] || !message.SentAt.After(oldestCounted) {
 			continue
 		}
-		if counted[message.SenderUserID] || in.TaggedRooms[message.RoomID] {
+		listed, ok := in.Conversations[message.RoomID]
+		if !ok {
+			continue
+		}
+		// A room the operator tagged always counts. The size and server
+		// channel rules decide only where a person's messages count.
+		counts := in.TaggedRooms[message.RoomID]
+		if !counts && !serverChannels[message.RoomID] {
+			if listed.MemberCount <= in.Settings.MaxGroupMemberCount {
+				counts = smallRoomAccounts[message.SenderUserID]
+			} else {
+				counts = anySizeAccounts[message.SenderUserID]
+			}
+		}
+		if counts {
 			byRoom[message.RoomID] = append(byRoom[message.RoomID], message)
 		}
 	}
 
 	overview := Overview{Settings: in.Settings, Waiting: []WaitingConversation{}, Cleared: []ClearedConversation{}, ComputedAt: in.Now}
 	for roomID, messages := range byRoom {
-		listed, ok := in.Conversations[roomID]
-		if !ok {
-			continue
-		}
-		// A room the operator tagged always counts. The size and server
-		// channel rules decide only where a tagged person's messages count.
-		if !in.TaggedRooms[roomID] && (excludedRooms[roomID] || listed.MemberCount > in.Settings.MaxGroupMemberCount) {
-			continue
-		}
+		listed := in.Conversations[roomID]
 		conversation := Conversation{
 			RoomID:                     roomID,
 			Name:                       listed.Name,

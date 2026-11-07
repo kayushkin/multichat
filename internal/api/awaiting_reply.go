@@ -52,18 +52,26 @@ func (r *Router) awaitingReplyHandler(w http.ResponseWriter, req *http.Request) 
 		r.writeError(w, 502, "read people from people-store: "+err.Error())
 		return
 	}
-	in.AccountPersons = map[string]string{}
-	for userID, identity := range identities {
-		in.AccountPersons[userID] = identity.PersonID
-	}
 	in.PersonNames = map[string]string{}
+	in.PersonTags = map[string][]string{}
 	for id, person := range persons {
 		in.PersonNames[id] = person.DisplayName
+		in.PersonTags[id] = person.Tags
+	}
+	in.AccountPersons = map[string]string{}
+	for userID, identity := range identities {
+		if person, ok := persons[identity.PersonID]; ok && person.DeletedAt == 0 {
+			in.AccountPersons[userID] = identity.PersonID
+		}
 	}
 
-	counted := awaitingreply.CountedAccounts(in.TaggedAccounts, in.AccountPersons)
+	smallRoomAccounts, anySizeAccounts := in.CountedAccountSets()
+	senders := smallRoomAccounts
+	for account := range anySizeAccounts {
+		senders[account] = true
+	}
 	since := now.Add(-time.Duration(settings.MaxMessageAgeDays) * 24 * time.Hour)
-	if in.Messages, err = db.MessagesFromSendersOrInRoomsSince(r.db, keys(counted), keys(in.TaggedRooms), since); err != nil {
+	if in.Messages, err = db.MessagesFromSendersOrInRoomsSince(r.db, keys(senders), keys(in.TaggedRooms), since); err != nil {
 		r.writeError(w, 500, err.Error())
 		return
 	}
@@ -100,28 +108,33 @@ func (r *Router) awaitingReplySettingsHandler(w http.ResponseWriter, req *http.R
 		r.writeJSON(w, settings)
 	case "PUT":
 		var body struct {
-			TagIDs              []int64 `json:"tag_ids"`
-			MaxGroupMemberCount *int    `json:"max_group_member_count"`
-			MaxMessageAgeDays   *int    `json:"max_message_age_days"`
-			ClearWhenOpened     *bool   `json:"clear_when_opened"`
-			ClearWhenReplied    *bool   `json:"clear_when_replied"`
+			TagIDs                []int64  `json:"tag_ids"`
+			CountEveryKnownPerson *bool    `json:"count_every_known_person"`
+			MaxGroupMemberCount   *int     `json:"max_group_member_count"`
+			AnySizePersonTags     []string `json:"any_size_person_tags"`
+			MaxMessageAgeDays     *int     `json:"max_message_age_days"`
+			ClearWhenOpened       *bool    `json:"clear_when_opened"`
+			ClearWhenReplied      *bool    `json:"clear_when_replied"`
 		}
 		decoder := json.NewDecoder(req.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&body); err != nil {
-			r.writeError(w, 400, "body must be the whole settings object {tag_ids, max_group_member_count, max_message_age_days, clear_when_opened, clear_when_replied}: "+err.Error())
+			r.writeError(w, 400, "body must be the whole settings object {tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied}: "+err.Error())
 			return
 		}
-		if body.TagIDs == nil || body.MaxGroupMemberCount == nil || body.MaxMessageAgeDays == nil || body.ClearWhenOpened == nil || body.ClearWhenReplied == nil {
-			r.writeError(w, 400, "every field is required: tag_ids, max_group_member_count, max_message_age_days, clear_when_opened, clear_when_replied")
+		if body.TagIDs == nil || body.CountEveryKnownPerson == nil || body.MaxGroupMemberCount == nil || body.AnySizePersonTags == nil ||
+			body.MaxMessageAgeDays == nil || body.ClearWhenOpened == nil || body.ClearWhenReplied == nil {
+			r.writeError(w, 400, "every field is required: tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied")
 			return
 		}
 		saved, err := db.SaveAwaitingReplySettings(r.db, db.AwaitingReplySettings{
-			TagIDs:              body.TagIDs,
-			MaxGroupMemberCount: *body.MaxGroupMemberCount,
-			MaxMessageAgeDays:   *body.MaxMessageAgeDays,
-			ClearWhenOpened:     *body.ClearWhenOpened,
-			ClearWhenReplied:    *body.ClearWhenReplied,
+			TagIDs:                body.TagIDs,
+			CountEveryKnownPerson: *body.CountEveryKnownPerson,
+			MaxGroupMemberCount:   *body.MaxGroupMemberCount,
+			AnySizePersonTags:     body.AnySizePersonTags,
+			MaxMessageAgeDays:     *body.MaxMessageAgeDays,
+			ClearWhenOpened:       *body.ClearWhenOpened,
+			ClearWhenReplied:      *body.ClearWhenReplied,
 		}, time.Now())
 		if errors.Is(err, db.ErrInvalidAwaitingReplySettings) {
 			r.writeError(w, 400, err.Error())

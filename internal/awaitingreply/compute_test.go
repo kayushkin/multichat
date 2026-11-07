@@ -162,7 +162,7 @@ func TestASmallGroupWaitsWhenATaggedPersonWroteAfterYouEvenIfSomeoneElseWroteLas
 	}
 }
 
-func TestAGroupLargerThanTheLimitNeverCounts(t *testing.T) {
+func TestAGroupLargerThanTheLimitCountsNobodyWithoutAnAnySizeTag(t *testing.T) {
 	in := baseInputs(message("!big-group", priyaTexts, ago(time.Hour), "see you there"))
 	if overview := Compute(in); len(overview.Waiting) != 0 {
 		t.Errorf("a 12-person group counted: %+v", overview.Waiting)
@@ -270,5 +270,56 @@ func TestWaitingIsNewestFirst(t *testing.T) {
 	))
 	if len(overview.Waiting) != 2 || overview.Waiting[0].RoomID != "!arthur-dm" {
 		t.Errorf("order = %+v", overview.Waiting)
+	}
+}
+
+func TestCountingEveryKnownPersonCountsAnUntaggedPersonButNotAStranger(t *testing.T) {
+	in := baseInputs(
+		message("!sms-group", lukas, ago(2*time.Hour), "are we still on"),
+		message("!stranger-dm", stranger, ago(time.Hour), "your code is 1234"),
+	)
+	if _, ok := waitingRooms(Compute(in))["!sms-group"]; ok {
+		t.Fatalf("an untagged person counted while count_every_known_person was off")
+	}
+	in.Settings.CountEveryKnownPerson = true
+	waiting := waitingRooms(Compute(in))
+	if entry, ok := waiting["!sms-group"]; !ok || entry.Senders[0].DisplayName != "Lukas" {
+		t.Errorf("an untagged person people-store knows should count: %+v", waiting)
+	}
+	if _, ok := waiting["!stranger-dm"]; ok {
+		t.Errorf("an account no person owns counted without its own tag")
+	}
+}
+
+func TestCountingEveryKnownPersonStillLeavesOutBigGroups(t *testing.T) {
+	in := baseInputs(message("!big-group", lukas, ago(time.Hour), "who is bringing chairs"))
+	in.Settings.CountEveryKnownPerson = true
+	if overview := Compute(in); len(overview.Waiting) != 0 {
+		t.Errorf("a known person counted in a 12-person group: %+v", overview.Waiting)
+	}
+}
+
+func TestAPersonWithAnAnySizeTagCountsInABigGroupButNotInAServerChannel(t *testing.T) {
+	in := baseInputs(
+		message("!big-group", lukas, ago(3*time.Hour), "standup moved to 10"),
+		message("!big-group", stranger, ago(2*time.Hour), "thanks"),
+	)
+	in.Settings.AnySizePersonTags = []string{"work"}
+	in.PersonTags = map[string][]string{"person_000050": {"work", "reno"}}
+	entry, ok := waitingRooms(Compute(in))["!big-group"]
+	if !ok {
+		t.Fatalf("a work person's message in a 12-person group did not count")
+	}
+	if entry.UnansweredMessageCount != 1 || entry.Senders[0].DisplayName != "Lukas" {
+		t.Errorf("only the work person's message should count: %+v", entry)
+	}
+
+	server := message("!general", lukas, ago(time.Hour), "hi all")
+	server.NetworkID = "1234"
+	in = baseInputs(server)
+	in.Settings.AnySizePersonTags = []string{"work"}
+	in.PersonTags = map[string][]string{"person_000050": {"work"}}
+	if overview := Compute(in); len(overview.Waiting) != 0 {
+		t.Errorf("a work person counted in a Discord server channel: %+v", overview.Waiting)
 	}
 }

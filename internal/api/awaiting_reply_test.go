@@ -28,22 +28,22 @@ func TestAwaitingReplySettingsAndClearsRoutes(t *testing.T) {
 		t.Fatalf("POST /tags: %d %s", rec.Code, rec.Body)
 	}
 	whole := func(tags string, members, days int) string {
-		return `{"tag_ids":` + tags + `,"max_group_member_count":` + strconv.Itoa(members) + `,"max_message_age_days":` + strconv.Itoa(days) + `,"clear_when_opened":true,"clear_when_replied":false}`
+		return `{"tag_ids":` + tags + `,"count_every_known_person":true,"max_group_member_count":` + strconv.Itoa(members) + `,"any_size_person_tags":["work"," work"],"max_message_age_days":` + strconv.Itoa(days) + `,"clear_when_opened":true,"clear_when_replied":false}`
 	}
 	cases := []struct {
 		method, path, body string
 		code               int
 		answer             string
 	}{
-		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[],"max_group_member_count":5,"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":true`},
-		{"PUT", "/awaiting-reply/settings", whole(`[1,1]`, 5, 30), 200, `"tag_ids":[1],"max_group_member_count":5,"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":false`},
+		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[],"count_every_known_person":false,"max_group_member_count":5,"any_size_person_tags":[],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":true`},
+		{"PUT", "/awaiting-reply/settings", whole(`[1,1]`, 5, 30), 200, `"tag_ids":[1],"count_every_known_person":true,"max_group_member_count":5,"any_size_person_tags":["work"],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":false`},
 		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[1]`},
 		{"PUT", "/awaiting-reply/settings", whole(`[9]`, 5, 30), 400, "no tag has id 9"},
 		{"PUT", "/awaiting-reply/settings", whole(`[1]`, 1, 30), 400, "at least 2"},
 		{"PUT", "/awaiting-reply/settings", whole(`[1]`, 5, 0), 400, "at least 1"},
 		{"PUT", "/awaiting-reply/settings", `{"tag_ids":[1]}`, 400, "every field is required"},
 		{"PUT", "/awaiting-reply/settings", strings.TrimSuffix(whole(`[1]`, 5, 30), "}") + `,"snooze":1}`, 400, "unknown field"},
-		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[1],"max_group_member_count":5`},
+		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[1],"count_every_known_person":true,"max_group_member_count":5`},
 		{"POST", "/awaiting-reply/clears", `{"room_id":"!d:chat.example","reason":"opened","cleared_through":"2026-10-20T15:00:00Z"}`, 200, `"cleared_through":"2026-10-20T15:00:00Z"`},
 		{"POST", "/awaiting-reply/clears", `{"room_id":"!d:chat.example","reason":"dismissed","cleared_through":"2026-10-20T14:00:00Z"}`, 200, `"cleared_through":"2026-10-20T15:00:00Z","cleared_at"`},
 		{"POST", "/awaiting-reply/clears", `{"room_id":"!d:chat.example","reason":"dismissed","cleared_through":"2026-10-20T16:00:00Z"}`, 200, `"reason":"dismissed"`},
