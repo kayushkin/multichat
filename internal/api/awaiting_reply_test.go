@@ -28,15 +28,15 @@ func TestAwaitingReplySettingsAndClearsRoutes(t *testing.T) {
 		t.Fatalf("POST /tags: %d %s", rec.Code, rec.Body)
 	}
 	whole := func(tags string, members, days int) string {
-		return `{"tag_ids":` + tags + `,"count_every_known_person":true,"max_group_member_count":` + strconv.Itoa(members) + `,"any_size_person_tags":["work"," work"],"max_message_age_days":` + strconv.Itoa(days) + `,"clear_when_opened":true,"clear_when_replied":false}`
+		return `{"tag_ids":` + tags + `,"count_every_known_person":true,"max_group_member_count":` + strconv.Itoa(members) + `,"any_size_person_tags":["work"," work"],"never_count_person_tags":["spam"],"max_message_age_days":` + strconv.Itoa(days) + `,"clear_when_opened":true,"clear_when_replied":false}`
 	}
 	cases := []struct {
 		method, path, body string
 		code               int
 		answer             string
 	}{
-		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[],"count_every_known_person":false,"max_group_member_count":5,"any_size_person_tags":[],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":true`},
-		{"PUT", "/awaiting-reply/settings", whole(`[1,1]`, 5, 30), 200, `"tag_ids":[1],"count_every_known_person":true,"max_group_member_count":5,"any_size_person_tags":["work"],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":false`},
+		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[],"count_every_known_person":false,"max_group_member_count":5,"any_size_person_tags":[],"never_count_person_tags":[],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":true`},
+		{"PUT", "/awaiting-reply/settings", whole(`[1,1]`, 5, 30), 200, `"tag_ids":[1],"count_every_known_person":true,"max_group_member_count":5,"any_size_person_tags":["work"],"never_count_person_tags":["spam"],"max_message_age_days":30,"clear_when_opened":true,"clear_when_replied":false`},
 		{"GET", "/awaiting-reply/settings", ``, 200, `"tag_ids":[1]`},
 		{"PUT", "/awaiting-reply/settings", whole(`[9]`, 5, 30), 400, "no tag has id 9"},
 		{"PUT", "/awaiting-reply/settings", whole(`[1]`, 1, 30), 400, "at least 2"},

@@ -112,6 +112,7 @@ func (r *Router) awaitingReplySettingsHandler(w http.ResponseWriter, req *http.R
 			CountEveryKnownPerson *bool    `json:"count_every_known_person"`
 			MaxGroupMemberCount   *int     `json:"max_group_member_count"`
 			AnySizePersonTags     []string `json:"any_size_person_tags"`
+			NeverCountPersonTags  []string `json:"never_count_person_tags"`
 			MaxMessageAgeDays     *int     `json:"max_message_age_days"`
 			ClearWhenOpened       *bool    `json:"clear_when_opened"`
 			ClearWhenReplied      *bool    `json:"clear_when_replied"`
@@ -119,12 +120,12 @@ func (r *Router) awaitingReplySettingsHandler(w http.ResponseWriter, req *http.R
 		decoder := json.NewDecoder(req.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&body); err != nil {
-			r.writeError(w, 400, "body must be the whole settings object {tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied}: "+err.Error())
+			r.writeError(w, 400, "body must be the whole settings object {tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, never_count_person_tags, max_message_age_days, clear_when_opened, clear_when_replied}: "+err.Error())
 			return
 		}
-		if body.TagIDs == nil || body.CountEveryKnownPerson == nil || body.MaxGroupMemberCount == nil || body.AnySizePersonTags == nil ||
+		if body.TagIDs == nil || body.CountEveryKnownPerson == nil || body.MaxGroupMemberCount == nil || body.AnySizePersonTags == nil || body.NeverCountPersonTags == nil ||
 			body.MaxMessageAgeDays == nil || body.ClearWhenOpened == nil || body.ClearWhenReplied == nil {
-			r.writeError(w, 400, "every field is required: tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, max_message_age_days, clear_when_opened, clear_when_replied")
+			r.writeError(w, 400, "every field is required: tag_ids, count_every_known_person, max_group_member_count, any_size_person_tags, never_count_person_tags, max_message_age_days, clear_when_opened, clear_when_replied")
 			return
 		}
 		saved, err := db.SaveAwaitingReplySettings(r.db, db.AwaitingReplySettings{
@@ -132,6 +133,7 @@ func (r *Router) awaitingReplySettingsHandler(w http.ResponseWriter, req *http.R
 			CountEveryKnownPerson: *body.CountEveryKnownPerson,
 			MaxGroupMemberCount:   *body.MaxGroupMemberCount,
 			AnySizePersonTags:     body.AnySizePersonTags,
+			NeverCountPersonTags:  body.NeverCountPersonTags,
 			MaxMessageAgeDays:     *body.MaxMessageAgeDays,
 			ClearWhenOpened:       *body.ClearWhenOpened,
 			ClearWhenReplied:      *body.ClearWhenReplied,

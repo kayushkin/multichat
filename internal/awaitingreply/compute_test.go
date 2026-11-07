@@ -323,3 +323,16 @@ func TestAPersonWithAnAnySizeTagCountsInABigGroupButNotInAServerChannel(t *testi
 		t.Errorf("a work person counted in a Discord server channel: %+v", overview.Waiting)
 	}
 }
+
+func TestAPersonWithANeverCountTagNeverCountsEvenWhenTagged(t *testing.T) {
+	in := baseInputs(
+		message("!sms-group", lukas, ago(2*time.Hour), "chip in $1 before midnight"),
+		message("!dana-sms", danaTexts, ago(time.Hour), "hey are you around"),
+	)
+	in.Settings.CountEveryKnownPerson = true
+	in.Settings.NeverCountPersonTags = []string{"political"}
+	in.PersonTags = map[string][]string{"person_000050": {"political"}, "person_000097": {"political"}}
+	if overview := Compute(in); len(overview.Waiting) != 0 {
+		t.Errorf("people with a never-count tag counted, one of them tagged in multichat too: %+v", overview.Waiting)
+	}
+}

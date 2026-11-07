@@ -7,6 +7,7 @@
 // chosen multichat tags; then every account of theirs counts. An account no
 // person owns counts only on its own tag. In a bigger group only a person
 // with one of the chosen people-store tags counts (work colleagues, say).
+// A person with one of the never-count people-store tags never counts.
 // A room carrying a chosen multichat tag counts every message in it but the
 // operator's, whatever its size and even as a Discord server channel.
 package awaitingreply
@@ -85,6 +86,10 @@ func (in Inputs) CountedAccountSets() (smallRoomAccounts, anySizeAccounts map[st
 	for _, tag := range in.Settings.AnySizePersonTags {
 		anySizeTags[tag] = true
 	}
+	neverCountTags := map[string]bool{}
+	for _, tag := range in.Settings.NeverCountPersonTags {
+		neverCountTags[tag] = true
+	}
 	anySizeAccounts = map[string]bool{}
 	for account, person := range in.AccountPersons {
 		if in.Settings.CountEveryKnownPerson {
@@ -94,6 +99,14 @@ func (in Inputs) CountedAccountSets() (smallRoomAccounts, anySizeAccounts map[st
 			if anySizeTags[tag] {
 				anySizeAccounts[account] = true
 				smallRoomAccounts[account] = true
+			}
+		}
+	}
+	for account, person := range in.AccountPersons {
+		for _, tag := range in.PersonTags[person] {
+			if neverCountTags[tag] {
+				delete(smallRoomAccounts, account)
+				delete(anySizeAccounts, account)
 			}
 		}
 	}
