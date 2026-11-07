@@ -107,13 +107,11 @@ func (c *Client) postRateLimited(path, body string) error {
 		return err
 	}
 	if status == 429 {
-		var limit struct {
-			RetryAfterMilliseconds int64 `json:"retry_after_ms"`
+		wait, err := retryAfterOf(data)
+		if err != nil {
+			return fmt.Errorf("matrix POST %s: %w", path, err)
 		}
-		if err := json.Unmarshal(data, &limit); err != nil || limit.RetryAfterMilliseconds <= 0 {
-			return fmt.Errorf("matrix POST %s: 429 without retry_after_ms: %s", path, data)
-		}
-		return &RateLimitedError{Path: path, RetryAfter: time.Duration(limit.RetryAfterMilliseconds) * time.Millisecond}
+		return &RateLimitedError{Path: path, RetryAfter: wait}
 	}
 	if status >= 400 {
 		return fmt.Errorf("matrix POST %s: %d %s", path, status, data)

@@ -71,6 +71,9 @@ func (w *SyncWorker) fillGap(roomID, from string) error {
 	return nil
 }
 
+// logEvent writes one event to the log. A message or reaction already logged
+// is passed over before anything is asked of Synapse, so a batch read again
+// after a failure goes on from where it stopped.
 func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 	switch event.Type {
 	case "m.room.redaction":
@@ -115,6 +118,9 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 		}
 		return nil
 	case "m.room.message", "m.sticker":
+		if logged, err := db.MessageLogHasEvent(w.Database, event.EventID); err != nil || logged {
+			return err
+		}
 		// A sticker is a message of its own event type, with no msgtype:
 		// body is the sticker's name, url and info.mimetype its image.
 		platform := matrix.PlatformOfUserID(event.Sender)
@@ -124,6 +130,9 @@ func (w *SyncWorker) logEvent(roomID string, event matrix.TimelineEvent) error {
 		}
 		return w.logMessage(roomID, platform, event)
 	case "m.reaction":
+		if logged, err := db.MessageLogHasEvent(w.Database, event.EventID); err != nil || logged {
+			return err
+		}
 		platform := matrix.PlatformOfUserID(event.Sender)
 		if platform == "" {
 			// Our own Matrix account's reactions are logged too, so a page
@@ -160,7 +169,7 @@ func (w *SyncWorker) logMessage(roomID, platform string, event matrix.TimelineEv
 	if err != nil {
 		return err
 	}
-	displayName, err := w.Matrix.DisplayNameOf(event.Sender)
+	displayName, err := w.displayNameOf(event.Sender)
 	if err != nil {
 		return err
 	}
@@ -218,7 +227,7 @@ func (w *SyncWorker) logReaction(roomID, platform string, event matrix.TimelineE
 	if err != nil {
 		return err
 	}
-	displayName, err := w.Matrix.DisplayNameOf(event.Sender)
+	displayName, err := w.displayNameOf(event.Sender)
 	if err != nil {
 		return err
 	}

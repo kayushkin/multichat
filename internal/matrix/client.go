@@ -40,10 +40,39 @@ func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A GET Synapse refused for going too fast is asked again once the wait it
+	// names has passed. Failing instead made the sync worker drop and re-read
+	// its whole batch, which asked again even faster (2026-11-06: messages
+	// reached the log up to two days late).
+	for attempt := 1; method == "GET" && status == http.StatusTooManyRequests && attempt < getRateLimitAttempts; attempt++ {
+		wait, err := retryAfterOf(data)
+		if err != nil {
+			return nil, fmt.Errorf("matrix %s %s: %w", method, path, err)
+		}
+		time.Sleep(wait)
+		if status, data, err = c.requestWithStatus(method, path, nil); err != nil {
+			return nil, err
+		}
+	}
 	if status >= 400 {
 		return nil, fmt.Errorf("matrix %s %s: %d %s", method, path, status, string(data))
 	}
 	return data, nil
+}
+
+// getRateLimitAttempts is how many times request asks for one GET that
+// Synapse keeps refusing with 429 before it gives up and returns the refusal.
+const getRateLimitAttempts = 5
+
+// retryAfterOf reads how long a 429 answer asks the caller to wait.
+func retryAfterOf(data []byte) (time.Duration, error) {
+	var limit struct {
+		RetryAfterMilliseconds int64 `json:"retry_after_ms"`
+	}
+	if err := json.Unmarshal(data, &limit); err != nil || limit.RetryAfterMilliseconds <= 0 {
+		return 0, fmt.Errorf("429 without retry_after_ms: %s", data)
+	}
+	return time.Duration(limit.RetryAfterMilliseconds) * time.Millisecond, nil
 }
 
 // requestWithStatus is request for callers that must tell one error status

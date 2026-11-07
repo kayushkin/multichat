@@ -58,6 +58,9 @@ type SyncWorker struct {
 	joinedAt map[string]time.Time
 	// bridgeBotChecks queues rooms for the bridge bot checker (bridgebots.go).
 	bridgeBotChecks chan string
+	// displayNames remembers each sender's display name for
+	// displayNameLifetime (display_names.go).
+	displayNames map[string]rememberedDisplayName
 }
 
 type roomFacts struct {
@@ -181,7 +184,7 @@ func (w *SyncWorker) envelope(roomID string, event matrix.TimelineEvent) (messag
 	if err != nil {
 		return messages.MessagingInbound{}, err
 	}
-	displayName, err := w.Matrix.DisplayNameOf(event.Sender)
+	displayName, err := w.displayNameOf(event.Sender)
 	if err != nil {
 		return messages.MessagingInbound{}, err
 	}
