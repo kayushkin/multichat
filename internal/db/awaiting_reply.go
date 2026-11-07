@@ -164,7 +164,7 @@ var ErrInvalidAwaitingReplyClear = errors.New("invalid awaiting reply clear")
 // clearedThrough. A mark never moves backwards: a clear naming an older
 // message than the room's mark keeps the newer one.
 func ClearAwaitingReplyRoom(database *sql.DB, roomID string, clearedThrough time.Time, reason string, now time.Time) (AwaitingReplyRoomClear, error) {
-	if !strings.HasPrefix(roomID, "!") || !strings.Contains(roomID, ":") {
+	if !IsMatrixRoomID(roomID) {
 		return AwaitingReplyRoomClear{}, fmt.Errorf("%w: %s", ErrInvalidAwaitingReplyClear, ErrInvalidRoomID)
 	}
 	known := false

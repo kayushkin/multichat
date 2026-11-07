@@ -42,8 +42,11 @@ var (
 	ErrRoomsInDifferentLinks = errors.New("those rooms are already in different links; take one out first")
 )
 
-func isMatrixRoomID(roomID string) bool {
-	return strings.HasPrefix(roomID, "!") && strings.Contains(roomID, ":")
+// IsMatrixRoomID reports whether roomID has the shape of a Matrix room id.
+// Room versions before 12 name the room "!opaque:server"; version 12 dropped
+// the server, so its rooms are "!" and a hash with no colon. Both are valid.
+func IsMatrixRoomID(roomID string) bool {
+	return len(roomID) > 1 && strings.HasPrefix(roomID, "!") && !strings.ContainsAny(roomID, " \t\r\n")
 }
 
 // LinkConversations makes the rooms one conversation. When none is linked yet
@@ -53,7 +56,7 @@ func isMatrixRoomID(roomID string) bool {
 func LinkConversations(database *sql.DB, roomIDs []string) (ConversationLink, error) {
 	distinct := map[string]bool{}
 	for _, roomID := range roomIDs {
-		if !isMatrixRoomID(roomID) {
+		if !IsMatrixRoomID(roomID) {
 			return ConversationLink{}, fmt.Errorf("%w: %q", ErrInvalidRoomID, roomID)
 		}
 		distinct[roomID] = true
@@ -117,7 +120,7 @@ func LinkConversations(database *sql.DB, roomIDs []string) (ConversationLink, er
 // UnlinkConversation takes a room out of its link. A link left with one room
 // is deleted, since one room is not a link. A room in no link is not an error.
 func UnlinkConversation(database *sql.DB, roomID string) error {
-	if !isMatrixRoomID(roomID) {
+	if !IsMatrixRoomID(roomID) {
 		return fmt.Errorf("%w: %q", ErrInvalidRoomID, roomID)
 	}
 	transaction, err := database.Begin()

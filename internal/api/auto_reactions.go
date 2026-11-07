@@ -97,8 +97,8 @@ func (r *Router) autoReactionsHandler(w http.ResponseWriter, req *http.Request) 
 			r.writeError(w, 400, fmt.Sprintf("sender_user_id %q is not a Matrix user id (expected @platform_id:server)", body.SenderUserID))
 			return
 		}
-		if body.RoomID != "" && (!strings.HasPrefix(body.RoomID, "!") || !strings.Contains(body.RoomID, ":")) {
-			r.writeError(w, 400, fmt.Sprintf("room_id %q is not a Matrix room id (expected !id:server, or \"\" for every room)", body.RoomID))
+		if body.RoomID != "" && !db.IsMatrixRoomID(body.RoomID) {
+			r.writeError(w, 400, fmt.Sprintf("room_id %q is not a Matrix room id (expected !id:server, !id, or \"\" for every room)", body.RoomID))
 			return
 		}
 		if err := checkAutoReactionKey(body.ReactionKey); err != nil {

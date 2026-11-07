@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // Tags are multichat's own labels. contact_tags puts one on a person's
@@ -47,13 +46,13 @@ type Tag struct {
 
 var (
 	ErrUnknownTag    = errors.New("no tag has that id")
-	ErrInvalidRoomID = errors.New("room_id must be a Matrix room id (\"!…:server\")")
+	ErrInvalidRoomID = errors.New("room_id must be a Matrix room id (\"!…:server\", or \"!…\" from room version 12 on)")
 )
 
 // AssignConversationTag puts a tag on a room. Assigning it twice is not an
 // error. A tag id that does not exist is ErrUnknownTag.
 func AssignConversationTag(database *sql.DB, roomID string, tagID int64) error {
-	if !strings.HasPrefix(roomID, "!") || !strings.Contains(roomID, ":") {
+	if !IsMatrixRoomID(roomID) {
 		return ErrInvalidRoomID
 	}
 	var exists int

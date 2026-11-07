@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // A room is hidden from the conversation list when the operator hid it, or
@@ -68,7 +67,7 @@ var (
 // SetConversationVisibility records the operator's choice for a room; "auto"
 // removes the room's row so it follows the rule again.
 func SetConversationVisibility(database *sql.DB, roomID string, visibility ConversationVisibility) error {
-	if !strings.HasPrefix(roomID, "!") || !strings.Contains(roomID, ":") {
+	if !IsMatrixRoomID(roomID) {
 		return ErrInvalidRoomID
 	}
 	switch visibility {
