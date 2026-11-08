@@ -67,6 +67,7 @@ func TestInboundOfKeepsOnlyAPersonsDirectMessage(t *testing.T) {
 type fakeGateway struct {
 	mu        sync.Mutex
 	sent      []string
+	files     []int
 	channels  []string
 	openError error
 	sendError error
@@ -87,6 +88,7 @@ func (g *fakeGateway) ChannelMessageSendComplex(channel string, data *discordgo.
 		panic("a send must mention nobody")
 	}
 	g.sent = append(g.sent, data.Content)
+	g.files = append(g.files, len(data.Files))
 	g.channels = append(g.channels, channel)
 	return &discordgo.Message{ID: "m" + string(rune('0'+len(g.sent)))}, nil
 }
@@ -146,18 +148,38 @@ func TestManagerPublishesRetriesAndSends(t *testing.T) {
 		t.Fatalf("states: %+v", states)
 	}
 
-	result, err := m.Send(testBot.ID, "700", "", strings.Repeat("x ", 1500))
+	result, err := m.Send(testBot.ID, "700", "", strings.Repeat("x ", 1500), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ChannelID != "dm-with-700" || len(result.MessageIDs) != 2 || len(gateway.sent) != 2 {
 		t.Fatalf("send: %+v, sent %d", result, len(gateway.sent))
 	}
-	if _, err := m.Send(testBot.ID, "", "chan-9", "hi"); err != nil || gateway.channels[2] != "chan-9" {
+	if _, err := m.Send(testBot.ID, "", "chan-9", "hi", nil); err != nil || gateway.channels[2] != "chan-9" {
 		t.Fatalf("send by channel: %v %v", err, gateway.channels)
 	}
-	if _, err := m.Send("message_account_000099", "", "c", "hi"); !errors.Is(err, ErrUnknownAccount) {
+	if _, err := m.Send("message_account_000099", "", "c", "hi", nil); !errors.Is(err, ErrUnknownAccount) {
 		t.Fatalf("unknown account: %v", err)
+	}
+
+	// Files ride with the last part, after all the text, and may go alone.
+	gateway.files = nil
+	picture := []File{{Name: "a.png", ContentType: "image/png", Data: []byte{1, 2, 3}}}
+	if result, err := m.Send(testBot.ID, "", "chan-9", strings.Repeat("y ", 1500), picture); err != nil || len(result.MessageIDs) != 2 {
+		t.Fatalf("text and a file: %+v %v", result, err)
+	}
+	if result, err := m.Send(testBot.ID, "", "chan-9", "", picture); err != nil || len(result.MessageIDs) != 1 {
+		t.Fatalf("a file alone: %+v %v", result, err)
+	}
+	if len(gateway.files) != 3 || gateway.files[0] != 0 || gateway.files[1] != 1 || gateway.files[2] != 1 {
+		t.Fatalf("files per message: %v", gateway.files)
+	}
+	tooMany := make([]File, MaximumFilesPerMessage+1)
+	for i := range tooMany {
+		tooMany[i] = File{Name: "f", Data: []byte{1}}
+	}
+	if _, err := m.Send(testBot.ID, "", "chan-9", "", tooMany); err == nil {
+		t.Fatal("more files than a message carries was sent")
 	}
 }
 

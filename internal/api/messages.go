@@ -1,16 +1,19 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/kayushkin/multichat/internal/botaccounts"
 )
 
 // sendDirectMessageHandler — POST /messages/send {"user_id":…,"body":…},
-// or {"account_id":…,"user_id" or "channel_id":…,"body":…} to send as one of
-// our bot accounts (sendAsBot).
+// or {"account_id":…,"user_id" or "channel_id":…,"body":…,"files":[…]} to send
+// as one of our bot accounts (sendAsBot); each file is
+// {"name","content_type","data_base64"}, and a bot's send may be files alone.
 //
 // Sends body to one person, identified by their bridge puppet id, in the
 // direct-message room we already share with them; a room is created only
@@ -29,6 +32,11 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 		UserID    string `json:"user_id"`
 		ChannelID string `json:"channel_id"`
 		Body      string `json:"body"`
+		Files     []struct {
+			Name        string `json:"name"`
+			ContentType string `json:"content_type"`
+			DataBase64  string `json:"data_base64"`
+		} `json:"files"`
 	}
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
@@ -37,7 +45,20 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 		return
 	}
 	if body.AccountID != "" {
-		r.sendAsBot(w, body.AccountID, body.UserID, body.ChannelID, body.Body)
+		files := make([]botaccounts.File, 0, len(body.Files))
+		for _, file := range body.Files {
+			data, err := base64.StdEncoding.DecodeString(file.DataBase64)
+			if err != nil {
+				r.writeError(w, 400, fmt.Sprintf("file %q: data_base64 is not base64: %v", file.Name, err))
+				return
+			}
+			files = append(files, botaccounts.File{Name: file.Name, ContentType: file.ContentType, Data: data})
+		}
+		r.sendAsBot(w, body.AccountID, body.UserID, body.ChannelID, body.Body, files)
+		return
+	}
+	if len(body.Files) > 0 {
+		r.writeError(w, 400, "files go with account_id: only a bot's send carries files here; the operator's own account sends a file through /conversations/{room_id}/send-file")
 		return
 	}
 	if body.ChannelID != "" {
@@ -99,7 +120,7 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 // sendAsBot sends body as one of our bot accounts, to the direct message with
 // a platform user id or to a channel id, and answers the platform's message
 // ids (more than one when the body is longer than one message).
-func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, body string) {
+func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, body string, files []botaccounts.File) {
 	if r.bots == nil {
 		r.writeError(w, 503, "multichat holds no bot accounts: MESSAGE_STORE_URL is not set")
 		return
@@ -108,11 +129,21 @@ func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, 
 		r.writeError(w, 400, "a send as a bot names exactly one of user_id (the person's platform user id, such as a Discord user id) and channel_id")
 		return
 	}
-	if body == "" {
-		r.writeError(w, 400, "body is required")
+	if body == "" && len(files) == 0 {
+		r.writeError(w, 400, "body or files is required")
 		return
 	}
-	result, err := r.bots.Send(accountID, userID, channelID, body)
+	if len(files) > botaccounts.MaximumFilesPerMessage {
+		r.writeError(w, 400, fmt.Sprintf("%d files: a message carries at most %d", len(files), botaccounts.MaximumFilesPerMessage))
+		return
+	}
+	for _, file := range files {
+		if file.Name == "" || len(file.Data) == 0 || len(file.Data) > botaccounts.MaximumFileBytes {
+			r.writeError(w, 400, fmt.Sprintf("file %q: a file needs a name and 1 to %d bytes", file.Name, botaccounts.MaximumFileBytes))
+			return
+		}
+	}
+	result, err := r.bots.Send(accountID, userID, channelID, body, files)
 	if errors.Is(err, botaccounts.ErrUnknownAccount) {
 		r.writeError(w, 404, err.Error()+"; GET /accounts lists them")
 		return

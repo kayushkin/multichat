@@ -12,7 +12,7 @@ import (
 // botaccounts.Manager in production.
 type BotAccounts interface {
 	States() []botaccounts.AccountState
-	Send(accountID, userID, channelID, body string) (botaccounts.SendResult, error)
+	Send(accountID, userID, channelID, body string, files []botaccounts.File) (botaccounts.SendResult, error)
 }
 
 // SetBotAccounts gives the router the bot accounts to send as.

@@ -16,6 +16,7 @@ import (
 
 type fakeBots struct {
 	sends []string
+	files [][]botaccounts.File
 	err   error
 }
 
@@ -23,8 +24,9 @@ func (f *fakeBots) States() []botaccounts.AccountState {
 	return []botaccounts.AccountState{{Account: botaccounts.Account{ID: "message_account_000002", Platform: "discord", DisplayName: "Helper Bot", Kind: "bot"}, State: botaccounts.StateConnected}}
 }
 
-func (f *fakeBots) Send(accountID, userID, channelID, body string) (botaccounts.SendResult, error) {
+func (f *fakeBots) Send(accountID, userID, channelID, body string, files []botaccounts.File) (botaccounts.SendResult, error) {
 	f.sends = append(f.sends, fmt.Sprintf("%s|%s|%s|%s", accountID, userID, channelID, body))
+	f.files = append(f.files, files)
 	if f.err != nil {
 		return botaccounts.SendResult{}, f.err
 	}
@@ -64,12 +66,21 @@ func TestSendAsBot(t *testing.T) {
 		"both user and channel": `{"account_id":"a","user_id":"7","channel_id":"55","body":"hi"}`,
 		"neither":               `{"account_id":"a","body":"hi"}`,
 		"no body":               `{"account_id":"a","user_id":"7"}`,
+		"files without bot":     `{"user_id":"7","body":"hi","files":[{"name":"a.png","data_base64":"AQID"}]}`,
+		"file not base64":       `{"account_id":"a","user_id":"7","files":[{"name":"a.png","data_base64":"!!"}]}`,
+		"file with no name":     `{"account_id":"a","user_id":"7","files":[{"name":"","data_base64":"AQID"}]}`,
 		"channel without bot":   `{"channel_id":"55","body":"hi"}`,
 		"unknown field":         `{"account":"a","user_id":"7","body":"hi"}`,
 	} {
 		if got := post(router, "/messages/send", body); got.Code != 400 {
 			t.Errorf("%s: %d %s", name, got.Code, got.Body)
 		}
+	}
+	if got := post(router, "/messages/send", `{"account_id":"message_account_000002","channel_id":"55","files":[{"name":"a.png","content_type":"image/png","data_base64":"AQID"}]}`); got.Code != 200 {
+		t.Fatalf("a file alone: %d %s", got.Code, got.Body)
+	}
+	if last := bots.files[len(bots.files)-1]; len(last) != 1 || last[0].Name != "a.png" || len(last[0].Data) != 3 {
+		t.Fatalf("file as sent: %+v", last)
 	}
 	bots.err = fmt.Errorf("x: %w", botaccounts.ErrUnknownAccount)
 	if got := post(router, "/messages/send", `{"account_id":"nope","user_id":"7","body":"hi"}`); got.Code != 404 {

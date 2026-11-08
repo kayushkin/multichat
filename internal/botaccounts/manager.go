@@ -1,6 +1,7 @@
 package botaccounts
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -288,6 +289,19 @@ func (m *Manager) States() []AccountState {
 }
 
 // SendResult is what a send as a bot posted.
+// File is one file a bot sends with a message.
+type File struct {
+	Name        string
+	ContentType string
+	Data        []byte
+}
+
+// Discord's own limits on what one bot message carries.
+const (
+	MaximumFilesPerMessage = 10
+	MaximumFileBytes       = 10 << 20
+)
+
 type SendResult struct {
 	AccountID  string   `json:"account_id"`
 	ChannelID  string   `json:"channel_id"`
@@ -297,7 +311,18 @@ type SendResult struct {
 // Send posts body as the bot, to the DM channel with userID or to
 // channelID (exactly one is set), split at Discord's limit. It mentions
 // nobody: a reply is text, not a ping.
-func (m *Manager) Send(accountID, userID, channelID, body string) (SendResult, error) {
+func (m *Manager) Send(accountID, userID, channelID, body string, files []File) (SendResult, error) {
+	if len(files) > MaximumFilesPerMessage {
+		return SendResult{}, fmt.Errorf("%d files: a message carries at most %d", len(files), MaximumFilesPerMessage)
+	}
+	for _, file := range files {
+		if file.Name == "" || len(file.Data) == 0 {
+			return SendResult{}, fmt.Errorf("a file needs a name and some bytes")
+		}
+		if len(file.Data) > MaximumFileBytes {
+			return SendResult{}, fmt.Errorf("%s is %d bytes: a bot's file is at most %d", file.Name, len(file.Data), MaximumFileBytes)
+		}
+	}
 	m.mu.Lock()
 	c := m.connections[accountID]
 	var gateway Gateway
@@ -319,11 +344,23 @@ func (m *Manager) Send(accountID, userID, channelID, body string) (SendResult, e
 		channelID = channel.ID
 	}
 	result := SendResult{AccountID: accountID, ChannelID: channelID}
-	for _, part := range SplitForDiscord(body, DiscordMessageLimit) {
-		sent, err := gateway.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
+	parts := SplitForDiscord(body, DiscordMessageLimit)
+	if len(parts) == 0 {
+		// Files alone: one message with no text.
+		parts = []string{""}
+	}
+	for index, part := range parts {
+		send := &discordgo.MessageSend{
 			Content:         part,
 			AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
-		})
+		}
+		// The files go with the last part, after all the text.
+		if index == len(parts)-1 {
+			for _, file := range files {
+				send.Files = append(send.Files, &discordgo.File{Name: file.Name, ContentType: file.ContentType, Reader: bytes.NewReader(file.Data)})
+			}
+		}
+		sent, err := gateway.ChannelMessageSendComplex(channelID, send)
 		if err != nil {
 			return result, fmt.Errorf("send part %d of the message to channel %s (parts before it were sent: %v): %w", len(result.MessageIDs)+1, channelID, result.MessageIDs, err)
 		}
