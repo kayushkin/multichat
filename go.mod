@@ -3,6 +3,7 @@ module github.com/kayushkin/multichat
 go 1.25.0
 
 require (
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/kayushkin/bus v0.0.0
 	github.com/kayushkin/llm-bridge v0.0.0
 	github.com/mattn/go-sqlite3 v1.14.22
@@ -11,9 +12,8 @@ require (
 )
 
 require (
-	github.com/bwmarrin/discordgo v0.29.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/nats-io/nats.go v1.49.0 // indirect
 	github.com/nats-io/nkeys v0.4.12 // indirect
