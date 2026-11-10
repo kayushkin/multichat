@@ -75,6 +75,7 @@ const (
 	SettingShortNameStoreURL                = "short_name_store_url"
 	SettingShortNamerModelRole              = "short_namer_model_role"
 	SettingMessageStoreURL                  = "message_store_url"
+	SettingDiscordSignupStoreURL            = "discord_signup_store_url"
 )
 
 // The values in force with nothing set. The shipped unit sets the port and an
@@ -148,9 +149,11 @@ func SettingDefinitions() []servicesettings.Definition {
 		{Key: SettingAnthropicAPIKey, EnvironmentVariable: "ANTHROPIC_API_KEY", Kind: msg.ServiceSettingKindSecret, ValueType: msg.ServiceSettingValueTypeString,
 			Description: "The Anthropic key /ai/summarize uses when OPENAI_API_KEY is unset. Nothing else reads it."},
 		{Key: SettingMessageStoreURL, EnvironmentVariable: "MESSAGE_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "Where message-store answers. Its accounts of kind bot are the bot accounts multichat connects: each Discord bot's direct messages go on messaging.inbound (with NATS_URL set) and POST /messages/send with account_id sends as it. The bot tokens come from auth-store (AUTH_STORE_URL, AUTH_STORE_TOKEN). Unset, multichat holds no bot accounts."},
+			Description: "Where message-store answers. Its accounts of kind bot are the bot accounts multichat connects: each Discord bot's direct messages go on messaging.inbound (with NATS_URL set) and POST /messages/send with account_id sends as it. The bot tokens come from auth-store (AUTH_STORE_URL, AUTH_STORE_TOKEN). The Messages pages also read message-store's records through multichat's /message-store routes, and send as a bot through them. Unset, multichat holds no bot accounts and those routes are a 503."},
 		{Key: SettingShortNameStoreURL, EnvironmentVariable: "SHORT_NAME_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
-			Description: "Where short-name-store answers. POST /short-names/assign reads the names in namespace messages there and writes the new ones there. Unset makes that route a 503."},
+			Description: "Where short-name-store answers. POST /short-names/assign reads the names in namespace messages there and writes the new ones there, and the Messages pages read and rename room names through GET /conversations/short-names, GET /conversations/short-names/resolve and PUT /conversations/{room_id}/short-name. Unset makes those routes a 503."},
+		{Key: SettingDiscordSignupStoreURL, EnvironmentVariable: "DISCORD_SIGNUP_STORE_URL", Kind: msg.ServiceSettingKindWiring, ValueType: msg.ServiceSettingValueTypeString,
+			Description: "Where discord-signup-store answers. The Messages pages' Auto-reactions page reads and edits the Event-Manager bot's own reaction rules there through multichat's /discord-signup-store routes. Unset makes those routes a 503."},
 		{Key: SettingShortNamerModelRole, EnvironmentVariable: "SHORT_NAMER_MODEL_ROLE", Kind: msg.ServiceSettingKindBehavior, ValueType: msg.ServiceSettingValueTypeString, Default: DefaultShortNamerModelRole,
 			Description: "The model-store role POST /short-names/assign asks llm-bridge-server's POST /oneshot for when it has a model propose short names. Changing it changes which model picks names, and names are permanent once written."},
 	}
@@ -210,6 +213,8 @@ type Config struct {
 
 	// MessageStoreURL is empty when multichat holds no bot accounts.
 	MessageStoreURL string
+	// DiscordSignupStoreURL is empty when the bot's reaction rules are not carried.
+	DiscordSignupStoreURL string
 }
 
 // MatrixConfigured reports whether both halves of the Matrix client are set.
@@ -249,6 +254,7 @@ func Load(registry *servicesettings.Registry) (Config, error) {
 		ShortNameStoreURL:                registry.String(SettingShortNameStoreURL),
 		ShortNamerModelRole:              registry.String(SettingShortNamerModelRole),
 		MessageStoreURL:                  registry.String(SettingMessageStoreURL),
+		DiscordSignupStoreURL:            registry.String(SettingDiscordSignupStoreURL),
 	}
 	if loaded.MessageStoreURL != "" && (loaded.AuthStoreURL == "" || loaded.AuthStoreToken == "") {
 		return Config{}, fmt.Errorf("MESSAGE_STORE_URL is set but AUTH_STORE_URL or AUTH_STORE_TOKEN is not; the bot accounts need auth-store for their tokens")

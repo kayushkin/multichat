@@ -69,6 +69,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		AnthropicAPIKey:                  "an-anthropic-key",
 		ShortNameStoreURL:                "http://short-name-store.example:1",
 		MessageStoreURL:                  "http://message-store.example:1",
+		DiscordSignupStoreURL:            "http://discord-signup-store.example:1",
 		ShortNamerModelRole:              "efficient",
 	}
 	got := mustLoadFrom(t, map[string]string{
@@ -97,6 +98,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 		"ANTHROPIC_API_KEY":               "an-anthropic-key",
 		"SHORT_NAME_STORE_URL":            "http://short-name-store.example:1",
 		"MESSAGE_STORE_URL":               "http://message-store.example:1",
+		"DISCORD_SIGNUP_STORE_URL":        "http://discord-signup-store.example:1",
 		"SHORT_NAMER_MODEL_ROLE":          "efficient",
 	})
 	if got != want {
@@ -114,7 +116,7 @@ func TestLoadReadsTheSameValuesItAlwaysDid(t *testing.T) {
 // Every declared variable is set to a value of its own above. If a setting is
 // added and that test is not told, this fails.
 func TestTheSameValuesTestCoversEveryDeclaredSetting(t *testing.T) {
-	if got, want := len(SettingDefinitions()), 26; got != want {
+	if got, want := len(SettingDefinitions()), 27; got != want {
 		t.Fatalf("%d settings are declared and TestLoadReadsTheSameValuesItAlwaysDid sets %d: add the new one there, then change this number", got, want)
 	}
 }

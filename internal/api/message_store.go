@@ -102,14 +102,7 @@ func (r *Router) forwardMessageStoreRead(w http.ResponseWriter, req *http.Reques
 		r.writeError(w, 502, "message-store: "+err.Error())
 		return
 	}
-	defer response.Body.Close()
-	if contentType := response.Header.Get("Content-Type"); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
-	w.WriteHeader(response.StatusCode)
-	if _, err := io.Copy(w, response.Body); err != nil {
-		fmt.Printf("message-store: copying the answer to GET /%s: %v\n", rest, err)
-	}
+	r.passAnswerThrough(w, response, "message-store GET /"+rest)
 }
 
 // messageStoreAccount is the part of message-store's account a send reads.

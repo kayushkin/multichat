@@ -33,6 +33,7 @@ Environment=SHORT_NAME_STORE_URL=http://127.0.0.1:8325
 # POST /api/messages/send with account_id sends as it. Tokens come from
 # auth-store (AUTH_STORE_URL below, AUTH_STORE_TOKEN in the EnvironmentFile).
 Environment=MESSAGE_STORE_URL=http://127.0.0.1:8337
+Environment=DISCORD_SIGNUP_STORE_URL=http://127.0.0.1:8312
 
 # Custom Discord emoji. POST /emoji/discord/refresh lists each bridged server's
 # emoji with a Discord bot token it resolves from auth-store by credential id:

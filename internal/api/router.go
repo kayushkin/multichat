@@ -69,6 +69,10 @@ type Router struct {
 	// routes (message_store.go). Empty makes them a 503 naming MESSAGE_STORE_URL.
 	messageStoreURL string
 
+	// discordSignupStoreURL is where discord-signup-store answers the
+	// /discord-signup-store/ routes. Empty makes them a 503.
+	discordSignupStoreURL string
+
 	// settings is what GET /settings describes: every environment variable
 	// the server reads.
 	settings *servicesettings.Registry
@@ -123,6 +127,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
 	r.shortNameStoreURL = loaded.ShortNameStoreURL
 	r.messageStoreURL = strings.TrimRight(loaded.MessageStoreURL, "/")
+	r.discordSignupStoreURL = strings.TrimRight(loaded.DiscordSignupStoreURL, "/")
 	r.shortNameAssigner = &shortnames.Assigner{
 		Store: shortnames.StoreClient{BaseURL: loaded.ShortNameStoreURL, HTTPClient: r.httpClient},
 		Model: shortnames.OneShotModel{
@@ -195,10 +200,13 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/visibility-settings", r.conversationVisibilitySettingsHandler)
 	r.mux.HandleFunc("/conversations/links", r.conversationLinksHandler)
 	r.mux.HandleFunc("/conversations/links/remove", r.unlinkConversationHandler)
+	r.mux.HandleFunc("/conversations/short-names", r.roomShortNamesHandler)
+	r.mux.HandleFunc("/conversations/short-names/resolve", r.resolveRoomShortNameHandler)
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
 	r.mux.HandleFunc("/accounts", r.accountsHandler)
 	r.mux.HandleFunc(messageStoreMount, r.messageStoreHandler)
+	r.mux.HandleFunc(discordSignupStoreMount, r.discordSignupStoreHandler)
 	r.mux.HandleFunc("/awaiting-reply", r.awaitingReplyHandler)
 	r.mux.HandleFunc("/awaiting-reply/settings", r.awaitingReplySettingsHandler)
 	r.mux.HandleFunc("/awaiting-reply/clears", r.awaitingReplyClearsHandler)
@@ -606,6 +614,8 @@ func (r *Router) conversationSubHandler(w http.ResponseWriter, req *http.Request
 		r.sendFileHandler(w, req, roomID)
 	case action == "visibility":
 		r.conversationVisibilityHandler(w, req, roomID)
+	case action == "short-name":
+		r.roomShortNameHandler(w, req, roomID)
 	case action == "loads":
 		r.conversationLoadsHandler(w, req, roomID)
 	case strings.HasPrefix(action, "loads/"):

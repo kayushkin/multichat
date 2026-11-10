@@ -643,6 +643,30 @@ Sends as a bot account into a conversation message-store holds, through the bot'
 
 **Errors:** `400` an empty body, one over Discord's 2000 characters, or an unknown field; `403` an account not on Discord, a conversation that is not a Discord channel, or one the account is not in; `404` an account or conversation message-store does not hold, or an account multichat holds no connection for; `502` Discord or message-store refused (a message Discord took but message-store did not is named by its Discord id); `503` the bot's connection has not opened yet.
 
+## Room names, for the Messages pages
+
+short-name-store owns the names (namespace `messages`, entity type `multichat_room`, the room id as entity id); these routes are how the web front end reads and changes them, so it calls multichat alone. Rows are short-name-store's, passed back unchanged. Needs `SHORT_NAME_STORE_URL`; without it each is a `503` naming it.
+
+### GET /conversations/short-names
+
+Every current name that points at a room, as one JSON array, read from short-name-store a page of 1,000 at a time.
+
+### GET /conversations/short-names/resolve?path=kat
+
+short-name-store's `GET /short-names/resolve` for that path in namespace `messages`: `{short_name, current}`, or its `404` when no room has that name. `400` without `path`.
+
+### PUT /conversations/{room_id}/short-name
+
+```json
+{ "path": "kat" }
+```
+
+Names the room, as the operator (`created_by` `operator`). A leading `messages/` is dropped. short-name-store judges the path and its answer comes back unchanged: `201` a new name, `200` the room held it already, `409` another record holds it. `400` an empty path or any other field.
+
+## The Event-Manager bot's reaction rules
+
+discord-signup-store owns the bot and its rules. multichat passes these of its `/api` routes through unchanged — method, query, body, status and answer — for the Auto-reactions page: `GET`/`POST /discord-signup-store/auto-reactions`, `PATCH`/`DELETE /discord-signup-store/auto-reactions/{id}`, `GET /discord-signup-store/guilds` and `GET /discord-signup-store/guilds/{guild_id}/members/search`. Anything else under the mount is a `404` from multichat; its rosters and events are not carried. Needs `DISCORD_SIGNUP_STORE_URL`; without it every route here is a `503`.
+
 ## Inbound messages
 
 The server long-polls Synapse `/sync` (when `NATS_URL` is set) and publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`). Our own sends and our own platform puppets are never published. multichat starts no agent session itself: a session started by a chat message is a scheduler job with an `event_trigger` on `messaging.inbound` (see the scheduler's AGENTS.md, "Event triggers"). The `inbound-rules`, `inbound-dispatches` and `inbound-prompt-fields` routes went on 2026-10-28.
