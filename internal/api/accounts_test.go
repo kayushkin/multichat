@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kayushkin/llm-bridge/servicesettings"
 	"github.com/kayushkin/multichat/internal/botaccounts"
@@ -30,7 +31,8 @@ func (f *fakeBots) Send(accountID, userID, channelID, body string, files []botac
 	if f.err != nil {
 		return botaccounts.SendResult{}, f.err
 	}
-	return botaccounts.SendResult{AccountID: accountID, ChannelID: "dm-1", MessageIDs: []string{"m1"}}, nil
+	return botaccounts.SendResult{AccountID: accountID, ChannelID: "dm-1", MessageIDs: []string{"m1"},
+		Messages: []botaccounts.SentMessage{{ID: "m1", ChannelID: "dm-1", AuthorID: "bot-handle", Content: body, SentAt: time.UnixMilli(1700000000000)}}}, nil
 }
 
 func routerWithoutAuth(t *testing.T) *Router {

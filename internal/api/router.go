@@ -65,6 +65,10 @@ type Router struct {
 	shortNameAssigner *shortnames.Assigner
 	shortNameStoreURL string
 
+	// messageStoreURL is where message-store answers the /message-store/
+	// routes (message_store.go). Empty makes them a 503 naming MESSAGE_STORE_URL.
+	messageStoreURL string
+
 	// settings is what GET /settings describes: every environment variable
 	// the server reads.
 	settings *servicesettings.Registry
@@ -118,6 +122,7 @@ func NewRouter(db *sql.DB, matrixClient *matrix.Client, loaded config.Config, se
 	r.discordNitroChecker = discordemoji.NitroChecker{HTTPClient: r.httpClient, DiscordAPIBaseURL: discordemoji.DiscordAPIBaseURL}
 	r.discordEmojiTeacher = discordemoji.Teacher{HTTPClient: r.httpClient, CDNBaseURL: discordemoji.DiscordCDNBaseURL, Now: time.Now}
 	r.shortNameStoreURL = loaded.ShortNameStoreURL
+	r.messageStoreURL = strings.TrimRight(loaded.MessageStoreURL, "/")
 	r.shortNameAssigner = &shortnames.Assigner{
 		Store: shortnames.StoreClient{BaseURL: loaded.ShortNameStoreURL, HTTPClient: r.httpClient},
 		Model: shortnames.OneShotModel{
@@ -193,6 +198,7 @@ func (r *Router) setupRoutes() {
 	r.mux.HandleFunc("/conversations/", r.conversationSubHandler)
 	r.mux.HandleFunc("/messages/send", r.sendDirectMessageHandler)
 	r.mux.HandleFunc("/accounts", r.accountsHandler)
+	r.mux.HandleFunc(messageStoreMount, r.messageStoreHandler)
 	r.mux.HandleFunc("/awaiting-reply", r.awaitingReplyHandler)
 	r.mux.HandleFunc("/awaiting-reply/settings", r.awaitingReplySettingsHandler)
 	r.mux.HandleFunc("/awaiting-reply/clears", r.awaitingReplyClearsHandler)

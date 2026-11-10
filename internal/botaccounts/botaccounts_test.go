@@ -206,3 +206,15 @@ func TestMessageStoreAccountsKeepsDiscordBotsAndRefusesOneWithoutACredential(t *
 		t.Fatal("a bot with no credential was accepted")
 	}
 }
+
+func TestSendAnswersEachPostedMessage(t *testing.T) {
+	gateway := &fakeGateway{}
+	manager := &Manager{connections: map[string]*connection{"message_account_000001": {gateway: gateway}}}
+	result, err := manager.Send("message_account_000001", "", "channel-1", "hello", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].ID != result.MessageIDs[0] {
+		t.Fatalf("messages %+v, ids %v", result.Messages, result.MessageIDs)
+	}
+}

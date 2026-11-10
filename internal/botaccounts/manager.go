@@ -306,6 +306,18 @@ type SendResult struct {
 	AccountID  string   `json:"account_id"`
 	ChannelID  string   `json:"channel_id"`
 	MessageIDs []string `json:"message_ids"`
+	// Messages is each posted message as Discord answered it, in the order
+	// MessageIDs names them, for a caller that files them.
+	Messages []SentMessage `json:"messages"`
+}
+
+// SentMessage is one message a bot posted, as Discord answered it.
+type SentMessage struct {
+	ID        string    `json:"id"`
+	ChannelID string    `json:"channel_id"`
+	AuthorID  string    `json:"author_id"`
+	Content   string    `json:"content"`
+	SentAt    time.Time `json:"sent_at"`
 }
 
 // Send posts body as the bot, to the DM channel with userID or to
@@ -365,6 +377,11 @@ func (m *Manager) Send(accountID, userID, channelID, body string, files []File) 
 			return result, fmt.Errorf("send part %d of the message to channel %s (parts before it were sent: %v): %w", len(result.MessageIDs)+1, channelID, result.MessageIDs, err)
 		}
 		result.MessageIDs = append(result.MessageIDs, sent.ID)
+		posted := SentMessage{ID: sent.ID, ChannelID: sent.ChannelID, Content: sent.Content, SentAt: sent.Timestamp}
+		if sent.Author != nil {
+			posted.AuthorID = sent.Author.ID
+		}
+		result.Messages = append(result.Messages, posted)
 	}
 	return result, nil
 }

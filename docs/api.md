@@ -623,6 +623,26 @@ Every account multichat can send as: `own_accounts`, the operator's own, one per
 
 ---
 
+## message-store records, through multichat
+
+The Messages pages read what our bot accounts sent and received, and a person's older chats that no live room carries, from message-store; they reach it here, so the web front end calls multichat alone. message-store owns the records and its `CONTRACT.md` is their route table. Needs `MESSAGE_STORE_URL`; without it every route here is a `503` naming it.
+
+### GET /message-store/accounts · /accounts/{id} · /conversations · /conversations/{id} · /messages
+
+Passed to message-store's route of the same path, query and all, and its answer passed back unchanged: status, content type and body. A merged or superseded id answers the row that holds it now. Every other path or method under `/message-store/` is a `404` from multichat; imports and participant edits are not carried.
+
+### POST /message-store/accounts/{account_id}/conversations/{conversation_id}/messages
+
+Sends as a bot account into a conversation message-store holds, through the bot's own connection, and files the sent message with message-store at once, so the page shows it before the bot importer next runs. Both ids are message-store's. The account must be on Discord and a participant of the conversation, whose Discord channel id is its `source_ref`. One message only, mentioning nobody, like every bot send.
+
+```json
+{ "body": "see you there" }
+```
+
+**Answer:** `201` with message-store's row for the sent message (`chat_message_…`).
+
+**Errors:** `400` an empty body, one over Discord's 2000 characters, or an unknown field; `403` an account not on Discord, a conversation that is not a Discord channel, or one the account is not in; `404` an account or conversation message-store does not hold, or an account multichat holds no connection for; `502` Discord or message-store refused (a message Discord took but message-store did not is named by its Discord id); `503` the bot's connection has not opened yet.
+
 ## Inbound messages
 
 The server long-polls Synapse `/sync` (when `NATS_URL` is set) and publishes every message a person sent as `messaging.inbound` on the NATS JetStream stream `MESSAGING` (payload `messages.MessagingInbound` in `github.com/kayushkin/bus/messages`). Our own sends and our own platform puppets are never published. multichat starts no agent session itself: a session started by a chat message is a scheduler job with an `event_trigger` on `messaging.inbound` (see the scheduler's AGENTS.md, "Event triggers"). The `inbound-rules`, `inbound-dispatches` and `inbound-prompt-fields` routes went on 2026-10-28.
