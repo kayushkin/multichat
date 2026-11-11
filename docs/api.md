@@ -606,7 +606,7 @@ Send a text message to **one person**, identified by their bridge puppet id, in 
 
 The `user_id` comes from `GET /contacts/unified` (`identities[].user_id`). `~/bin/multichat-send` wraps this route for the shell and the scheduler, resolving a display name + platform to that id and refusing anything ambiguous.
 
-**As one of our bot accounts:** name the bot's message-store account id as `account_id`, and exactly one of `user_id` (the person's platform user id, such as a Discord user id, not a Matrix puppet id) or `channel_id` (a channel the bot can post in, such as its DM channel with the person). The body is split at Discord's 2000-character limit, at a blank line, a line end or a space, and mentions nobody. `files` (bot sends only) attaches up to 10 files of at most 10 MiB each, each `{"name","content_type","data_base64"}`; they go with the last part, after all the text, and a send may be files alone.
+**As one of our bot accounts:** name the bot's message-store account id as `account_id`, and exactly one of `user_id` (the person's platform user id, such as a Discord user id, not a Matrix puppet id) or `channel_id` (a channel the bot can post in, such as its DM channel with the person). The body is split at Discord's 2000-character limit, at a blank line, a line end or a space, and mentions nobody. `files` (bot sends only) attaches up to 10 files of at most 10 MiB each, each `{"name","content_type","data_base64"}`; they go with the last part, after all the text, and a send may be files alone. A send by `user_id` also files the DM channel it opened with message-store, as a direct conversation of the bot and the person, along with each message sent, because Discord gives a bot no list of its DMs and message-store's bot importer reads only DMs already filed. A send by `channel_id` files nothing; the bot importer reads it.
 
 ```json
 { "account_id": "message_account_000002", "user_id": "700000000000000007", "body": "running 10 min late" }
@@ -615,7 +615,7 @@ The `user_id` comes from `GET /contacts/unified` (`identities[].user_id`). `~/bi
 { "account_id": "message_account_000002", "channel_id": "800000000000000008", "message_ids": ["900000000000000009"] }
 ```
 
-**Errors:** `400` both or neither of `user_id`/`channel_id`, neither `body` nor `files`, `files` without `account_id`, a file that is not base64, has no name or is too large, more than 10 files, `channel_id` without `account_id`, or any unknown field; `404` an `account_id` that is not one of our bots; `502` Discord refused (when a long body was cut and some parts went out, the answer also lists their `message_ids`); `503` no bot accounts (`MESSAGE_STORE_URL` unset) or the bot's connection has not opened yet.
+**Errors:** `400` both or neither of `user_id`/`channel_id`, neither `body` nor `files`, `files` without `account_id`, a file that is not base64, has no name or is too large, more than 10 files, `channel_id` without `account_id`, or any unknown field; `404` an `account_id` that is not one of our bots; `502` Discord refused (when a long body was cut and some parts went out, the answer also lists their `message_ids`), or a send by `user_id` went out but message-store refused the filing (the answer lists the sent `message_ids`, so do not send again); `503` no bot accounts (`MESSAGE_STORE_URL` unset) or the bot's connection has not opened yet.
 
 ### GET /accounts
 

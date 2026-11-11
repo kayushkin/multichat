@@ -151,3 +151,40 @@ func TestWithoutMessageStoreTheRoutesSayWhy(t *testing.T) {
 		t.Fatalf("%d %s", recorder.Code, recorder.Body)
 	}
 }
+
+// Discord lists no bot's DMs, so a send to a person by user id files the DM
+// channel it opened, with the bot and the person in it, and the message.
+func TestASendToAPersonFilesTheDirectMessageAtOnce(t *testing.T) {
+	router, store, _ := routerWithMessageStore(t)
+	got := post(router, "/messages/send", `{"account_id":"message_account_000002","user_id":"person-handle","body":"hello"}`)
+	if got.Code != 200 {
+		t.Fatalf("send: %d %s", got.Code, got.Body)
+	}
+	if len(store.filed) != 1 {
+		t.Fatalf("filed %d batches, want 1", len(store.filed))
+	}
+	conversation := store.filed[0]["conversations"].([]any)[0].(map[string]any)
+	participants := conversation["participants"].([]any)
+	if conversation["source_ref"] != "dm-1" || conversation["is_group"] != false || len(participants) != 2 ||
+		participants[0].(map[string]any)["handle"] != "bot-handle" || participants[1].(map[string]any)["handle"] != "person-handle" {
+		t.Fatalf("filed conversation %v", conversation)
+	}
+	message := store.filed[0]["messages"].([]any)[0].(map[string]any)
+	if message["conversation_source_ref"] != "dm-1" || message["source_ref"] != "m1" || message["body"] != "hello" || message["sender_handle"] != "bot-handle" {
+		t.Fatalf("filed message %v", message)
+	}
+	// A send to a channel is the bot importer's to read.
+	if got := post(router, "/messages/send", `{"account_id":"message_account_000002","channel_id":"55","body":"hi"}`); got.Code != 200 || len(store.filed) != 1 {
+		t.Fatalf("channel send: %d, filed %d batches", got.Code, len(store.filed))
+	}
+}
+
+// When message-store refuses the filing the message is already on Discord,
+// so the answer says what was sent along with the failure.
+func TestADirectMessageMessageStoreRefusesSaysWhatWasSent(t *testing.T) {
+	router, _, _ := routerWithMessageStore(t)
+	got := post(router, "/messages/send", `{"account_id":"message_account_000404","user_id":"person-handle","body":"hello"}`)
+	if got.Code != 502 || !strings.Contains(got.Body.String(), `"message_ids":["m1"]`) || !strings.Contains(got.Body.String(), "message-store did not take") {
+		t.Fatalf("refused filing: %d %s", got.Code, got.Body)
+	}
+}

@@ -55,8 +55,7 @@ func TestSendAsBot(t *testing.T) {
 	if got := post(router, "/messages/send", `{"account_id":"message_account_000002","user_id":"7","body":"hi"}`); got.Code != 503 {
 		t.Fatalf("no bot accounts: %d %s", got.Code, got.Body)
 	}
-	bots := &fakeBots{}
-	router.SetBotAccounts(bots)
+	router, _, bots := routerWithMessageStore(t)
 	got := post(router, "/messages/send", `{"account_id":"message_account_000002","user_id":"7","body":"hi"}`)
 	if got.Code != 200 || !strings.Contains(got.Body.String(), `"message_ids":["m1"]`) || bots.sends[0] != "message_account_000002|7||hi" {
 		t.Fatalf("send by user: %d %s %v", got.Code, got.Body, bots.sends)

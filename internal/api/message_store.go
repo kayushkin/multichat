@@ -198,7 +198,7 @@ func (r *Router) sendAsAccount(accountID, conversationID, body string) (json.Raw
 		return nil, fmt.Errorf("sent to Discord as %d messages %v, want 1", len(result.Messages), result.MessageIDs)
 	}
 	sent := result.Messages[0]
-	if err := r.fileSentMessage(account, conversation, sent); err != nil {
+	if err := r.fileSentMessages(account, conversation, nil, []botaccounts.SentMessage{sent}); err != nil {
 		return nil, fmt.Errorf("sent to Discord as message %s, but message-store did not take it: %w", sent.ID, err)
 	}
 	var page struct {
@@ -214,27 +214,50 @@ func (r *Router) sendAsAccount(accountID, conversationID, body string) (json.Raw
 	return page.Messages[0], nil
 }
 
-// fileSentMessage files the sent message with message-store, in one import.
-func (r *Router) fileSentMessage(account messageStoreAccount, conversation messageStoreConversation, sent botaccounts.SentMessage) error {
+// fileSentMessages files what a bot sent with message-store, in one import:
+// the conversation, with the bot and otherParticipantHandles as its
+// participants, and each sent message.
+func (r *Router) fileSentMessages(account messageStoreAccount, conversation messageStoreConversation, otherParticipantHandles []string, sent []botaccounts.SentMessage) error {
 	var run struct {
 		ID string `json:"id"`
 	}
 	if err := r.messageStoreJSON(http.MethodPost, "/imports", map[string]string{"importer": "multichat", "description": "a message sent through multichat as " + account.ID}, &run); err != nil {
 		return err
 	}
+	participants := []map[string]any{{"handle": account.Handle, "display_name": account.DisplayName}}
+	for _, handle := range otherParticipantHandles {
+		participants = append(participants, map[string]any{"handle": handle})
+	}
+	messages := make([]map[string]any, 0, len(sent))
+	for _, message := range sent {
+		messages = append(messages, map[string]any{"conversation_source": conversation.Source, "conversation_source_ref": conversation.SourceRef,
+			"sent_at": message.SentAt.UnixMilli(), "sender_handle": message.AuthorID, "kind": "text", "body": message.Content, "body_source": "platform",
+			"attachments": []any{}, "reply_to_source_ref": "", "call_seconds": 0, "edited": false, "deleted_on_platform": false,
+			"source": botaccounts.PlatformDiscord, "source_ref": message.ID, "source_hash": ""})
+	}
 	batch := map[string]any{
 		"conversations": []map[string]any{{"platform": conversation.Platform, "source": conversation.Source, "source_ref": conversation.SourceRef,
-			"title": "", "is_group": conversation.IsGroup, "participants": []map[string]any{{"handle": account.Handle, "display_name": account.DisplayName}}}},
-		"messages": []map[string]any{{"conversation_source": conversation.Source, "conversation_source_ref": conversation.SourceRef,
-			"sent_at": sent.SentAt.UnixMilli(), "sender_handle": sent.AuthorID, "kind": "text", "body": sent.Content, "body_source": "platform",
-			"attachments": []any{}, "reply_to_source_ref": "", "call_seconds": 0, "edited": false, "deleted_on_platform": false,
-			"source": botaccounts.PlatformDiscord, "source_ref": sent.ID, "source_hash": ""}},
+			"title": "", "is_group": conversation.IsGroup, "participants": participants}},
+		"messages":          messages,
 		"conversation_days": []any{},
 	}
 	if err := r.messageStoreJSON(http.MethodPost, "/imports/"+url.PathEscape(run.ID)+"/batches", batch, nil); err != nil {
 		return err
 	}
 	return r.messageStoreJSON(http.MethodPost, "/imports/"+url.PathEscape(run.ID)+"/finish", map[string]any{}, nil)
+}
+
+// fileDirectMessageSend files a send a bot made to a person by their user id:
+// Discord lists no bot's DMs, so the DM channel the send opened is filed here
+// as a direct conversation of the bot and the person, with what was sent, or
+// message-store's bot importer never reads it.
+func (r *Router) fileDirectMessageSend(accountID, userID string, result botaccounts.SendResult) error {
+	var account messageStoreAccount
+	if err := r.messageStoreJSON(http.MethodGet, "/accounts/"+url.PathEscape(accountID), nil, &account); err != nil {
+		return err
+	}
+	conversation := messageStoreConversation{Platform: account.Platform, Source: botaccounts.PlatformDiscord, SourceRef: result.ChannelID, IsGroup: false}
+	return r.fileSentMessages(account, conversation, []string{userID}, result.Messages)
 }
 
 // messageStoreJSON calls message-store at path and decodes its answer into out.

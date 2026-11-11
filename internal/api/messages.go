@@ -119,7 +119,8 @@ func (r *Router) sendDirectMessageHandler(w http.ResponseWriter, req *http.Reque
 
 // sendAsBot sends body as one of our bot accounts, to the direct message with
 // a platform user id or to a channel id, and answers the platform's message
-// ids (more than one when the body is longer than one message).
+// ids (more than one when the body is longer than one message). A send to a
+// user id files the DM and what was sent with message-store.
 func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, body string, files []botaccounts.File) {
 	if r.bots == nil {
 		r.writeError(w, 503, "multichat holds no bot accounts: MESSAGE_STORE_URL is not set")
@@ -161,6 +162,15 @@ func (r *Router) sendAsBot(w http.ResponseWriter, accountID, userID, channelID, 
 		}
 		r.writeError(w, 502, err.Error())
 		return
+	}
+	if userID != "" {
+		if err := r.fileDirectMessageSend(accountID, userID, result); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(502)
+			json.NewEncoder(w).Encode(map[string]any{"error": "sent to Discord, but message-store did not take the direct message: " + err.Error(),
+				"account_id": result.AccountID, "channel_id": result.ChannelID, "message_ids": result.MessageIDs})
+			return
+		}
 	}
 	r.writeJSON(w, result)
 }
